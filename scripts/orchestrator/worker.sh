@@ -4,9 +4,12 @@
 #   start <dir> <prompt.md|-> [--title t] [--model provider/id]
 #                             a new session working in <dir> (a worktree); prints its id. Returns
 #                             at once: the worker runs on the server
-#   send <session> <prompt.md|-> [--queue]
+#   send [--now] <session> <prompt.md|-> [--queue|--now]
 #                             a new message for a session: it resumes an idle worker, and steers a
-#                             running one at its next step (--queue: only after it finishes)
+#                             running one at its next step (--queue: only after it finishes;
+#                             --now: interrupt, wait up to 30s for idle, then send; if still busy
+#                             or the wait fails, do not send; cannot combine with --queue)
+#   model <session> <provider/id>  switch models in the same session, retaining context
 #   status [session]          one line: running or idle, outcome, last activity, tokens, pending
 #                             permission requests. Without a session: every running one
 #   log <session> [n]         the last n (default 15) steps: what it said and the commands it ran
@@ -18,14 +21,14 @@
 # <session> is a session id (ses_…) or a directory given to start (its last session is used).
 # Needs OPENCODE_BASE_URL and OPENCODE_SERVER_PASSWORD (OPENCODE_SERVER_USERNAME defaults to
 # opencode). The default model is WORKER_MODEL, or codexbal/gpt-6.1-sol.
+# Authentication goes to curl through stdin, never in command-line arguments.
 set -euo pipefail
 . "$(dirname "$0")/../lib/common.sh"
 BASE="${OPENCODE_BASE_URL:-http://127.0.0.1:4096}"
-USER_NAME="${OPENCODE_SERVER_USERNAME:-opencode}"
 MODEL="${WORKER_MODEL:-codexbal/gpt-6.1-sol}"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/vecs-orchestrator/workers"
 usage() {
-  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,/^set /{ /^set /d; p; }' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 [ -n "${OPENCODE_SERVER_PASSWORD:-}" ] || die "OPENCODE_SERVER_PASSWORD is not set"
@@ -34,8 +37,9 @@ usage() {
 api() {
   local method="$1" path="$2" body="${3:-}" out code
   out="$(mktemp)"
-  code="$(curl -s -m "${API_TIMEOUT:-30}" -u "$USER_NAME:$OPENCODE_SERVER_PASSWORD" -X "$method" \
-    -H 'content-type: application/json' ${body:+-d "$body"} -o "$out" -w '%{http_code}' "$BASE$path")" || code=000
+  code="$(printf 'user = %s\n' "$(jq -nr '(env.OPENCODE_SERVER_USERNAME | select(. != "")) // "opencode" | . + ":" + env.OPENCODE_SERVER_PASSWORD | tojson')" \
+    | curl --config - -s -m "${API_TIMEOUT:-30}" -X "$method" \
+      -H 'content-type: application/json' ${body:+-d "$body"} -o "$out" -w '%{http_code}' "$BASE$path")" || code=000
   if [[ "$code" != 2* ]]; then
     log "opencode $method $path → $code $(head -c 300 "$out")"
     rm -f "$out"
@@ -52,6 +56,15 @@ session() {
   esac
 }
 text_of() { if [ "$1" = - ]; then cat; else cat "$1"; fi; }
+interrupt() {
+  local result
+  result="$(api POST "/api/session/$1/interrupt")" || return 1
+  if [ "$(jq -r .interrupted <<< "$result")" = true ]; then
+    log "interrupted $1"
+  else
+    log "$1 was not running"
+  fi
+}
 ago() {
   local s=$(($(date +%s) - ${1%???}))
   printf '%dm%02ds ago' $((s / 60)) $((s % 60))
@@ -103,11 +116,40 @@ case "$cmd" in
     printf '%s\n' "$id"
     ;;
   send)
+    now=false
+    if [ "${1:-}" = --now ]; then
+      now=true
+      shift
+    fi
     [ $# -ge 2 ] || usage
     id="$(session "$1")" prompt="$(text_of "$2")" delivery=steer
-    [ "${3:-}" != --queue ] || delivery=queue
+    shift 2
+    if [ $# -gt 0 ]; then
+      [ $# -eq 1 ] || usage
+      case "$1" in
+        --queue)
+          $now && usage
+          delivery=queue
+          ;;
+        --now) now=true ;;
+        *) usage ;;
+      esac
+    fi
+    if $now; then
+      interrupt "$id"
+      API_TIMEOUT=30 api POST "/api/experimental/session/$id/wait" > /dev/null \
+        || die "could not confirm $id idle within 30s; prompt not sent"
+    fi
     api POST "/api/session/$id/prompt" "$(jq -nc --arg t "$prompt" --arg d "$delivery" '{text: $t, delivery: $d}')" > /dev/null
     log "sent to $id ($delivery)"
+    ;;
+  model)
+    [ $# -eq 2 ] || usage
+    [[ "$2" =~ ^[^/[:space:]]+/[^[:space:]]+$ ]] || die "model must be provider/id"
+    id="$(session "$1")" MODEL="$2"
+    api POST "/api/session/$id/model" "$(jq -nc --arg p "${MODEL%%/*}" --arg m "${MODEL#*/}" \
+      '{model:{providerID:$p,id:$m}}')" > /dev/null
+    log "switched $id to $MODEL"
     ;;
   status)
     if [ $# -eq 0 ]; then
@@ -132,11 +174,7 @@ case "$cmd" in
   stop)
     [ $# -eq 1 ] || usage
     id="$(session "$1")"
-    if [ "$(api POST "/api/session/$id/interrupt" | jq -r .interrupted)" = true ]; then
-      log "interrupted $id"
-    else
-      log "$id was not running"
-    fi
+    interrupt "$id"
     ;;
   wait)
     [ $# -ge 1 ] || usage
