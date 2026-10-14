@@ -389,7 +389,10 @@ world.system("Log").tickSource(clock).run(log); // driven by a shared ITickSourc
 ```
 
 - `.interval(seconds)` replaces the cadence with an `IntervalTickSource`. Note the unit: seconds,
-  unlike the millisecond deltas of `progress`.
+  unlike the millisecond deltas of `progress`. Interval boundaries tolerate floating-point
+  residue so whole-frame intervals do not fire one frame late (see `IntervalTickSource`'s
+  TSDoc for the tolerance). Each source fires at most once per frame, even with a large delta;
+  positive residual time is preserved, and a tolerated negative remainder is clamped to zero.
 - `.rate(n)` divides the current cadence source by `n` (for an unconfigured system: every `n`
   frames). `.rate(n, source)` divides an explicit upstream source.
 - `.tickSource(source)` mirrors another source directly — an `IntervalTickSource`,

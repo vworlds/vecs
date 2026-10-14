@@ -372,6 +372,9 @@ export class System<R extends ComponentType[] = []>
    * the current cadence source with an {@link IntervalTickSource}. When this
    * system has a cadence source, the `delta` passed to {@link run} is the
    * accumulated milliseconds since the previous fire, not the per-frame delta.
+   * Interval boundaries allow a relative tolerance of 1e-9 for floating-point
+   * frame-delta residue, clamping any negative remainder to zero. Large deltas
+   * still produce at most one fire per frame and preserve positive residual time.
    *
    * @param seconds - Positive interval duration in seconds.
    * @returns This system, for chaining.
