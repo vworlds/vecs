@@ -4,8 +4,10 @@
 # WAIT_CHECKS_SHA=<commit> selects that commit instead of the PR's current head.
 # Run ONCE with a 30-minute tool timeout. Read the digest, not more logs, unless a log
 # could not be read. Exit 2 means post [worker] BLOCKED: checks gave no verdict and stop.
-# The last line is checks: green (0), checks: RED: <checks> (1), or
-# checks: no verdict after N min (<why>) (2). GitHub errors are not code failures.
+# Exit 3 means merge origin/<base>, push, and run again (never rebase or force-push).
+# The last line is checks: green (0), checks: RED: <checks> (1),
+# checks: no verdict after N min (<why>) (2), or checks: CONFLICT with <base> (3).
+# GitHub errors are not code failures.
 set -uo pipefail
 . "$(dirname "$0")/../lib/common.sh"
 
@@ -14,6 +16,14 @@ main() {
   [[ "$minutes" =~ ^[0-9]+$ ]] || no_verdict "invalid minute limit: $minutes"
   limit=$((10#$minutes * 60))
   local head="${WAIT_CHECKS_SHA:-}" run="" state status="" conclusion="" now_head failed job name step
+  local override="${WAIT_CHECKS_SHA:-}" mergeable base_ref check_mergeable=true
+  if [ -n "$override" ]; then
+    now_head="$(api "repos/$REPO_SLUG/pulls/$pr" --jq '.head.sha // empty')" || now_head=""
+    if [ "$now_head" != "$override" ]; then
+      # The PR's mergeability describes its head, not the explicitly selected SHA.
+      check_mergeable=false
+    fi
+  fi
   until [ -n "$head" ]; do
     head="$(api "repos/$REPO_SLUG/pulls/$pr" --jq 'select(.state == "open") | .head.sha // empty')" || head=""
     [ -n "$head" ] || pause 10 "cannot read PR #$pr, or it is not open"
@@ -23,7 +33,17 @@ main() {
   until [ -n "$run" ]; do
     run="$(api "repos/$REPO_SLUG/actions/workflows/ci.yml/runs?head_sha=$head&per_page=1" \
       --jq '.workflow_runs[0].id // empty')" || run=""
-    [ -n "$run" ] || pause 10 "no CI run for ${head:0:8} yet"
+    if [ -z "$run" ]; then
+      if [ "$check_mergeable" = true ]; then
+        state="$(api "repos/$REPO_SLUG/pulls/$pr" --jq '(.mergeable | tostring) + "\t" + (.mergeable_state // "") + "\t" + (.base.ref // "")')" || state=""
+        IFS=$'\t' read -r mergeable status base_ref <<< "$state"
+        if [ "$mergeable" = false ] && [ "$status" = dirty ]; then
+          printf 'checks: CONFLICT with %s: merge origin/%s, push, run again\n' "$base_ref" "$base_ref"
+          exit 3
+        fi
+      fi
+      pause 10 "no CI run for ${head:0:8} yet"
+    fi
   done
   while :; do
     if state="$(api "repos/$REPO_SLUG/actions/runs/$run" --jq '"\(.status) \(.conclusion)"')"; then

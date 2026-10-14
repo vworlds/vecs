@@ -29,22 +29,41 @@ while (( $# )); do
   shift
 done
 printf '%s\n' "$endpoint" >> "$TEST_TMP/calls"
+printf '%s\n' "$query" >> "$TEST_TMP/queries"
 count=$(grep -Fc "$endpoint" "$TEST_TMP/calls")
+mergeable_count=$(grep -Fc 'mergeable' "$TEST_TMP/queries" || true)
 case "$endpoint" in
   */pulls/293)
     [[ "$CASE" != pr-error ]] || exit 1
     sha=head
     [[ "$CASE" != changed || "$count" == 1 ]] || sha=newhead
-    printf '{"state":"open","head":{"sha":"%s"}}' "$sha" ;;
+    if [[ "$query" == *mergeable* ]]; then
+      case "$CASE:$count" in
+        conflict:*) echo '{"mergeable":false,"mergeable_state":"dirty","base":{"ref":"dev"}}' ;;
+        null-then-green:*)
+          if [[ "$mergeable_count" == 1 ]]; then
+            echo '{"mergeable":null,"mergeable_state":"unknown","base":{"ref":"dev"}}'
+          else
+            echo '{"mergeable":true,"mergeable_state":"clean","base":{"ref":"dev"}}'
+          fi
+          ;;
+        conflict-with-run:*) echo '{"mergeable":false,"mergeable_state":"dirty","base":{"ref":"dev"}}' ;;
+        *) echo '{"mergeable":true,"mergeable_state":"clean","base":{"ref":"dev"}}' ;;
+      esac
+    else
+      printf '{"state":"open","head":{"sha":"%s"}}' "$sha"
+    fi ;;
   */actions/workflows/ci.yml/runs\?head_sha=*\&per_page=1)
     [[ "$CASE" != no-run ]] || { echo '{"workflow_runs":[]}'; exit; }
+    [[ "$CASE" != conflict ]] || { echo '{"workflow_runs":[]}'; exit; }
+    [[ "$CASE" != null-then-green || ( "$count" != 1 && "$count" != 2 ) ]] || { echo '{"workflow_runs":[]}'; exit; }
     echo '{"workflow_runs":[{"id":123}]}' ;;
   */actions/runs/123)
     [[ "$CASE" != run-error ]] || exit 1
     [[ "$CASE" != retry || "$count" != 1 ]] || exit 1
     if [[ "$CASE" == queued ]]; then
       echo '{"status":"queued","conclusion":null}'
-    elif [[ "$CASE" == green || "$CASE" == changed || "$CASE" == retry ]]; then
+    elif [[ "$CASE" == green || "$CASE" == changed || "$CASE" == retry || "$CASE" == null-then-green || "$CASE" == conflict-with-run ]]; then
       echo '{"status":"completed","conclusion":"success"}'
     else
       echo '{"status":"completed","conclusion":"failure"}'
@@ -112,6 +131,7 @@ check() {
   local expected="$2" text="$3" minutes="${4:-0}" code=0
   echo 1000 > "$tmp/clock"
   : > "$tmp/calls"
+  : > "$tmp/queries"
   "$root/scripts/agent/wait-checks.sh" 293 "$minutes" > "$tmp/output" || code=$?
   [[ "$code" == "$expected" ]] || {
     cat "$tmp/output"
@@ -173,9 +193,17 @@ check retry 0 'checks: green' 1
 [[ "$(grep -Fc '/actions/runs/123' "$tmp/calls")" == 2 ]]
 check checks-retry 1 'checks: RED: ci' 1
 [[ "$(grep -Fc '/check-runs?' "$tmp/calls")" == 2 ]]
+check conflict 3 'checks: CONFLICT with dev: merge origin/dev, push, run again'
+[[ "$(grep -Fc '/pulls/293' "$tmp/calls")" == 2 ]]
+check null-then-green 0 'checks: green' 1
+[[ "$(grep -Fc '/pulls/293' "$tmp/calls")" == 4 ]]
+check conflict-with-run 0 'checks: green'
+[[ "$(grep -Fc '/pulls/293' "$tmp/calls")" == 2 ]]
+! grep -q 'mergeable' "$tmp/queries"
 export WAIT_CHECKS_SHA=override
 check green 0 'checks: green'
 grep -Fq 'head_sha=override' "$tmp/calls"
-! grep -q '/pulls/' "$tmp/calls"
+[[ "$(grep -Fc '/pulls/293' "$tmp/calls")" == 1 ]]
+! grep -q 'mergeable' "$tmp/queries"
 unset WAIT_CHECKS_SHA
 printf '%s offline cases passed\n' "$passed"
