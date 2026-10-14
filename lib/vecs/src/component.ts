@@ -69,10 +69,8 @@ export interface CustomSnapshotOptions<T extends ComponentInstance = ComponentIn
  */
 export class Component<T extends ComponentType = ComponentType> extends Entity {
   private readonly _registrars: (EntityClass<Module<any>> | undefined)[] = [];
-  private readonly _traitRegistrars = new Map<
-    EID,
-    Map<EID | undefined, EntityClass<Module<any>> | undefined>
-  >();
+  private _traitRegistrars: Map<EID, Map<EID | undefined, EntityClass<Module<any>>>> | undefined =
+    undefined;
 
   /**
    * First module class that registered this component, or `undefined` for
@@ -92,9 +90,11 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
   }
 
   /**
-   * First module class that declared a trait on this component entity.
-   * Pass a target for a relationship trait edge. Returns `undefined` for an
-   * application declaration or a registered trait not declared here. Refs
+   * First module class that declared a trait on this component entity during
+   * synchronous module init. Application declarations outside init and the
+   * component's own singleton data are not recorded. Pass a target for a
+   * relationship trait edge. Returns `undefined` when no module declaration
+   * was recorded for this trait/edge. Refs
    * must resolve in this world, as with {@link Entity.has}. History survives removal;
    * idempotent adds and data updates do not replace the first registrar.
    */
@@ -102,12 +102,12 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
     trait: ComponentRef,
     target?: ComponentRef
   ): EntityClass<Module<any>> | undefined {
-    return this._traitRegistrars
-      .get(this.world.entity(trait).eid)
-      ?.get(target === undefined ? undefined : this.world.entity(target).eid);
+    const traitEid = this.world.entity(trait).eid;
+    const targetEid = target === undefined ? undefined : this.world.entity(target).eid;
+    return this._traitRegistrars?.get(traitEid)?.get(targetEid);
   }
 
-  /** Attach a trait and remember its first declaring module. See {@link Entity.add}. */
+  /** Attach a trait and record its first module-init declaration. See {@link Entity.add}. */
   public override add<C extends ComponentClass>(
     Class: C,
     ...target: InstanceType<C> extends Relationship ? [target: ComponentRef] : []
@@ -116,22 +116,30 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
   public override add(entity: Entity, target?: ComponentRef): this;
   public override add(ref: ComponentRef, target?: ComponentRef): this {
     const registrar = this.world._currentModule;
+    if (registrar === undefined) {
+      return super.add(ref as Entity, target);
+    }
     const trait = this.world.entity(ref);
     const targetEntity = target === undefined ? undefined : this.world.entity(target);
     super.add(trait, targetEntity);
-    this._recordTrait(trait.eid, targetEntity?.eid, registrar);
+    if (trait !== this) {
+      this._recordTrait(trait.eid, targetEntity?.eid, registrar);
+    }
     return this;
   }
 
-  /** Set a trait and remember its first declaring module. See {@link Entity.set}. */
+  /** Set a trait and record its first module-init declaration. See {@link Entity.set}. */
   public override set<C extends ComponentClass>(Class: C, props: Partial<InstanceType<C>>): this;
   public override set(ceid: EID, props: Partial<ComponentInstance>): this;
   public override set(entity: Entity, props: Partial<ComponentInstance>): this;
   public override set(ref: ComponentRef, props: Partial<ComponentInstance>): this {
     const registrar = this.world._currentModule;
+    if (registrar === undefined) {
+      return super.set(ref as Entity, props);
+    }
     const trait = this.world.entity(ref);
     super.set(trait, props);
-    if (!trait.meta.isRelationship) {
+    if (trait !== this && !trait.meta.isRelationship) {
       this._recordTrait(trait.eid, undefined, registrar);
     }
     return this;
@@ -219,19 +227,25 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
   /** @internal Capture attach/ensure declarations before a deferred command loses init context. */
   protected override _attach_or_enqueue(meta: ComponentMeta, component: ComponentInstance): void {
     const registrar = this.world._currentModule;
+    if (registrar === undefined) {
+      return super._attach_or_enqueue(meta, component);
+    }
     super._attach_or_enqueue(meta, component);
-    this._recordTrait(meta.eid, undefined, registrar);
+    if (meta.eid !== this.eid) {
+      this._recordTrait(meta.eid, undefined, registrar);
+    }
   }
 
   private _recordTrait(
     traitEid: EID,
     targetEid: EID | undefined,
-    registrar: EntityClass<Module<any>> | undefined
+    registrar: EntityClass<Module<any>>
   ): void {
-    let edges = this._traitRegistrars.get(traitEid);
+    const registrars = (this._traitRegistrars ??= new Map());
+    let edges = registrars.get(traitEid);
     if (edges === undefined) {
       edges = new Map();
-      this._traitRegistrars.set(traitEid, edges);
+      registrars.set(traitEid, edges);
     }
     if (!edges.has(targetEid)) {
       edges.set(targetEid, registrar);
