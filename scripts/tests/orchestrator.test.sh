@@ -98,20 +98,22 @@ gh() {
       printf 'HTTP/2.0 200 OK\n\n'
       cat "$TEST_DIR/pr-answer.json"
       ;;
-    'pr view 42 '*)
+    'api repos/vworlds/vecs/pulls/42 '*)
       [ "$MISSING_STATE" != failure ] || return 1
-      printf '%s\n' "$MISSING_STATE"
+      jq -r "$4" "$TEST_DIR/pr-state.json"
       ;;
     *) return 1 ;;
   esac
 }
 export -f gh
-for scenario in OPEN MERGED CLOSED failure errors; do
+for scenario in OPEN MERGED CLOSED failure unreadable errors; do
   export MISSING_STATE="$scenario"
   missing_state="$TEST_DIR/missing-$scenario/vecs-watch"
   mkdir -p "$missing_state"
   touch "$missing_state/open-42"
   printf '{"data":{"repository":{"pullRequests":{"nodes":[]}}}}\n' > "$TEST_DIR/pr-answer.json"
+  jq -nc --arg state "$scenario" '{state:(if $state == "OPEN" then "open" else "closed" end),merged:($state == "MERGED")}' > "$TEST_DIR/pr-state.json"
+  if [ "$scenario" = unreadable ]; then printf '{}\n' > "$TEST_DIR/pr-state.json"; fi
   if [ "$scenario" = errors ]; then
     jq '. + {errors:[{message:"partial answer"}]}' "$TEST_DIR/pr-answer.json" > "$TEST_DIR/partial.json"
     mv "$TEST_DIR/partial.json" "$TEST_DIR/pr-answer.json"
@@ -121,9 +123,9 @@ for scenario in OPEN MERGED CLOSED failure errors; do
     bash scripts/orchestrator/watch-prs.sh > "$TEST_DIR/missing-events"
   check test "$(grep -c 'api graphql' "$TEST_DIR/missing-calls")" = 1
   if [ "$scenario" = errors ]; then
-    check test "$(grep -c '^pr view' "$TEST_DIR/missing-calls" || true)" = 0
+    check test "$(grep -c '/pulls/42' "$TEST_DIR/missing-calls" || true)" = 0
   else
-    check test "$(grep -c '^pr view 42 ' "$TEST_DIR/missing-calls")" = 1
+    check test "$(grep -c '^api repos/vworlds/vecs/pulls/42 ' "$TEST_DIR/missing-calls")" = 1
   fi
   case "$scenario" in
     MERGED | CLOSED)
@@ -139,9 +141,29 @@ for scenario in OPEN MERGED CLOSED failure errors; do
   esac
 done
 
+# Conflicts share the existing query, fire once per head, and ignore UNKNOWN/mergeable heads.
+for turn in 'UNKNOWN sha1' 'CONFLICTING sha1' 'CONFLICTING sha1' 'CONFLICTING sha2' 'MERGEABLE sha3'; do
+  read -r mergeable head <<< "$turn"
+  jq -nc --arg mergeable "$mergeable" --arg head "$head" '{data:{repository:{pullRequests:{nodes:[
+    {number:42,headRefName:"42-work",headRefOid:$head,baseRefName:"dev",mergeable:$mergeable,
+     comments:{nodes:[]},commits:{totalCount:1,nodes:[{commit:{committedDate:"2026-01-01T00:00:00Z"}}]}}
+  ]}}}}' > "$TEST_DIR/pr-answer.json"
+  XDG_STATE_HOME="$TEST_DIR/conflict-state" VECS_BOARD=off MAX_MINUTES=0 \
+    bash scripts/orchestrator/watch-prs.sh >> "$TEST_DIR/conflict-events"
+  case "$turn" in
+    'UNKNOWN sha1') check test ! -s "$TEST_DIR/conflict-events" ;;
+    'CONFLICTING sha1') check test "$(wc -l < "$TEST_DIR/conflict-events")" = 1 ;;
+    *) check test "$(wc -l < "$TEST_DIR/conflict-events")" = 2 ;;
+  esac
+done
+check test "$(grep -cx 'CONFLICT #42 (42-work): its worker must merge origin/dev and push' "$TEST_DIR/conflict-events")" = 2
+check test "$(grep -c 'api graphql' "$TEST_DIR/missing-calls")" = 6
+check test "$(grep -c '/pulls/42' "$TEST_DIR/missing-calls" || true)" = 0
+check grep -q 'mergeable' "$TEST_DIR/missing-calls"
+
 # Worker HTTP fakes record request order/body, never contact the server.
 curl() {
-  local method="" url="" body="" out="" arg
+  local method="" url="" body="" out="" arg timeout=""
   printf '%s\n' "$@" >> "$TEST_DIR/curl-args"
   while [ $# -gt 0 ]; do
     arg="$1"
@@ -159,6 +181,10 @@ curl() {
         out="$1"
         shift
         ;;
+      -m)
+        timeout="$1"
+        shift
+        ;;
       --config)
         [ "$1" != - ] || cat > "$TEST_DIR/curl-config"
         shift
@@ -169,6 +195,12 @@ curl() {
   jq -nc --arg method "$method" --arg url "$url" --arg body "$body" \
     '{method:$method,url:$url,body:(if $body == "" then null else ($body|fromjson) end)}' >> "$TEST_DIR/requests"
   printf '{"interrupted":true}\n' > "$out"
+  if [[ "$url" == */wait ]]; then
+    printf '%s\n' "$timeout" > "$TEST_DIR/wait-timeout"
+    if [ "${WAIT_TIMEOUT:-0}" = 1 ]; then return 28; fi
+    printf '%s' "${WAIT_STATUS:-204}"
+    return
+  fi
   printf '%s' "${HTTP_STATUS:-204}"
 }
 export -f curl
@@ -190,7 +222,16 @@ check grep -q 429 "$TEST_DIR/model-log"
 : > "$TEST_DIR/requests"
 printf 'continue where you left off\n' > "$TEST_DIR/prompt.md"
 bash scripts/orchestrator/worker.sh send --now "$TEST_DIR/worktree" "$TEST_DIR/prompt.md" 2> "$TEST_DIR/send-log"
-check jq -se 'map(.url) == ["http://fixture/api/session/ses_fixture/interrupt","http://fixture/api/session/ses_fixture/prompt"] and all(.method == "POST") and .[1].body == {text:"continue where you left off",delivery:"steer"}' "$TEST_DIR/requests"
+check jq -se 'map(.url) == ["http://fixture/api/session/ses_fixture/interrupt","http://fixture/api/experimental/session/ses_fixture/wait","http://fixture/api/session/ses_fixture/prompt"] and all(.method == "POST") and .[2].body == {text:"continue where you left off",delivery:"steer"}' "$TEST_DIR/requests"
+check test "$(cat "$TEST_DIR/wait-timeout")" = 30
+: > "$TEST_DIR/requests"
+if WAIT_TIMEOUT=1 bash scripts/orchestrator/worker.sh send --now ses_fixture "$TEST_DIR/prompt.md" 2> "$TEST_DIR/send-log"; then exit 1; fi
+check jq -se 'map(.url) == ["http://fixture/api/session/ses_fixture/interrupt","http://fixture/api/experimental/session/ses_fixture/wait"]' "$TEST_DIR/requests"
+check grep -q '30s.*not sent' "$TEST_DIR/send-log"
+: > "$TEST_DIR/requests"
+if WAIT_STATUS=503 bash scripts/orchestrator/worker.sh send --now ses_fixture "$TEST_DIR/prompt.md" 2> "$TEST_DIR/send-log"; then exit 1; fi
+check jq -se 'map(.url) == ["http://fixture/api/session/ses_fixture/interrupt","http://fixture/api/experimental/session/ses_fixture/wait"]' "$TEST_DIR/requests"
+check grep -q 503 "$TEST_DIR/send-log"
 : > "$TEST_DIR/requests"
 if HTTP_STATUS=500 bash scripts/orchestrator/worker.sh send --now ses_fixture "$TEST_DIR/prompt.md" 2> "$TEST_DIR/send-log"; then exit 1; fi
 check jq -se 'length == 1 and .[0].url == "http://fixture/api/session/ses_fixture/interrupt"' "$TEST_DIR/requests"
@@ -199,12 +240,15 @@ bash scripts/orchestrator/worker.sh send ses_fixture "$TEST_DIR/prompt.md" --que
 check jq -se 'length == 1 and .[0].body.delivery == "queue"' "$TEST_DIR/requests"
 : > "$TEST_DIR/requests"
 bash scripts/orchestrator/worker.sh send ses_fixture "$TEST_DIR/prompt.md" --now 2> "$TEST_DIR/send-log"
-check jq -se 'map(.url) == ["http://fixture/api/session/ses_fixture/interrupt","http://fixture/api/session/ses_fixture/prompt"]' "$TEST_DIR/requests"
+check jq -se 'map(.url) == ["http://fixture/api/session/ses_fixture/interrupt","http://fixture/api/experimental/session/ses_fixture/wait","http://fixture/api/session/ses_fixture/prompt"]' "$TEST_DIR/requests"
 : > "$TEST_DIR/requests"
 if bash scripts/orchestrator/worker.sh send --now ses_fixture "$TEST_DIR/prompt.md" --queue 2> "$TEST_DIR/send-log"; then exit 1; fi
 check test ! -s "$TEST_DIR/requests"
 bash scripts/orchestrator/worker.sh send ses_fixture "$TEST_DIR/prompt.md" 2> "$TEST_DIR/send-log"
 check jq -se 'length == 1 and .[0].body.delivery == "steer"' "$TEST_DIR/requests"
+: > "$TEST_DIR/requests"
+bash scripts/orchestrator/worker.sh stop ses_fixture 2> "$TEST_DIR/send-log"
+check jq -se 'map(.url) == ["http://fixture/api/session/ses_fixture/interrupt"]' "$TEST_DIR/requests"
 unset -f curl
 unset OPENCODE_SERVER_PASSWORD OPENCODE_BASE_URL
 

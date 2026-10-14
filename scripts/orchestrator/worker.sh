@@ -7,7 +7,8 @@
 #   send [--now] <session> <prompt.md|-> [--queue|--now]
 #                             a new message for a session: it resumes an idle worker, and steers a
 #                             running one at its next step (--queue: only after it finishes;
-#                             --now: interrupt first, then send; cannot combine with --queue)
+#                             --now: interrupt, wait up to 30s for idle, then send; if still busy
+#                             or the wait fails, do not send; cannot combine with --queue)
 #   model <session> <provider/id>  switch models in the same session, retaining context
 #   status [session]          one line: running or idle, outcome, last activity, tokens, pending
 #                             permission requests. Without a session: every running one
@@ -134,7 +135,11 @@ case "$cmd" in
         *) usage ;;
       esac
     fi
-    if $now; then interrupt "$id"; fi
+    if $now; then
+      interrupt "$id"
+      API_TIMEOUT=30 api POST "/api/experimental/session/$id/wait" > /dev/null \
+        || die "could not confirm $id idle within 30s; prompt not sent"
+    fi
     api POST "/api/session/$id/prompt" "$(jq -nc --arg t "$prompt" --arg d "$delivery" '{text: $t, delivery: $d}')" > /dev/null
     log "sent to $id ($delivery)"
     ;;

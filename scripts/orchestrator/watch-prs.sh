@@ -14,8 +14,10 @@
 #   - ASSIGNED #n: an open issue or PR newly assigned to me, which means I must act on it;
 #   - OWNER DONE #n: the owner took themselves off a card that was waiting for them;
 #   - STALE: my latest [orchestrator] review has had no reply or commit for 30+ minutes;
-#   - PR #n is now MERGED/CLOSED: a missing task PR confirmed closed by gh pr view, once per
+#   - PR #n is now MERGED/CLOSED: a missing task PR confirmed closed over REST, once per
 #     missing PR per poll. OPEN or failed lookups keep its marker and stay quiet;
+#   - CONFLICT #n (<branch>): its worker must merge origin/<base> and push; once per head SHA.
+#     UNKNOWN mergeability stays quiet; uses the existing PR query, not another call;
 #   - WORKER #n: the worker of a task PR that is In progress waits for a permission, or its turn
 #     failed. Neither shows on the PR. Asked of the worker server once a minute (worker.sh);
 #   - BUDGET: the account's GraphQL budget is spent down to the reserve. Until the reset it
@@ -307,11 +309,11 @@ note_budget() {
     || log "poll $polls: this answer $left left; lowest of ${#BUDGETS[@]} counter(s) ${low:-$left}; next GraphQL poll in $((GQL_AT > 0 ? GQL_AT - now : INTERVAL))s"
 }
 # One GraphQL call per poll covers every open task PR. Lines: O = open task PR,
-# C = comment, S = stale review, P = commit count.
+# C = comment, S = stale review, P = commit count, F = conflict.
 PR_QUERY='
   query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) {
     pullRequests(states: OPEN, first: 50, orderBy: {field: CREATED_AT, direction: DESC}) { nodes {
-      number headRefName
+      number headRefName headRefOid baseRefName mergeable
       comments(last: 40) { nodes { url createdAt body author { login } } }
       commits(last: 1) { totalCount nodes { commit { committedDate } } } } } } }'
 PR_LINES='
@@ -323,6 +325,8 @@ PR_LINES='
   | ([.comments.nodes[] | select(.author.login != "github-actions")]) as $comments
   | ($pr.commits.nodes[0].commit.committedDate // "") as $last
   | (["O", $pr.number, $pr.headRefName] | @tsv),
+    (select($pr.mergeable == "CONFLICTING")
+      | ["F", $pr.number, $pr.headRefName, $pr.headRefOid, $pr.baseRefName] | @tsv),
     ($comments[] | select(.body | startswith("[orchestrator]") | not)
       | ["C", $pr.number, $pr.headRefName, .url,
          (.body | gsub("\r"; "") | split("\n")[0] | gsub("\t"; " ") | .[0:200])] | @tsv),
@@ -367,13 +371,18 @@ while :; do
             && emit "PR #$num ($branch) STALE: no worker reply for 30+ min after my last review"
           ;;
         P) once "picked-$num" && quiet "PR #$num ($branch) picked up: $url commits" ;;
+        F) once "conflict-$num-$url" && emit "CONFLICT #$num ($branch): its worker must merge origin/$first and push" ;;
       esac
     done <<< "$lines"
     for f in "$STATE"/open-*; do
       [ -e "$f" ] || continue
       num="${f##*/open-}"
       if ! grep -q "^O"$'\t'"$num"$'\t' <<< "$lines"; then
-        state="$(gh pr view "$num" -R "$REPO_SLUG" --json state --jq .state 2> /dev/null)" || continue
+        state="$(gh api "repos/$REPO_SLUG/pulls/$num" --jq '
+          if .merged == true then "MERGED"
+          elif .state == "closed" then "CLOSED"
+          elif .state == "open" then "OPEN"
+          else empty end' 2> /dev/null)" || continue
         case "$state" in MERGED | CLOSED) ;; *) continue ;; esac
         rm -f "$f"
         touch "$STATE/.recheck-next"

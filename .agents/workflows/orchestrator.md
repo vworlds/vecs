@@ -178,7 +178,9 @@ or `codexbal/gpt-6.1-sol`. Session mappings live in
    `worker.sh send <worktree> <prompt.md>` telling it to read that comment. It resumes an idle
    worker and steers a running one; `--queue` waits until the current turn finishes.
    Use `worker.sh send --now <worktree> <prompt.md>` when a long tool call prevents it from
-   reading steering: it interrupts the turn first, then sends. Do not combine it with `--queue`.
+   reading steering: it interrupts the turn, waits up to 30 seconds for idle, then sends. If the
+   wait fails or the worker stays busy, it reports failure without sending. Do not combine it
+   with `--queue`.
 5. `worker.sh log <worktree> [n]` shows its last steps. `worker.sh wait <worktree> [seconds]`
    waits for an idle session (default 600 seconds), exiting 1 if still running.
 6. `worker.sh stop <worktree>` before merging; remove the worktree after the merge.
