@@ -78,13 +78,15 @@ describe("Vecs ECS benchmark", () => {
   runBench(
     "matches ecs_benchmark category and entity-count matrix",
     () => {
-      const results = cases().flatMap((benchCase) =>
-        benchCase.counts.map((entities) =>
-          bench(benchCase.name, entities, benchCase.operations(entities), () =>
-            benchCase.makeRound(entities)
+      const results = cases()
+        .filter((benchCase) => benchCase.name.includes(process.env.RUN_VECS_ECS_BENCH_FILTER ?? ""))
+        .flatMap((benchCase) =>
+          benchCase.counts.map((entities) =>
+            bench(benchCase.name, entities, benchCase.operations(entities), () =>
+              benchCase.makeRound(entities)
+            )
           )
-        )
-      );
+        );
 
       console.info("\nVecs ECS benchmark results");
       for (const result of results) {
@@ -415,6 +417,9 @@ function bench(
 
 function application(complex: boolean): { w: World; positionQuery: Query } {
   const w = world();
+  if (process.env.RUN_VECS_ECS_BENCH_SYSTEM_STATS === "1") {
+    w.stats.enableSystems();
+  }
   const positionQuery = w.query("checksum").with(PositionComponent).build();
 
   w.system("MovementSystem")

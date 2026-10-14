@@ -69,6 +69,7 @@ components to read the processing tick's timestamp and the system's accumulated 
 
 Inspect [system execution order and cadence](./docs/systems.md#introspection) with `world.pipeline`,
 and [scoped module provenance](./docs/modules.md#scopes-and-module-provenance) through entity parents.
+For opt-in timings and cadence run counts, see [Measuring systems](./docs/systems.md#measuring-systems).
 
 For Node clients that need replicated Phaser poses, see [Headless clients](../vecs-phaser-client/README.md#headless-clients).
 

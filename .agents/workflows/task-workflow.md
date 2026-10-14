@@ -19,7 +19,7 @@ of retyping commands.
 | Read the description and every comment.                                                                                                                       | `read-pr.sh <pr>`                               |
 | Push your branch fast-forward only, with retries and an SSH fallback. It refuses an empty branch; if the remote moved, fetch and merge it (never force-push). | `push.sh`                                       |
 | Post a comment from a file. It adds `[worker]` if it's missing.                                                                                               | `pr-comment.sh <pr> <file>`                     |
-| Wait for CI once; last line is the verdict (exit 0 green, 1 red, 2 no verdict).                                                                               | `wait-checks.sh <pr> [max minutes, default 30]` |
+| Wait for CI once; last line is the verdict (exit 0 green, 1 red, 2 no verdict, 3 conflict).                                                                   | `wait-checks.sh <pr> [max minutes, default 30]` |
 | Block until the orchestrator replies or the PR closes. Safe to re-run.                                                                                        | `wait-review.sh <pr>`                           |
 
 ## While working
@@ -44,7 +44,8 @@ of retyping commands.
    `push.sh`. Keep the PR in draft. Record command exit codes with `${PIPESTATUS[0]}`.
    Run `wait-checks.sh <pr>` once with a 30-minute timeout, never in a loop. Read its digest;
    don't fetch more logs unless it says a log could not be read. On exit 2 post
-   `[worker] BLOCKED: checks gave no verdict` with the last line and stop.
+   `[worker] BLOCKED: checks gave no verdict` with the last line and stop. On exit 3, merge
+   `origin/dev`, push, and run the script again; never rebase or force-push.
    Log reads work with `gh` 2.45 and newer; clients that refuse ANSI-containing logs
    use `curl` for the raw REST download. Unreadable-log diagnostics retain the request error.
 2. Post `[worker] READY FOR REVIEW (round N)` with:
