@@ -32,6 +32,11 @@ jobs:
       - name: Format
         run: npm run format:check
 
+      - name: Changelog fragments
+        run: |
+          scripts/agent/check-changelog.sh
+          scripts/tests/changelog.test.sh
+
       - name: Run tests
         run: npm run test
 
