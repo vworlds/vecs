@@ -5,6 +5,7 @@ the Git release tags and each bullet is tagged with the owning subproject.
 
 ## Unreleased
 
+- [vecs] Fixed: Whole-frame intervals no longer fire one frame late due to floating-point accumulation (#302, #303). Precompute a relative-tolerance threshold and clamp negative residue while preserving one fire per frame and positive backlog after large deltas.
 - [vecs] [vecs-client]: `World.dispose()` now destroys infrastructure and singleton data after application cleanup (#296, #297), so module-owned resources can release through `remove` hooks. Inside a tick the final pass waits for `endFrame()`; outside a tick it follows the enclosing command drain or synchronous destroy-cascade cleanup. Component keys follow their carriers; if ordering stalls, an error names all registered survivors and their carriers instead of silently retaining them. Cycle breaking is deferred. `clearAllEntities()` retains its throwing behavior. This replaces the infrastructure-survives contract from #230; callers must discard the disposed world.
 - [repo]: Add a REST-only worker CI wait with green/red/no-verdict exits, bounded Vecs failure digests, portable log reads with explicit request errors, and offline regression tests.
 - [repo]: Port SpaceRocks' adaptive 10-second GraphQL watcher, Done-filtered board reads, per-repository archiving after merges, and opencode 2 HTTP worker launcher with permission/failure events.
