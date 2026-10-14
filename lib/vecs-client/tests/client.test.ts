@@ -731,7 +731,7 @@ describe("ClientWorld.dispose", () => {
     expect(entityIds(world)).toEqual([]);
   });
 
-  it("disposes from a disconnect handler inside progress, after the rest of the tick", () => {
+  it("disposes from a disconnect handler after progress finishes the tick", () => {
     const world = createClientWorld();
     const socket = new MemorySocket("server");
     world.attachSocket(socket);
@@ -760,7 +760,7 @@ describe("ClientWorld.dispose", () => {
       expect(resource.alive).toBe(true);
     });
     expect(() => world.progress(0, 0)).not.toThrow();
-    expect(calls).toEqual(["disconnect", "later", "resource"]);
+    expect(calls).toEqual(["later", "disconnect", "resource"]);
     expect(socket.closed).toBe(true);
     expect(entityIds(world)).toEqual([]);
   });
@@ -814,6 +814,163 @@ describe("ClientWorld.dispose", () => {
     world.apply(10);
 
     expect(() => world.entity(1002)).toThrow();
+  });
+});
+
+describe("ClientWorld disconnect boundaries", () => {
+  it.each([
+    "transport close",
+    "local close",
+    "hook close",
+    "failed send",
+    "ack timer failed send",
+    "malformed frame",
+    "server close",
+    "rejected diff",
+  ])("holds %s until the outer progress completes", async (cause) => {
+    vi.useFakeTimers();
+    const world = createClientWorld({ ackIntervalMs: 10 });
+    const socket = cause.includes("failed send")
+      ? new ThrowingSocket("server")
+      : new MemorySocket("server");
+    world.attachSocket(socket);
+    const calls: string[] = [];
+    world.component(LocalResource);
+    const resource = world.entity().add(LocalResource);
+    const pending = world.invoke(101).catch((error: unknown) => error);
+    world.events.on("disconnect", () => {
+      calls.push("disconnect");
+      expect(world.deferred).toBe(false);
+      world.dispose();
+      world.dispose();
+    });
+    if (cause === "hook close") {
+      world.component(LocalEffect).on("add", () => world.close());
+    }
+    world.system("disconnect cause").run(() => {
+      switch (cause) {
+        case "transport close":
+          socket.close();
+          break;
+        case "local close":
+          world.close();
+          break;
+        case "hook close":
+          resource.add(LocalEffect);
+          break;
+        case "failed send":
+          world.send();
+          break;
+        case "ack timer failed send":
+          vi.advanceTimersByTime(10);
+          break;
+        case "malformed frame":
+          socket.receive(Uint8Array.of(0xde));
+          break;
+        case "server close":
+          socket.receive(encodeMessage(new Server2Client({ close: { code: 7, reason: "done" } })));
+          break;
+        case "rejected diff":
+          socket.receive(
+            encodeMessage(new Server2Client({ diff: new StateDiff({ fromFrame: 5, toFrame: 6 }) }))
+          );
+          break;
+      }
+      expect(calls).toEqual([]);
+    });
+    world.system("after disconnect").run(() => {
+      calls.push("later");
+      expect(resource.alive).toBe(true);
+      world.apply(0);
+      expect(calls).toEqual(["later"]);
+      // Repeated closure does not queue a duplicate event.
+      world.close();
+    });
+    try {
+      expect(() => world.progress(0, 0)).not.toThrow();
+      expect(calls).toEqual(["later", "disconnect"]);
+      expect(resource.destroyed).toBe(true);
+      expect(entityIds(world)).toEqual([]);
+      expect(await pending).toMatchObject({ code: RPC_CLOSED_CODE });
+    } finally {
+      world.dispose();
+      vi.useRealTimers();
+    }
+  });
+
+  it("emits a rejected send immediately when its promise rejects after progress", async () => {
+    const world = createClientWorld();
+    const socket = new RejectingSocket("server");
+    world.attachSocket(socket);
+    const calls: string[] = [];
+    world.system("send").run(() => world.send());
+    world.events.on("disconnect", () => {
+      calls.push("disconnect");
+      world.dispose();
+    });
+    world.progress(0, 0);
+    expect(calls).toEqual([]);
+    // Promise rejection cannot run while the synchronous progress stack is active.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls).toEqual(["disconnect"]);
+    expect(entityIds(world)).toEqual([]);
+  });
+
+  it("emits a top-level transport close immediately", () => {
+    const world = createClientWorld();
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+    let calls = 0;
+    world.events.on("disconnect", () => {
+      calls++;
+      world.dispose();
+    });
+    socket.close();
+    expect(calls).toBe(1);
+    expect(entityIds(world)).toEqual([]);
+    world.dispose();
+  });
+
+  it("emits a held disconnect even when a later system throws", () => {
+    const world = createClientWorld();
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+    let calls = 0;
+    world.events.on("disconnect", () => {
+      calls++;
+      world.dispose();
+    });
+    world.system("close").run(() => world.close());
+    world.system("throw").run(() => {
+      throw new Error("application failure");
+    });
+    expect(() => world.progress(0, 0)).toThrow("application failure");
+    expect(calls).toBe(1);
+    expect(entityIds(world)).toEqual([]);
+  });
+
+  it("refuses disposal before changing client state, then disposes at top level", async () => {
+    const world = createClientWorld();
+    const socket = new MemorySocket("server");
+    world.attachSocket(socket);
+    world.component(LocalResource);
+    const resource = world.entity().add(LocalResource);
+    const pending = world.invoke(101).catch((error: unknown) => error);
+    const error =
+      "dispose() must be called outside progress(), defer, a command drain or an entity's destroy";
+    world.system("refused").run(() => expect(() => world.dispose()).toThrow(error));
+    world.progress(0, 0);
+    world.defer(() => expect(() => world.dispose()).toThrow(error));
+    expect(resource.alive).toBe(true);
+    expect(socket.closeCalls).toBe(0);
+    world.send();
+    expect(socket.sent).toHaveLength(1);
+    world.dispose();
+    expect(await pending).toMatchObject({ code: RPC_CLOSED_CODE });
+    expect(resource.destroyed).toBe(true);
+    expect(socket.closeCalls).toBe(1);
+    expect(entityIds(world)).toEqual([]);
   });
 });
 

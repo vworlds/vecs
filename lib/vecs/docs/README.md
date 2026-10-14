@@ -17,7 +17,7 @@ Read in this order the first time through:
    - [Components](./components.md) — registration, hooks, traits, exclusivity, cleanup policies,
      interfaces, singletons.
    - [Entities](./entities.md) — creation, lookup, the component API, relationship targets, lifecycle,
-     disposing a world.
+     [synchronous world disposal and allowed call sites](./entities.md#disposing-a-world).
    - [Systems](./systems.md) — membership, reactive callbacks, callback options, `each`/`run`, cadence,
      component, relationship, and [clock injection](./systems.md#clock-injection).
    - [Queries and filters](./queries-and-filters.md) — the query DSL, live queries, one-shot
