@@ -4,11 +4,13 @@ import {
   type EID,
   type Entity,
   Exclusive,
+  Identity,
   Module,
   OneOf,
   OwnedTarget,
   Phase,
   Relationship,
+  Singleton,
   Traversable,
   With,
   World,
@@ -134,7 +136,7 @@ describe("World.dispose", () => {
       );
       expect(owner.destroyed).toBe(true);
       expect(owned.destroyed).toBe(true);
-      expect(w.component(Owns).has(OwnedTarget)).toBe(true);
+      expect(w.getEntity(Owns)).toBeUndefined();
     });
 
     it("destroys an entity used as a component key after the entities that carry it", () => {
@@ -165,7 +167,91 @@ describe("World.dispose", () => {
   });
 
   describe("infrastructure", () => {
-    it("keeps component, module, system, query and phase entities", () => {
+    it("destroys queries and systems before releasing component data they read", () => {
+      const w = new World();
+      const component = w.component(Handle);
+      const system = w.system("Reader").with(Handle);
+      const query = w.query("ReaderQuery").with(Handle).track();
+      w.set(Handle, {});
+      let calls = 0;
+      component.on("remove", () => {
+        calls++;
+        expect(system.entity.destroyed).toBe(true);
+        expect(query.entity.destroyed).toBe(true);
+      });
+      w.dispose();
+      expect(calls).toBe(1);
+    });
+
+    it("gives carrier dependencies precedence when reverse module order is impossible", () => {
+      class First extends Module {
+        public init(): void {}
+      }
+      class Second extends Module {
+        public init(): void {}
+      }
+      const w = new World();
+      const events: EID[] = [];
+      w.component(Handle).on("remove", (entity) => events.push(entity.eid));
+      const first = w.module(First).add(Handle);
+      const second = w.module(Second).add(Handle);
+      first.add(second);
+      expect(() => w.dispose()).not.toThrow();
+      expect(events).toEqual([first.eid, second.eid]);
+      expect(entityIds(w)).toEqual([]);
+    });
+
+    it("removes modules in reverse registration order, independent of ids and entity-map swaps", () => {
+      class First extends Module {
+        public init(): void {}
+      }
+      class Second extends Module {
+        public init(): void {}
+      }
+      const w = new World();
+      const events: EID[] = [];
+      w.component(Handle).on("remove", (entity) => events.push(entity.eid));
+      const bare = w.entity();
+      const first = w.module(First, 890).add(Handle);
+      const second = w.module(Second, 889).add(Handle);
+      bare.destroy();
+      w.dispose();
+      expect(events).toEqual([second.eid, first.eid]);
+    });
+
+    it("releases module component data and singletons after all application hooks", () => {
+      class Resource {}
+      class Feature extends Module {
+        public init(): void {
+          this.world.component(Resource).set(Resource, {});
+        }
+      }
+      const w = new World();
+      const events: string[] = [];
+      w.module(Feature);
+      w.component(Resource).on("remove", () => events.push("resource"));
+      w.component(Handle).on("remove", () => events.push("application"));
+      w.entity().add(Handle);
+      w.entity().add(Handle);
+      w.dispose();
+      w.dispose();
+      expect(events).toEqual(["application", "application", "resource"]);
+      expect(entityIds(w)).toEqual([]);
+    });
+
+    it("reports cyclic survivors and their carriers after destroying unrelated infrastructure", () => {
+      const w = new World();
+      const first = w.component(Handle);
+      const second = w.component(Marker);
+      first.add(second);
+      second.add(first);
+      expect(() => w.dispose()).toThrow(
+        `Cannot dispose world; entities remain: ${first.eid} (Handle) carried by [${second.eid} (Marker)]; ${second.eid} (Marker) carried by [${first.eid} (Handle)]`
+      );
+      expect(entityIds(w)).toEqual([first.eid, second.eid].sort((a, b) => a - b));
+    });
+
+    it("destroys component, module, system, query and phase entities", () => {
       class Feature extends Module {
         public init(): void {}
       }
@@ -179,27 +265,26 @@ describe("World.dispose", () => {
       const query = w.query("Markers").with(Marker).track();
       const phase = w.entity("custom-phase").add(Phase);
       w.flush();
-      const infrastructure = entityIds(w);
       const player = w.entity("player").add(Marker);
       const bare = w.entity();
 
       w.dispose();
 
-      expect(entityIds(w)).toEqual(infrastructure);
+      expect(entityIds(w)).toEqual([]);
       expect([component, feature, system.entity, query.entity, phase].map((e) => e.alive)).toEqual([
-        true,
-        true,
-        true,
-        true,
-        true,
+        false,
+        false,
+        false,
+        false,
+        false,
       ]);
-      expect(w.queries.includes(system)).toBe(true);
-      expect(w.queries.includes(query)).toBe(true);
-      expect(w.entity(Marker)).toBe(component);
+      expect(w.queries.includes(system)).toBe(false);
+      expect(w.queries.includes(query)).toBe(false);
+      expect(w.getEntity(Marker)).toBeUndefined();
       expect([player, bare].map((entity) => entity.destroyed)).toEqual([true, true]);
     });
 
-    it("keeps relationship traits in place while tearing down the edges between entities", () => {
+    it("tears down configured relationship traits and live edges", () => {
       const w = new World();
       w.component(Owns).add(Exclusive).add(OwnedTarget);
       w.component(ParentOf).add(Exclusive).add(Traversable);
@@ -221,22 +306,20 @@ describe("World.dispose", () => {
       expect(() => w.dispose()).not.toThrow();
 
       expect(application.every((entity) => entity.destroyed)).toBe(true);
-      expect(w.component(Owns).has(OwnedTarget)).toBe(true);
-      expect(w.component(ParentOf).has(Traversable)).toBe(true);
-      expect(w.component(WornBy).has(With)).toBe(true);
+      expect(entityIds(w)).toEqual([]);
     });
 
-    it("keeps the built-in pipeline phases", () => {
+    it("destroys the built-in pipeline phases", () => {
       const w = new World();
       const phases = w.entities.values().filter((entity) => entity.has(Phase));
       expect(phases.length).toBeGreaterThan(0);
 
       w.dispose();
 
-      expect(phases.every((phase) => phase.alive)).toBe(true);
+      expect(phases.every((phase) => phase.destroyed)).toBe(true);
     });
 
-    it("leaves alive an entity that infrastructure still carries as a component key", () => {
+    it("destroys a component key after its infrastructure carrier", () => {
       const w = new World();
       const trait = w.entity("trait");
       w.component(Marker).add(trait);
@@ -244,20 +327,22 @@ describe("World.dispose", () => {
 
       expect(() => w.dispose()).not.toThrow();
 
-      expect(trait.destroyed).toBe(false);
-      expect(w.component(Marker).has(trait)).toBe(true);
+      expect(trait.destroyed).toBe(true);
+      expect(w.getEntity(Marker)).toBeUndefined();
       expect(user.destroyed).toBe(true);
     });
 
-    it("leaves the data stored on a component entity in place", () => {
+    it("removes singleton data stored on a component entity exactly once", () => {
       const w = new World();
       const removals = countRemovals(w, Handle);
+      w.component(Handle).add(Singleton);
       w.set(Handle, {});
+      const component = w.entity(Handle);
 
       w.dispose();
 
-      expect(w.get(Handle)).toBeDefined();
-      expect(removals.size).toBe(0);
+      expect(w.getEntity(Handle)).toBeUndefined();
+      expect(removals).toEqual(new Map([[component.eid, 1]]));
     });
 
     it("tolerates a world that clearAllEntities() already emptied", () => {
@@ -282,7 +367,7 @@ describe("World.dispose", () => {
 
       // A disposed world must not be used again. This entity only shows that the second call
       // does nothing: it would otherwise be destroyed.
-      const late = w.entity().add(Handle);
+      const late = w.entity();
 
       expect(() => w.dispose()).not.toThrow();
       expect(late.destroyed).toBe(false);
@@ -306,6 +391,205 @@ describe("World.dispose", () => {
   });
 
   describe("pending commands", () => {
+    it("fully disposes when a remove hook initiates disposal inside defer", () => {
+      const w = new World();
+      const events: string[] = [];
+      w.component(Handle).on("remove", () => {
+        events.push("first");
+        w.dispose();
+        w.dispose();
+      });
+      w.component(Marker).on("remove", () => events.push("remaining"));
+      const entity = w.entity().add(Handle).add(Marker);
+      expect(() => w.defer(() => entity.destroy())).not.toThrow();
+      expect(events).toEqual(["first", "remaining"]);
+      expect(entityIds(w)).toEqual([]);
+    });
+
+    it("settles commands from an infrastructure hook before destroying their component keys", () => {
+      class Feature extends Module {
+        public init(): void {}
+      }
+      const w = new World();
+      const events: string[] = [];
+      const target = w.component(Marker).set(Marker, {});
+      target.on("remove", () => events.push("target"));
+      w.component(Handle).on("remove", () => {
+        w.defer(() => target.remove(Marker));
+        w.dispose();
+        events.push("module");
+      });
+      const feature = w.module(Feature).add(Handle);
+      w.dispose();
+      expect(feature.destroyed).toBe(true);
+      expect(events).toEqual(["target", "module"]);
+      expect(entityIds(w)).toEqual([]);
+    });
+
+    it("finishes after an otherwise empty deferred scope", () => {
+      const w = new World();
+      const component = w.component(Handle);
+      w.defer(() => {
+        w.dispose();
+        expect(component.alive).toBe(true);
+      });
+      expect(entityIds(w)).toEqual([]);
+    });
+
+    it.each([false, true])(
+      "keeps infrastructure until the tick ends (later throw: %s)",
+      (throws) => {
+        const w = new World();
+        const events: string[] = [];
+        const component = w.component(Handle).on("remove", () => events.push("resource"));
+        w.set(Handle, {});
+        const quit = w.system("Quit").run(() => {
+          w.dispose();
+          w.dispose();
+          expect(component.alive).toBe(true);
+        });
+        const later = w.system("Later").run(() => {
+          expect(component.alive).toBe(true);
+          expect(quit.entity.alive).toBe(true);
+          events.push("later");
+          w.dispose();
+          if (throws) {
+            throw new Error("later failure");
+          }
+        });
+        if (throws) {
+          expect(() => w.progress(0, 0)).toThrow("later failure");
+        } else {
+          w.progress(0, 0);
+        }
+        expect(events).toEqual(["later", "resource"]);
+        expect(later.entity.destroyed).toBe(true);
+        expect(entityIds(w)).toEqual([]);
+      }
+    );
+
+    it("finishes after an enclosing defer drains hook-generated commands", () => {
+      const w = new World();
+      const events: string[] = [];
+      const component = w.component(Handle);
+      w.component(Marker).on("remove", () => {
+        w.entity().add(Handle);
+        events.push("application");
+      });
+      component.on("remove", () => events.push("handle"));
+      w.set(Handle, {});
+      w.entity().add(Marker);
+      w.defer(() => {
+        w.dispose();
+        w.dispose();
+        expect(component.alive).toBe(true);
+      });
+      expect(events[0]).toBe("application");
+      expect(events.filter((e) => e === "handle")).toHaveLength(2);
+      expect(entityIds(w)).toEqual([]);
+    });
+
+    it("finishes disposal after a synchronous destroy already on the stack", () => {
+      const w = new World();
+      const events: string[] = [];
+      const first = w.component(Handle).on("remove", () => {
+        events.push("first");
+        w.dispose();
+        w.dispose();
+        expect(remaining.alive).toBe(true);
+      });
+      const remaining = w.component(Marker).on("remove", () => events.push("remaining"));
+      const entity = w.entity().add(Handle).add(Marker);
+      expect(() => entity.destroy()).not.toThrow();
+      expect(events).toEqual(["first", "remaining"]);
+      expect(first.destroyed).toBe(true);
+      expect(remaining.destroyed).toBe(true);
+      expect(entityIds(w)).toEqual([]);
+    });
+
+    it.each(["ChildOf", "OwnedTarget"])(
+      "waits for all nested %s cascade hooks before infrastructure teardown",
+      (relationship) => {
+        const w = new World();
+        const removals = new Map<EID, number>();
+        const events: string[] = [];
+        const resource = w.component(Marker).set(Marker, {});
+        resource.on("remove", () => events.push("resource"));
+        w.component(Handle).on("remove", (entity) => {
+          removals.set(entity.eid, (removals.get(entity.eid) ?? 0) + 1);
+          events.push(`application:${entity.eid}`);
+          expect(resource.alive).toBe(true);
+          if (entity === leaf) {
+            w.dispose();
+            w.dispose();
+          }
+        });
+        const root = w.entity().add(Handle);
+        const middle = w.entity().add(Handle);
+        const leaf = w.entity().add(Handle);
+        if (relationship === "ChildOf") {
+          middle.childOf(root);
+          leaf.childOf(middle);
+        } else {
+          w.component(Owns).add(Exclusive).add(OwnedTarget);
+          root.add(Owns, middle);
+          middle.add(Owns, leaf);
+        }
+        expect(() => root.destroy()).not.toThrow();
+        expect(removals).toEqual(new Map([root, middle, leaf].map((entity) => [entity.eid, 1])));
+        expect(events).toHaveLength(4);
+        expect(events.at(-1)).toBe("resource");
+        expect(entityIds(w)).toEqual([]);
+      }
+    );
+
+    it("postpones infrastructure until cleanup ops appended after the disposal request finish", () => {
+      const w = new World();
+      const events: string[] = [];
+      w.component(Owns).add(Exclusive).add(OwnedTarget);
+      const resource = w.component(Marker).set(Marker, {});
+      resource.on("remove", () => events.push("resource"));
+      const root = w.entity();
+      w.component(Handle);
+      const target = w.entity().add(Handle);
+      const child = w.entity().add(Handle).childOf(root);
+      root.add(Owns, target);
+      w.component(Handle).on("remove", (entity) => {
+        events.push(entity === target ? "target" : "child");
+        expect(resource.alive).toBe(true);
+        w.dispose();
+      });
+      expect(() => root.destroy()).not.toThrow();
+      expect(events).toEqual(["target", "child", "resource"]);
+      expect(entityIds(w)).toEqual([]);
+    });
+
+    it("reports named application keys and their blocked Identity dependency", () => {
+      const w = new World();
+      const first = w.entity("first-key");
+      const second = w.entity("second-key");
+      first.add(second);
+      second.add(first);
+      const identity = w.entity(Identity);
+      expect(() => w.dispose()).toThrow(
+        `Cannot dispose world; entities remain: ${identity.eid} (Identity) carried by [${first.eid} (first-key), ${second.eid} (second-key)]; ${first.eid} (first-key) carried by [${second.eid} (second-key)]; ${second.eid} (second-key) carried by [${first.eid} (first-key)]`
+      );
+    });
+
+    it("disposes from a synchronous remove hook without repeating its hook", () => {
+      const w = new World();
+      const events: string[] = [];
+      w.component(Handle).on("remove", () => {
+        events.push("first");
+        w.dispose();
+      });
+      w.component(Marker).on("remove", () => events.push("remaining"));
+      const entity = w.entity().add(Handle).add(Marker);
+      expect(() => entity.remove(Handle)).not.toThrow();
+      expect(events).toEqual(["first", "remaining"]);
+      expect(entityIds(w)).toEqual([]);
+    });
+
     it("runs the queued commands first, then the teardown, firing each hook once", () => {
       const w = new World();
       const removals = countRemovals(w, Handle);

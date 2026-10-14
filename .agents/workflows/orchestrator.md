@@ -186,6 +186,9 @@ or `codexbal/gpt-6.1-sol`. Session mappings live in
 1. Read the READY report and the diff. Verify the behavior independently: run the code, and use
    your own oracle for any invariant the worker claims. Check per-tick cost against
    `lib/vecs/docs/design-guide.md`; require benchmark evidence for hot-path changes.
+   Workers report CI with `scripts/agent/wait-checks.sh <pr>`'s exit code and last line:
+   green (0), red with a failure digest (1), or no verdict (2). No verdict means
+   `[worker] BLOCKED: checks gave no verdict`, not a code failure.
 2. `verify.sh <pr>` (with every other PR that will land alongside it).
 3. Post the outcome with `review.sh`: `[orchestrator] CHANGES REQUESTED (round N)` (`changes`),
    `[orchestrator] OWNER REVIEW` for gameplay the owner must playtest or anything else they must

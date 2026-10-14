@@ -38,9 +38,9 @@ behavior. [Components](./components.md).
 queued as commands; `flush` drains the queue at the scope boundary (after each system in the
 pipeline). [Execution model](./execution-model.md#deferred-mutation-and-flush-boundaries).
 
-**Dispose** — `world.dispose()`: end a world's life by destroying every entity the application and
-its modules created, so their components' `remove` hooks run. The infrastructure (component,
-module, query, system, and phase entities) stays. [Entities](./entities.md#disposing-a-world).
+**Dispose** — `world.dispose()`: end a world's life by destroying application entities, then
+infrastructure and singleton data, through their `remove` hooks. See
+[Entities](./entities.md#disposing-a-world) for timing, ordering and still-carried keys.
 
 **Entity** — a unique numeric id (`eid`) owned by a world, with a set of components attached.
 [Entities](./entities.md).
