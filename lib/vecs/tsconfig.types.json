@@ -1,4 +1,9 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["src", "tests/clock-inject.test.ts"]
+  "include": [
+    "src",
+    "tests/clock-inject.test.ts",
+    "tests/component-provenance.test.ts",
+    "tests/system-introspection.test.ts"
+  ]
 }

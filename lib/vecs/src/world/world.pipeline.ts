@@ -21,6 +21,23 @@ export class Pipeline extends Disposal {
     this._tickSources.add(ALWAYS_TICK_SOURCE);
   }
 
+  /**
+   * Systems in pipeline execution order, including disabled systems.
+   * Between frames, builds pending queries (finishing builder configuration)
+   * and refreshes the existing flat pipeline only when its query changed.
+   * During a frame, returns that frame's pipeline. Does not drain deferred
+   * commands or run systems.
+   * The array is read-only at the type level; do not mutate it. Re-read this
+   * getter after configuration changes rather than retaining an old array.
+   */
+  public get pipeline(): readonly System[] {
+    if (!this._frameInProgress) {
+      this._buildPendingQueries();
+      this._refreshPipelineIfChanged();
+    }
+    return this._pipeline;
+  }
+
   /** Open a new frame and evaluate every registered tick source once. */
   public beginFrame(delta: number): void {
     if (this._frameInProgress) {

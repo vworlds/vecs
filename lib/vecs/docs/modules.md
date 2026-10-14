@@ -84,6 +84,11 @@ Guidelines:
   placement, component registration. Keep that out of application code.
 - **One module per cohesive thing.** Don't pile unrelated features into one `init`.
 
+Component and trait declarations made during synchronous `init` retain the active module class.
+Nested installs restore their caller's context. Read ownership and duplicate declarations through
+the [component provenance API](./components.md#registration-provenance); this does not add `ChildOf`
+edges or change entity ownership.
+
 ## Built-in modules
 
 Every `World` constructor installs these (`lib/vecs/src/world/world.ts`); you interact with their

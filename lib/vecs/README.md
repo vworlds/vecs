@@ -62,6 +62,10 @@ world.progress(performance.now(), 16); // call once per frame
 System entity callbacks can inject [`Now` and `Delta`](./docs/systems.md#clock-injection) alongside
 components to read the processing tick's timestamp and the system's accumulated tick delta.
 
+Inspect [system execution order and cadence](./docs/systems.md#introspection) with `world.pipeline`,
+and [component/trait registration provenance](./docs/components.md#registration-provenance) with
+the component builder.
+
 For Node clients that need replicated Phaser poses, see [Headless clients](../vecs-phaser-client/README.md#headless-clients).
 
 The full documentation lives in [`docs/`](./docs/README.md). Recommended reading order:

@@ -55,6 +55,59 @@ same class return the same entity. The same class can be registered independentl
 worlds — metadata is world-specific. Passing an explicit id for an already-registered class (with
 a different id) throws, as does passing a name with no matching component entity.
 
+### Registration provenance
+
+Inspect the component builder to enforce module ownership without scanning source:
+
+```ts
+import { Module, World } from "@vworlds/vecs";
+
+class Position {}
+class Policy {
+  value = 0;
+}
+class Owner extends Module {
+  public init(): void {
+    this.world.component(Policy);
+    this.world.component(Position).set(Policy, { value: 1 });
+  }
+}
+class Extension extends Module {
+  public init(): void {
+    this.world.component(Position); // idempotent, but visible as another declaration
+  }
+}
+
+const world = new World();
+world.module(Owner);
+world.module(Extension);
+const position = world.component(Position);
+position.registeredBy(); // Owner (module class, not instance)
+position.registrars(); // [Owner, Extension], a detached readonly snapshot
+position.traitRegisteredBy(Policy); // Owner
+```
+
+`registeredBy()` keeps the first class whose synchronous `Module.init` called `world.component(C)`.
+Registration outside module init records `undefined`. `registrars()` lists distinct module classes
+in first-declaration order, including `undefined` if the initial registration was outside any module.
+Later application lookups and string lookups do not add registrars. Multiple module registrars make
+duplicate declarations detectable, without changing idempotent registration behavior.
+
+`traitRegisteredBy(trait, target?)` records the first module that declared that trait on this component
+builder using `add`, `set`, `attach`, or a creating `ensure`. Pass a target for relationship traits,
+for example `world.component(Motion).traitRegisteredBy(With, Position)`. Each relationship target has
+its own registrar; setting relationship data does not declare a new edge. Outside module init the
+registrar is `undefined`, which is also returned for a registered trait not declared here. Trait and
+target refs must resolve in this world, as with other component/relationship reads. Use `has`/`hasTarget` to
+check current presence separately. These records describe declaration history: idempotent adds,
+updates, removal, and re-addition do not overwrite or erase the first registrar. Deferred declarations
+retain the module active at the call, not the module active when commands eventually drain.
+
+Nested [module installs](./modules.md#composition-and-umbrella-modules) restore the enclosing module's
+context, even on an exception. Provenance is world-local and stored only on component builders;
+ordinary entities and their mutation paths have no registrar bookkeeping. It is not an audit of
+internal materialization, interface aliases, or component mutations performed through internal APIs.
+
 ### Id pools
 
 Entity ids are drawn from configurable pools. The defaults

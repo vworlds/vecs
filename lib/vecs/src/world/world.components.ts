@@ -1,12 +1,16 @@
 import { Component, type ComponentClass, type ComponentType } from "../component.js";
 import { Entity, type EID, type EntityClass } from "../entity/index.js";
 import { type IdPool } from "../util/id_pool.js";
+import { type Module } from "../module.js";
 import { Entities } from "./world.entities.js";
 import { type World } from "./world.js";
 
 const RESERVED_EID = 0;
 
 export class Components extends Entities {
+  /** @internal Module class whose synchronous init is currently running. */
+  public _currentModule: EntityClass<Module<any>> | undefined = undefined;
+
   /**
    * Register a component class with this world, or look up a previously
    * registered component entity.
@@ -15,6 +19,8 @@ export class Components extends Entities {
    * and its id is drawn from the `"component"` id pool (1–899 by default).
    * Subsequent calls with the same class return the same entity. The same class
    * may be registered independently in multiple worlds.
+   * Records the active module class for {@link Component.registeredBy} and
+   * {@link Component.registrars}; later application lookups are not registrations.
    *
    * Pass an explicit numeric `ceid` to pin the component to a server-assigned
    * stable id instead of auto-allocating one.
@@ -57,7 +63,9 @@ export class Components extends Entities {
       return entity as unknown as Component<T>;
     }
 
-    return this._component<Component<T>>(Component, ComponentClassOrName, ceid);
+    const component = this._component<Component<T>>(Component, ComponentClassOrName, ceid);
+    component._recordRegistration(this._currentModule);
+    return component;
   }
 
   /**
@@ -137,6 +145,9 @@ export class Components extends Entities {
     const component = new Constructor(this, ceid, ComponentClass);
     this._entities.set(ceid, component);
     this._classRegistry.set(ComponentClass, component);
+    if (component instanceof Component) {
+      component._recordRegistration(this._currentModule);
+    }
     // Component-definition entities are first-class entities: notify so any
     // live world-rooted query/term picks them up reactively (reflection),
     // exactly like an ordinary `world.entity()`.

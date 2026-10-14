@@ -10,6 +10,11 @@ type ModuleArgs<T extends Module<any>> =
     : [config: ModuleConfig<T>, eid?: EID];
 
 export class Modules extends Components {
+  /**
+   * Install a module once and run its synchronous init with registrar context.
+   * Nested installs restore the enclosing module, even when init throws.
+   * Subsequent calls return the existing instance; passing config again throws.
+   */
   public module<T extends Module<any>>(
     this: World,
     ModuleClass: EntityClass<T>,
@@ -25,7 +30,13 @@ export class Modules extends Components {
       );
     }
     if (isNew) {
-      mod.init(config as ModuleConfig<T>);
+      const previousModule = this._currentModule;
+      this._currentModule = ModuleClass;
+      try {
+        mod.init(config as ModuleConfig<T>);
+      } finally {
+        this._currentModule = previousModule;
+      }
     }
     return mod;
   }

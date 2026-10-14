@@ -26,7 +26,7 @@ world
 
 Newly created systems enter the pipeline the next time `world.progress` runs. Configuration must
 happen before the system is built (the first `progress`/`flush` after creation); builder calls
-after that throw.
+after that throw. Reading `world.pipeline` between frames also builds pending queries.
 
 ## Membership: `with` / `without`
 
@@ -423,6 +423,66 @@ ai.destroy(); // permanent: disables, then unregisters the backing entity
 While disabled, query membership is still maintained, so the tracked set is correct on resume.
 `destroy` fires no `exit` callbacks. Both `disable` and `enable` are idempotent and chainable.
 
+## Introspection
+
+Read `world.pipeline` after finishing system configuration to inspect the **existing flat execution
+pipeline**, not a separately maintained inventory. It returns `readonly System[]`, including disabled
+systems, in the order selected by the pipeline query (including a custom `setPipeline`). Between
+frames it builds pending queries and refreshes only when the pipeline query changed. It does not
+execute systems or drain deferred commands. During a frame it returns that frame's pipeline; queued
+changes become visible after their normal flush. Re-read the getter after changes: an old array is
+not a live subscription. Read-only means the TypeScript array API; do not cast away the type to mutate it.
+
+```ts
+import {
+  ALWAYS_TICK_SOURCE,
+  DependsOn,
+  IntervalTickSource,
+  RateTickSource,
+  System,
+  World,
+  type ITickSource,
+} from "@vworlds/vecs";
+
+function describeCadence(source: ITickSource): string {
+  if (source === ALWAYS_TICK_SOURCE) return "every tick";
+  if (source instanceof IntervalTickSource) return `every ${source.seconds}s`;
+  if (source instanceof RateTickSource) {
+    return `every ${source.rate} ticks of ${
+      source.source ? describeCadence(source.source) : "world frames"
+    }`;
+  }
+  if (source instanceof System) return `system ${source.name}`;
+  return "custom clock";
+}
+
+const world = new World();
+world
+  .system("AI")
+  .interval(0.5)
+  .run(() => {});
+for (const [order, system] of world.pipeline.entries()) {
+  console.log({
+    order,
+    name: system.name,
+    phase: system.entity.target(DependsOn)?.name,
+    cadence: describeCadence(system.cadence),
+    enabled: system.enabled,
+  });
+}
+```
+
+`system.cadence` exposes the current source; the existing `.tickSource(source)` method configures
+it. Compare cadence by identity with the exported `ALWAYS_TICK_SOURCE` for the default every-tick
+case. `IntervalTickSource.seconds`, `RateTickSource.rate`, and `RateTickSource.source` are getters;
+an unconfigured standalone rate source has no upstream source and counts world frames. Replacing
+cadence changes the getter immediately. A source's existing `start`/`stop` controls still work.
+
+Name and phase need no new API: `system.name` and `system.entity.target(DependsOn)` already expose
+them. Systems are entities carrying `System`, so a query with `System` can inventory them independently
+of pipeline membership; retrieve the instance with `entity.get(System)`. The existing `toString()`
+display is unchanged; introspection does not add structured query terms or `world.systems()`.
+
 ## Reference
 
 | Method                                                           | Description                                                                                                                      |
@@ -441,6 +501,8 @@ While disabled, query membership is still maintained, so the tracked set is corr
 | `disable()` / `enable()`                                         | Pause / resume processing. Idempotent.                                                                                           |
 | `destroy()`                                                      | Permanently remove the system (no `exit` callbacks).                                                                             |
 | `didTick` / `lastFireDelta`                                      | This frame's cadence result; ms accumulated into the last fire.                                                                  |
+| `cadence` / `enabled`                                            | Read current cadence source and enabled state; see [Introspection](#introspection).                                              |
+| `world.pipeline`                                                 | Read systems in pipeline execution order; see [Introspection](#introspection).                                                   |
 | `count` / `has(e)` / `belongs(e)` / iteration / `forEach`        | Shared query surface; see [Queries](./queries-and-filters.md#reading-a-query).                                                   |
 
 `groupBy` is not available on systems — use `world.query(...).groupBy(...)`.
