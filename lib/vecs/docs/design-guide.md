@@ -885,6 +885,9 @@ system after whatever produces the entity/companion.
   runs hooks during teardown, but a system's `exit` callback only queues its event and may not
   run before infrastructure is destroyed (see
   [Disposing a world](./entities.md#disposing-a-world)).
+- **Request shutdown in a system; dispose after the tick.** For allowed call sites and refusal
+  behavior, see [Disposing a world](./entities.md#disposing-a-world). No core tick or mutation
+  boundary performs disposal for you.
 - **Within a phase, order = registration order;** across phases, the spine guarantees order. Don't
   use registration order for cross-module correctness — use phases.
 - **Networked component order = wire protocol.** Reordering breaks the protocol.

@@ -229,25 +229,16 @@ you do not need a separate disposal callback.
   precedence over module order when the two conflict. If teardown stalls with registered entities,
   it throws an `Error` listing every survivor's eid, name or component class, and its carriers.
   Cycles are reported, not broken. `clearAllEntities()` retains its own throwing behavior.
-- **Pending commands.** `dispose()` neither flushes the command queue early nor discards it. Commands
-  queued ahead of it run first, in order, and the destruction follows in the same queue, so each
-  hook fires once however the component left. At top level nothing is queued, and `dispose()`
-  returns with the entities gone. Inside a tick, application destroys drain after the running
-  system; infrastructure and module resources stay alive for the remaining systems and are
-  destroyed in `endFrame()`, even if a later system throws. In a `defer` block outside a tick,
-  teardown finishes after the enclosing queue drains, including commands appended by application
-  hooks. An entity whose creation is still queued is created, then destroyed. The final pass
-  drains its own hook-generated commands and repeats while it can destroy more entities.
-- **Synchronous hooks.** Calling `dispose()` from a destroy hook postpones infrastructure teardown
-  until the existing deletion scope settles the component walk, remaining hooks and cascade cleanup.
-  Outside a tick or deferred scope, teardown finishes before the outermost destroy returns. In a
-  tick or enclosing `defer`, its usual boundary still applies. An ordinary plain-component remove
-  hook has already detached its key; the application pass destroys the remainder of its entity
-  before infrastructure teardown without a new mutation-boundary check.
+- **Call site.** Call at top level: not inside `progress()`, `defer`, a command drain or an
+  entity's destroy. A forbidden call throws before disposal changes anything, leaving the world
+  usable; finish the enclosing operation and dispose afterwards. Ordinary synchronous top-level
+  `add`, `set` and `remove` hooks may call it. Teardown is synchronous: application hook-generated
+  commands settle before infrastructure teardown, and `dispose()` returns with the entities gone.
+  The final pass drains its own hook-generated commands and repeats while it can destroy more entities.
 - **After disposal.** A disposed world must not be used again. Nothing enforces it — no other method
-  mutation checks are added. Calling `dispose()` again, or from a hook during teardown, does
-  nothing. Do not keep spawning from teardown hooks: that prevents the repeated final pass from
-  settling. A system's queued `exit` callback may run later in the disposal tick, but never after
+  mutation checks are added. Calling `dispose()` again at top level does nothing; the call-site
+  rule still applies during teardown. Do not keep spawning from teardown hooks: that prevents
+  the repeated final pass from settling. A system's queued `exit` callback will not run after
   teardown; release resources in `remove` hooks, as
   [Resources as components](./design-guide.md#resources-as-components-hold-non-ecs-objects)
   recommends.
