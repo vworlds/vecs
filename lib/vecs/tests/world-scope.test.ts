@@ -104,23 +104,106 @@ describe("World.scope", () => {
     expect(world.entity("outer").parent).toBe(outer);
   });
 
-  it("builds queries for components registered inside a deferred module scope", () => {
+  it("refuses new deferred modules without installing anything and remains usable", () => {
     class Position {}
     class Feature extends Module {
       public init(): void {
         this.world.component(Position);
-        this.world.query("scoped positions").with(Position).track();
+        this.world.query("scoped positions").with(Position).track().build();
         this.world.entity("positioned").add(Position);
       }
     }
     const world = new World();
-    world.defer(() => world.module(Feature));
+    const before = [...world.entities.values()];
+    expect(() => world.defer(() => world.module(Feature))).toThrow("outside progress() and defer");
+    expect(world.getEntity(Feature)).toBeUndefined();
+    expect(world.getEntity(Position)).toBeUndefined();
+    expect(world.entities.values()).toEqual(before);
+    expect(world.deferred).toBe(false);
     const module = world.module(Feature);
     const query = world.queries.find((candidate) => candidate.name === "scoped positions")!;
     expect(query.built).toBe(true);
     expect([...query]).toEqual([world.entity("positioned")]);
     expect(query.entity.parent).toBe(module);
     expect(world.component(Position).parent).toBe(module);
+    world.progress(0, 16);
+    expect(world.entity().parent).toBeUndefined();
+  });
+
+  it("refuses scopes and new modules inside a system, then allows top-level installation", () => {
+    class Feature extends Module {
+      public init(): void {
+        this.world.entity("feature-child");
+      }
+    }
+    const world = new World();
+    const parent = world.entity();
+    let invoked = false;
+    let ticks = 0;
+    world.system("scope refusal").run(() => {
+      ticks++;
+      expect(() =>
+        world.scope(parent, () => {
+          invoked = true;
+        })
+      ).toThrow("outside progress() and defer");
+      if (ticks === 1) {
+        expect(() => world.module(Feature)).toThrow("outside progress() and defer");
+        expect(world.getEntity(Feature)).toBeUndefined();
+      }
+    });
+    world.progress(0, 16);
+    expect(invoked).toBe(false);
+    expect(world.deferred).toBe(false);
+    const feature = world.module(Feature);
+    expect(world.entity("feature-child").parent).toBe(feature);
+    world.scope(parent, () => expect(world.entity().parent).toBe(parent));
+    world.progress(16, 16);
+    expect(ticks).toBe(2);
+    expect(world.entity().parent).toBeUndefined();
+  });
+
+  it("returns installed modules inside defer and systems", () => {
+    class Feature extends Module {
+      public init(): void {}
+    }
+    const world = new World();
+    const feature = world.module(Feature);
+    world.defer(() => expect(world.module(Feature)).toBe(feature));
+    let calls = 0;
+    world.system("module lookup").run(() => {
+      expect(world.module(Feature)).toBe(feature);
+      calls++;
+    });
+    world.progress(0, 16);
+    expect(calls).toBe(1);
+  });
+
+  it("refuses scope entry during defer and command drains without running the callback", () => {
+    class Position {}
+    const world = new World();
+    const parent = world.entity();
+    let invoked = false;
+    expect(() =>
+      world.defer(() =>
+        world.scope(parent, () => {
+          invoked = true;
+        })
+      )
+    ).toThrow("outside progress() and defer");
+    world.component(Position).on("add", () => {
+      expect(world.deferred).toBe(true);
+      expect(() =>
+        world.scope(parent, () => {
+          invoked = true;
+        })
+      ).toThrow("outside progress() and defer");
+    });
+    world.defer(() => world.entity().add(Position));
+    expect(invoked).toBe(false);
+    expect(world.deferred).toBe(false);
+    world.scope(parent, () => expect(world.entity().parent).toBe(parent));
+    expect(world.entity().parent).toBeUndefined();
   });
 
   it("clears scoped modules children-first without suspending component policies", () => {
@@ -165,7 +248,7 @@ describe("World.scope", () => {
     expect(world.entities.values()).toEqual([]);
   });
 
-  it("publishes deferred creations with their parent before any observer sees them", () => {
+  it("publishes scoped creations with their parent before any observer sees them", () => {
     class Position {}
     class Feature extends Module {
       public init(): void {
@@ -189,27 +272,20 @@ describe("World.scope", () => {
       .build();
     collecting = true;
     let created: Entity[] = [];
-    world.defer(() => {
-      world.scope(parent, () => {
-        created = [
-          world.entity(),
-          world.getOrCreateEntity(5000),
-          world.component(Position),
-          world.module(Feature),
-          world.query("scoped pending query").with(Position).entity,
-          world.system("scoped pending system").entity,
-        ];
-      });
-      for (const entity of created) {
-        if (entity === world.component(Position) || entity === world.module(Feature)) {
-          expect(world.entities.has(entity.eid)).toBe(true);
-          expect(entity.parent).toBe(parent);
-        } else {
-          expect(world.entities.has(entity.eid)).toBe(false);
-        }
-      }
-      expect(observed).toEqual([world.component(Position), world.module(Feature)]);
+    world.scope(parent, () => {
+      created = [
+        world.entity(),
+        world.getOrCreateEntity(5000),
+        world.component(Position),
+        world.module(Feature),
+        world.query("scoped query").with(Position).entity,
+        world.system("scoped system").entity,
+      ];
     });
+    for (const entity of created) {
+      expect(world.entities.has(entity.eid)).toBe(true);
+      expect(entity.parent).toBe(parent);
+    }
     expect(created.map((entity) => entity.parent)).toEqual(created.map(() => parent));
     expect(world.entity("module-child").parent).toBe(world.module(Feature));
     expect(observed).toEqual(expect.arrayContaining([...created, world.entity("module-child")]));

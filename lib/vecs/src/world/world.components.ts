@@ -3,7 +3,6 @@ import { Entity, type EID, type EntityClass } from "../entity/index.js";
 import { type IdPool } from "../util/id_pool.js";
 import { Entities } from "./world.entities.js";
 import { type World } from "./world.js";
-import { ChildOf } from "../modules/relationship_types.js";
 
 const RESERVED_EID = 0;
 
@@ -16,8 +15,8 @@ export class Components extends Entities {
    * and its id is drawn from the `"component"` id pool (1–899 by default).
    * Subsequent calls with the same class return the same entity. The same class
    * may be registered independently in multiple worlds.
-   * A newly registered definition inherits the current scope parent immediately,
-   * even inside defer; looking up an existing definition does not reparent it.
+   * A newly registered definition inherits the current scope parent immediately.
+   * Scopes must be entered outside deferred mode. Existing lookups do not reparent it.
    *
    * Pass an explicit numeric `ceid` to pin the component to a server-assigned
    * stable id instead of auto-allocating one.
@@ -142,7 +141,7 @@ export class Components extends Entities {
     this._classRegistry.set(ComponentClass, component);
     const parent = this._scope;
     if (parent !== undefined) {
-      component._addTarget(this.entity(ChildOf).meta, parent);
+      component.childOf(parent);
     }
     // Component-definition entities are first-class entities: notify so any
     // live world-rooted query/term picks them up reactively (reflection),

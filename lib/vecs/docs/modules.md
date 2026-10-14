@@ -34,6 +34,10 @@ world.module(PoseSyncModule);
 module on first call — drawing its entity id from the `module` pool (900–999 by default, or pass
 an explicit `eid`) — and invokes `init(config)` exactly once. Subsequent calls return the existing
 module instance; passing a config again after the first registration throws.
+Install new modules outside `progress()` and `defer`; installation also throws during a command
+drain, before registering anything. Looking up an already installed module works in any of those
+contexts. Lazy loading from a system or hook is the application's job: schedule it after
+`progress()` returns.
 
 ## Configuration
 
@@ -88,11 +92,10 @@ Guidelines:
 
 `world.scope(parent, fn)` assigns `ChildOf parent` to **every entity created** while the synchronous
 callback runs: plain entities, components, modules, query/system backing entities, and phases.
-Nested scopes restore the caller's parent in `finally`, even when the callback throws. Scopes do not
-change deferral: plain deferred creations publish their parent in the same queued creation, before
-queries can observe them. Component and module definitions register immediately even inside defer,
-with the parent attached directly before their creation notification. Existing name/id/class lookups
-do not reparent anything. An explicit
+Nested scopes restore the caller's parent in `finally`, even when the callback throws. Enter scopes
+outside deferred mode: `world.scope()` throws inside `progress()`, a `defer` block, or a command
+drain, without running the callback. Scoped creations use `.childOf(parent)` before their creation
+notification. Existing name/id/class lookups do not reparent anything. An explicit
 `.childOf(other)` afterwards replaces the scope parent, just as any other exclusive `ChildOf` edge.
 The parent must be live and belong to the same world. Async continuations are outside the scope.
 

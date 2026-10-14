@@ -31,11 +31,6 @@ export class Entities extends Deferred {
     if (!e) {
       this._reserveEid(eid);
       e = new Entity(this, eid);
-      const parent = this._scope;
-      if (parent !== undefined) {
-        this._createScopedEntity(e, parent, onCreateCallback);
-        return e;
-      }
       if (this.deferred) {
         // Mirror `_entity`: in deferred mode the entity is not registered or
         // made visible to queries until the queue drains. The reservation above
@@ -44,6 +39,10 @@ export class Entities extends Deferred {
         this._enqueue({ kind: CommandKind.CreateEntity, entity: e, onCreate: onCreateCallback });
       } else {
         this._entities.set(eid, e);
+        const parent = this._scope;
+        if (parent !== undefined) {
+          e.childOf(parent);
+        }
         this._notifyEntityCreated(e);
         onCreateCallback?.(e);
       }
@@ -147,12 +146,15 @@ export class Entities extends Deferred {
    * Includes components, modules, queries, systems and ordinary entities. Existing
    * lookups are not reparented; an explicit childOf call replaces the scope parent.
    * Nested scopes restore their caller in finally, even when fn throws.
-   * Plain deferred creation publishes its parent in the same command. Component
-   * definitions register immediately, including inside defer, with their parent.
+   * Throws while deferred: call outside progress() and defer, not during a command
+   * drain. Schedule lazy module loading after progress() returns.
    * The parent must be a live entity of this world. This is a synchronous scope,
    * not an async context; it does not change deferral or catch callback errors.
    */
   public scope(this: World, parent: Entity, fn: () => void): void {
+    if (this.deferred) {
+      throw new Error("Call world.scope() outside progress() and defer");
+    }
     this.entity(parent);
     if (parent.destroyed) {
       throw new Error("scope parent must be alive");
@@ -166,38 +168,19 @@ export class Entities extends Deferred {
     }
   }
 
-  /** @internal Publish a scoped creation atomically with its parent. */
-  protected _createScopedEntity(
-    this: World,
-    entity: Entity,
-    parent: Entity,
-    onCreate?: (e: Entity) => void
-  ): void {
-    if (this.deferred) {
-      this._deferredEntities.set(entity.eid, entity);
-      this._enqueue({ kind: CommandKind.CreateEntity, entity, parent, onCreate });
-    } else {
-      this._entities.set(entity.eid, entity);
-      entity._addTarget(this.entity(ChildOf).meta, parent);
-      this._notifyEntityCreated(entity);
-      onCreate?.(entity);
-    }
-  }
-
   /** @internal Create an entity with an id from the entity pool. */
   protected _entity<T extends Entity>(this: World, Constructor: EntityClass<T>): T {
     const eid = this._entityPool.alloc();
     const e = new Constructor(this, eid);
-    const parent = this._scope;
-    if (parent !== undefined) {
-      this._createScopedEntity(e, parent);
-      return e;
-    }
     if (this.deferred) {
       this._deferredEntities.set(eid, e);
       this._enqueue({ kind: CommandKind.CreateEntity, entity: e });
     } else {
       this._entities.set(eid, e);
+      const parent = this._scope;
+      if (parent !== undefined) {
+        e.childOf(parent);
+      }
       this._notifyEntityCreated(e);
     }
     return e;
