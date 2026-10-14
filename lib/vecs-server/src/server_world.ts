@@ -56,6 +56,8 @@ interface Update {
   component: ComponentInstance | undefined; // undefined => removal
 }
 
+type SocketSend = (world: ServerWorld, socket: VecsSocket, bytes: Uint8Array) => unknown;
+
 /**
  * Identifies the connection that invoked a server RPC handler.
  *
@@ -767,11 +769,11 @@ export class ServerWorld extends NetworkWorld {
     if (this.stats.systemsEnabled) {
       this._sendInstrumented();
     } else {
-      this._sendPlain();
+      this._prepareAndSend(ServerWorld._sendSocketPlain);
     }
   }
 
-  private _sendPlain(): void {
+  private _prepareAndSend(sendSocket: SocketSend): void {
     const toFrame = this._frame++;
     if (this._sessions.size === 0) {
       this._updates.clear();
@@ -786,7 +788,7 @@ export class ServerWorld extends NetworkWorld {
         // Scheduled to close: no further state, but the rejection that explains
         // the close still owes the client a frame — and that frame must be
         // allowed to reach the client before the transport goes down.
-        this._lingerOrClose(session, nowMs);
+        this._lingerOrClose(session, nowMs, sendSocket);
         return;
       }
 
@@ -865,7 +867,8 @@ export class ServerWorld extends NetworkWorld {
           // A delta that starts past the ack presumes the client holds what is in
           // between; the marker tells the client it may not, and must not fail.
           optimistic: diff !== undefined && diff.fromFrame > session.ackFrame,
-        })
+        }),
+        sendSocket
       );
     });
 
@@ -885,7 +888,7 @@ export class ServerWorld extends NetworkWorld {
     this._replicationSendMs = 0;
     const start = performance.now();
     try {
-      this._prepareAndSendInstrumented();
+      this._prepareAndSend(ServerWorld._sendSocketInstrumented);
     } finally {
       const elapsed = performance.now() - start;
       this.stats.recordOperation(
@@ -896,146 +899,25 @@ export class ServerWorld extends NetworkWorld {
     }
   }
 
-  private _prepareAndSendInstrumented(): void {
-    const toFrame = this._frame++;
-    if (this._sessions.size === 0) {
-      this._updates.clear();
-      return;
-    }
-    const nowMs = performance.now();
-    const staleSessions: ServerClientSession[] = [];
-    this._clients.forEach([View, ServerClientSession], (e, [view, session]) => {
-      if (session.closing) {
-        this._lingerOrCloseInstrumented(session, nowMs);
-        return;
-      }
-      view._reconcileVisibility();
-      view._releaseOldTracker(this._trackerCache);
-      const sendsBaseline = this._startsBaseline(session, nowMs);
-      if (sendsBaseline) {
-        view._resyncAll();
-      }
-      const latest = new StateDiff({ fromFrame: toFrame - 1, toFrame });
-      const { snapshots, removed } = latest;
-      view._exitedView.forEach((entity) => {
-        (latest.resets ??= []).push([entity.eid, toFrame]);
-      });
-      view._enteredView.forEach((entity) => {
-        this._pushEntitySnapshots(entity, snapshots);
-      });
-      this._updates.forEach((u) => {
-        if (view._enteredView.has(u.entity) || !view.canSee(u.entity)) {
-          return;
-        }
-        if (u.component) {
-          snapshots.push(this._encodeSnapshot(u.entity, u.wireType, u.component));
-        } else if (u.wireType === ALL_COMPONENTS) {
-          (latest.resets ??= []).push([u.entity.eid, toFrame]);
-        } else {
-          removed.push([u.entity.eid, u.wireType]);
-        }
-      });
-      view._enteredView.clear();
-      view._exitedView.clear();
-      session.history.push(latest);
-      if (nowMs - session.lastSeenMs > this._disconnectGraceMs) {
-        staleSessions.push(session);
-        return;
-      }
-      const rpc = session.rpc.getOutgoing();
-      const diff = this._stateFor(session, latest, sendsBaseline, nowMs);
-      const content = worthAFrame(diff);
-      const keepAlive = !content && this._keepAliveDue(session, diff, toFrame);
-      if (!content && !keepAlive && rpc.length === 0) {
-        return;
-      }
-      if (diff !== undefined) {
-        session.rtt.recordSend(toFrame, nowMs);
-        if (content) {
-          this._noteContentSent(session, nowMs);
-        }
-        if (this._keepAliveFrames !== undefined) {
-          this._noteDiffSent(session, toFrame, keepAlive);
-        }
-      }
-      this._sendFrameInstrumented(
-        session,
-        new Server2Client({
-          diff,
-          rpc,
-          rpcSettledBelow: session.rpc.settledBelow,
-          optimistic: diff !== undefined && diff.fromFrame > session.ackFrame,
-        })
-      );
-    });
-    staleSessions.forEach((session) => {
-      session.entity.getMut(NetworkClient, (client) => {
-        client.closeReason = "disconnect grace period elapsed";
-      });
-      session.entity.destroy();
-    });
-    this._updates.clear();
-  }
-
-  private _sendFrameInstrumented(session: ServerClientSession, message: Server2Client): void {
-    if (session.closed || session.sendFailed) {
-      return;
-    }
-    const fail = (): void => {
-      if (session.sendFailed) {
-        return;
-      }
-      session.sendFailed = true;
-      this._onDisconnect(session.context.connectionId);
-    };
+  private static _sendSocketInstrumented(
+    world: ServerWorld,
+    socket: VecsSocket,
+    bytes: Uint8Array
+  ): unknown {
+    const start = performance.now();
     try {
-      const bytes = this._encode(message);
-      const start = performance.now();
-      let result: unknown;
-      try {
-        result = session.socket.send(bytes);
-      } finally {
-        this._replicationSendMs += performance.now() - start;
-      }
-      if (typeof (result as PromiseLike<unknown> | undefined)?.then === "function") {
-        (result as PromiseLike<unknown>).then(undefined, fail);
-      }
-    } catch {
-      fail();
+      return socket.send(bytes);
+    } finally {
+      world._replicationSendMs += performance.now() - start;
     }
   }
 
-  private _lingerOrCloseInstrumented(session: ServerClientSession, nowMs: number): void {
-    const flushed = session.closeFlushedFrame;
-    if (flushed !== undefined) {
-      if (session.ackFrame >= session.closeAckFrame || nowMs >= session.closeDeadlineMs) {
-        session.entity.destroy();
-        return;
-      }
-      const late = session.rpc.getOutgoing();
-      if (late.length > 0) {
-        flushed.rpc.push(...late);
-      }
-      this._sendFrameInstrumented(session, flushed);
-      return;
-    }
-    const rpc = session.rpc.getOutgoing();
-    if (rpc.length === 0 && session.closeNotice === undefined) {
-      session.entity.destroy();
-      return;
-    }
-    const toFrame = session.history.lastFrame + 1;
-    session.history.push(new StateDiff({ fromFrame: toFrame - 1, toFrame }));
-    const frame = new Server2Client({
-      diff: new StateDiff({ fromFrame: Math.max(session.ackFrame, 1), toFrame }),
-      rpc,
-      rpcSettledBelow: session.rpc.settledBelow,
-      close: session.closeNotice,
-    });
-    session.closeFlushedFrame = frame;
-    session.closeAckFrame = toFrame;
-    session.closeDeadlineMs = nowMs + this._closeLingerMs;
-    this._sendFrameInstrumented(session, frame);
+  private static _sendSocketPlain(
+    _world: ServerWorld,
+    socket: VecsSocket,
+    bytes: Uint8Array
+  ): unknown {
+    return socket.send(bytes);
   }
 
   /**
@@ -1332,7 +1214,9 @@ export class ServerWorld extends NetworkWorld {
   }
 
   /**
-   * The only place the server calls `socket.send`. A transport can fail a send
+   * Shared encoding and failure boundary for frame sends. The frame's selected
+   * socket-send primitive is passed through normal and linger traffic without
+   * a per-connection timing check. A transport can fail a send
    * because the peer is already gone, either by throwing or, for an async
    * transport, by returning a promise that rejects. Neither may escape: an
    * unhandled rejection is fatal to the whole process. A failed send is treated
@@ -1340,7 +1224,11 @@ export class ServerWorld extends NetworkWorld {
    * and runs it once however many sends fail. Works with a `send` that returns
    * nothing as well as one that returns a promise.
    */
-  private _sendFrame(session: ServerClientSession, message: Server2Client): void {
+  private _sendFrame(
+    session: ServerClientSession,
+    message: Server2Client,
+    sendSocket: SocketSend
+  ): void {
     if (session.closed || session.sendFailed) {
       return;
     }
@@ -1352,7 +1240,7 @@ export class ServerWorld extends NetworkWorld {
       this._onDisconnect(session.context.connectionId);
     };
     try {
-      const result: unknown = session.socket.send(this._encode(message));
+      const result = sendSocket(this, session.socket, this._encode(message));
       if (typeof (result as PromiseLike<unknown> | undefined)?.then === "function") {
         (result as PromiseLike<unknown>).then(undefined, fail);
       }
@@ -1529,7 +1417,11 @@ export class ServerWorld extends NetworkWorld {
    * @param session - The closing session, visited by {@link ServerWorld.send}.
    * @param nowMs - Wall-clock timestamp (`performance.now()`) of this send.
    */
-  private _lingerOrClose(session: ServerClientSession, nowMs: number): void {
+  private _lingerOrClose(
+    session: ServerClientSession,
+    nowMs: number,
+    sendSocket: SocketSend
+  ): void {
     const flushed = session.closeFlushedFrame;
     if (flushed !== undefined) {
       if (session.ackFrame >= session.closeAckFrame || nowMs >= session.closeDeadlineMs) {
@@ -1542,7 +1434,7 @@ export class ServerWorld extends NetworkWorld {
       if (late.length > 0) {
         flushed.rpc.push(...late);
       }
-      this._sendFrame(session, flushed);
+      this._sendFrame(session, flushed, sendSocket);
       return;
     }
     const rpc = session.rpc.getOutgoing();
@@ -1566,7 +1458,7 @@ export class ServerWorld extends NetworkWorld {
     session.closeFlushedFrame = frame;
     session.closeAckFrame = toFrame;
     session.closeDeadlineMs = nowMs + this._closeLingerMs;
-    this._sendFrame(session, frame);
+    this._sendFrame(session, frame, sendSocket);
   }
 
   /**

@@ -239,6 +239,8 @@ describe("ServerWorld timing", () => {
     let clockMs = 0;
     const clock = vi.spyOn(performance, "now").mockImplementation(() => clockMs);
     const send = vi.spyOn(socket, "send").mockImplementation((bytes) => {
+      // The second client must keep this frame's selected measuring primitive.
+      world.stats.disableSystems();
       clockMs += 5;
       socket.sent.push(bytes);
     });
@@ -320,6 +322,43 @@ describe("ServerWorld timing", () => {
         expect(world.stats.operations()[0].runs).toBe(6);
       }
       return socket.sent.map((bytes) => Array.from(bytes));
+    }
+    expect(scenario(true)).toEqual(scenario(false));
+  });
+
+  it("preserves every client's wire bytes when switching timing on and off between frames", () => {
+    function scenario(measureFirstFrame: boolean): number[][][] {
+      const world = createWorld();
+      allowAllClientViews(world);
+      const listener = new MockListener();
+      world._attach(listener);
+      const sockets = [
+        connectSession(world, listener, "client-1").socket,
+        connectSession(world, listener, "client-2").socket,
+      ];
+      const entity = world.entity().add(Networked).set(Position, { x: 1, y: 2 });
+      tick(world);
+      sockets.forEach(ackLatestFrame);
+      const initialCounts = sockets.map((socket) => socket.sent.length);
+      if (measureFirstFrame) {
+        world.stats.enableSystems();
+      }
+      entity.set(Position, { x: 3 });
+      tick(world);
+      sockets.forEach(ackLatestFrame);
+      world.stats.disableSystems();
+      entity.set(Position, { x: 4 });
+      tick(world);
+      expect(world.stats.operations().map((row) => row.runs)).toEqual(
+        measureFirstFrame ? [1, 1] : []
+      );
+      return sockets.map((socket, index) => {
+        const frames = socket.sent.slice(initialCounts[index]);
+        expect(frames).toHaveLength(2);
+        expect(decodeFirstSnapshotPayload(frames[0])).toEqual({ x: 3, y: 2 });
+        expect(decodeFirstSnapshotPayload(frames[1])).toEqual({ x: 4, y: 2 });
+        return frames.map((bytes) => Array.from(bytes));
+      });
     }
     expect(scenario(true)).toEqual(scenario(false));
   });

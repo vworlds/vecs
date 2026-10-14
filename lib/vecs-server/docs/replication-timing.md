@@ -33,8 +33,10 @@ when computing a tick total. Clock and aggregation overhead, and the Send system
 flush, can make its duration slightly larger than the sum of these rows. Replication components'
 earlier recording systems appear separately in the system table.
 
-`ServerWorld.send()` selects a plain or instrumented path once per replication frame. The plain
-connection loop and socket-send helper contain no stats branch or extra clock reads. The
-instrumented path reuses aggregate slots; the underlying replication protocol can still allocate
+`ServerWorld.send()` selects a plain or measuring socket-send primitive once per replication
+frame and passes it through one shared replication body, including close-linger sends. Encoding
+and transport-failure handling are shared too. The connection loop and plain primitive contain
+no stats branch or extra clock reads. The instrumented frame wrapper reuses aggregate slots;
+the underlying replication protocol can still allocate
 frames and snapshots as before. Preparation time is the whole synchronous frame less measured
 socket-send durations, not a pure encoder microbenchmark.
