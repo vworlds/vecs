@@ -90,7 +90,12 @@ export {
 } from "./modules/pipeline.js";
 export { getDSLKey } from "./dsl.js";
 export { Term, TermEventKind, type TermConsumer } from "./terms/term.js";
-export { IntervalTickSource, RateTickSource, type ITickSource } from "./timer.js";
+export {
+  ALWAYS_TICK_SOURCE,
+  IntervalTickSource,
+  RateTickSource,
+  type ITickSource,
+} from "./timer.js";
 export { ArrayMap, IterableArrayMap } from "./util/array_map.js";
 export { Bitset } from "./util/bitset.js";
 export { Events, type EventListener, type EventNames } from "./util/events.js";

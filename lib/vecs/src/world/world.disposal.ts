@@ -1,10 +1,10 @@
 import { CommandKind } from "../command.js";
 import { Component } from "../component.js";
-import { Identity, type Entity } from "../entity/index.js";
+import { type Entity } from "../entity/index.js";
 import { Phase } from "../modules/pipeline.js";
 import { Query } from "../query/index.js";
 import { Module } from "../module.js";
-import { carriersFirst, isCarried } from "./destroy-order.js";
+import { carriersFirst } from "./destroy-order.js";
 import { Transfers } from "./world.transfers.js";
 import type { World } from "./world.js";
 
@@ -23,20 +23,19 @@ export class Disposal extends Transfers {
    * objects, handles, timers). Call it when the world is finished — a scene or route change, a
    * hot reload — and drop the reference afterwards.
    *
-   * Each entity goes through the ordinary destroy path, as if it had received
-   * {@link Entity.destroy}: every component's `remove` hook fires exactly once, cleanup policies
-   * and relationship cascades (`ChildOf`, `OwnedTarget`, `CleanupPolicy.Delete`) run as they
-   * always do, and an entity a cascade or a hook has already destroyed is skipped, never
-   * destroyed twice.
+   * Both passes use the existing entity destroy path and fire every component's
+   * `remove` hook exactly once. Application cleanup retains ordinary cleanup policies
+   * and cascades. Infrastructure teardown suspends cleanup policies: it removes a
+   * component from remaining carriers instead of throwing or deleting them, and
+   * destroys children explicitly rather than through ChildOf/OwnedTarget cascades.
    *
    * ## Order
    *
    * Queued application cleanup finishes before infrastructure teardown starts. Systems and
-   * queries precede the components they read; modules prefer reverse registration order.
-   * Every component key follows its other carriers; its own singleton is removed with it. Carrier
-   * dependencies take precedence over module order. Among other unrelated entities order is
-   * unspecified. If any entities remain when teardown cannot progress (for example, component-key
-   * cycles), an `Error` names every survivor and its carriers. Cycle breaking is not attempted.
+   * queries go first in the infrastructure pass, then modules in reverse registration
+   * order, then the rest. Beyond these priorities the order is unspecified, not a
+   * resource dependency contract. Infrastructure carrier cycles are stripped, not
+   * reported as survivors. Nothing remains after successful disposal.
    * {@link clearAllEntities} retains its own throwing behavior.
    *
    * ## Call site
@@ -58,9 +57,9 @@ export class Disposal extends Transfers {
    * the call and leaves the world partial, as it does from any destroy: treat it as a programming
    * error.
    *
-   * @throws An `Error` for a forbidden call site before any disposal mutation; an `Error`
-   * listing remaining entities and their carriers when ordering stalls, or
-   * an error propagated by a teardown hook. The latter two errors leave the world partial.
+   * @throws An `Error` for a forbidden call site before any disposal mutation,
+   * an internal-invariant error if infrastructure teardown makes no progress,
+   * or an error propagated by a teardown hook. The latter errors leave the world partial.
    */
   public dispose(this: World): void {
     this._assertDisposalAllowed();
@@ -68,16 +67,6 @@ export class Disposal extends Transfers {
       return;
     }
     this._disposeStarted = true;
-    const identityEid = this.getEntity(Identity)?.eid;
-    // Identity itself may be destroyed before an unresolved key is reported.
-    const labels = new Map<Entity, string>();
-    for (const entity of this._entities.values()) {
-      const name =
-        identityEid === undefined
-          ? undefined
-          : (entity._get(identityEid) as Identity | undefined)?.name;
-      labels.set(entity, `${entity.eid} (${name || entity.meta.Class.name})`);
-    }
     // Settle application hooks and any entities they create before removing infrastructure.
     let applications = this._destroyOrder();
     while (applications.length > 0) {
@@ -88,51 +77,47 @@ export class Disposal extends Transfers {
       });
       applications = this._destroyOrder();
     }
-    while (true) {
-      const entities = this._entities.values().filter((entity) => !entity.destroyed);
-      // The class registry is insertion-ordered; the dense entity map swaps entries on deletion.
-      const modules = [...this._classRegistry.values()]
-        .filter((entity) => entity instanceof Module && !entity.destroyed)
-        .reverse();
-      const queryEid = this.getEntity(Query)?.eid;
-      const queries = entities.filter((entity) => queryEid !== undefined && entity.has(queryEid));
-      const priority = new Set([...queries, ...modules]);
-      const ordered = carriersFirst([
-        ...queries,
-        ...modules,
-        ...entities.filter((entity) => !priority.has(entity)),
-      ]);
-      let destroyed = 0;
-      for (const entity of ordered) {
-        // Hooks may change carriers after the order was computed. Never strip a live carrier.
-        if (!entity.destroyed && !isCarried(entity)) {
-          entity._destroy();
-          destroyed++;
-          this.flush();
+    this._tearingDownInfrastructure = true;
+    try {
+      while (this._entities.size > 0) {
+        const entities = this._entities.values().filter((entity) => !entity.destroyed);
+        // The class registry is insertion-ordered; the dense entity map swaps entries on deletion.
+        const modules = [...this._classRegistry.values()]
+          .filter((entity) => entity instanceof Module && !entity.destroyed)
+          .reverse();
+        const queryEid = this.getEntity(Query)?.eid;
+        const queries = entities.filter((entity) => queryEid !== undefined && entity.has(queryEid));
+        const priority = new Set([...queries, ...modules]);
+        const ordered = [
+          ...queries,
+          ...modules,
+          ...entities.filter((entity) => !priority.has(entity)),
+        ];
+        let destroyed = 0;
+        for (const entity of ordered) {
+          if (!entity.destroyed) {
+            entity._destroy();
+            if (entity.destroyed) {
+              destroyed++;
+            }
+            this.flush();
+          }
         }
-      }
-      this.flush();
-      if (destroyed === 0) {
-        const survivors = this._entities.values().sort((a, b) => a.eid - b.eid);
-        if (survivors.length > 0) {
-          const label = (entity: Entity): string => {
-            const name =
-              identityEid === undefined
-                ? undefined
-                : (entity._get(identityEid) as Identity | undefined)?.name;
-            return labels.get(entity) ?? `${entity.eid} (${name || entity.meta.Class.name})`;
-          };
+        this.flush();
+        if (destroyed === 0 && this._entities.size > 0) {
           throw new Error(
-            `Cannot dispose world; entities remain: ${survivors
+            `Internal invariant: infrastructure teardown made no progress; registered entities: ${this._entities
+              .values()
               .map(
                 (entity) =>
-                  `${label(entity)} carried by [${[...(entity.meta._carriers ?? [])].map(label).join(", ")}]`
+                  `${entity.eid} (${entity.meta.Class.name}, destroyed=${entity.destroyed})`
               )
-              .join("; ")}`
+              .join(", ")}`
           );
         }
-        break;
       }
+    } finally {
+      this._tearingDownInfrastructure = false;
     }
   }
 

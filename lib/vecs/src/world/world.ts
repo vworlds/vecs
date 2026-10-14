@@ -46,16 +46,21 @@ export class World extends Pipeline {
     this.component(SilenceSource).on("remove", (entity) => entity.get(Query)?._clearSilence());
     this.component(Query).on("remove", (_entity, query) => query.destroy());
     this.component(System).on("remove", (_entity, system) => system.destroy());
-    [
-      IdentityModule,
-      ImplementsModule,
-      SingletonModule,
-      RelationshipsModule,
-      // Registration order is not load-bearing: a capture binds the materializer
-      // its policy resolved to, so `SnapshotModule` may install or change a
-      // policy after entities already carry the component.
-      SnapshotModule,
-      PipelineModule,
-    ].forEach((mod) => this.module(mod));
+    this._initializingModules = true;
+    try {
+      [
+        IdentityModule,
+        ImplementsModule,
+        SingletonModule,
+        RelationshipsModule,
+        // Registration order is not load-bearing: a capture binds the materializer
+        // its policy resolved to, so `SnapshotModule` may install or change a
+        // policy after entities already carry the component.
+        SnapshotModule,
+        PipelineModule,
+      ].forEach((mod) => this.module(mod));
+    } finally {
+      this._initializingModules = false;
+    }
   }
 }

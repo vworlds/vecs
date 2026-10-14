@@ -55,6 +55,15 @@ same class return the same entity. The same class can be registered independentl
 worlds — metadata is world-specific. Passing an explicit id for an already-registered class (with
 a different id) throws, as does passing a name with no matching component entity.
 
+### Registration provenance
+
+Components created during a module's `init` become its `ChildOf` children, through
+[`world.scope`](./modules.md#scopes-and-module-provenance). Read `world.component(C).parent`,
+or walk parents to the nearest `Module` when an explicit hierarchy intervenes (for example
+`OneOf` values). Existing registrations are never reparented by a second module. There is no
+registrar list or per-trait audit; trait additions do not create separate entities. Vecs' own
+constructor-installed built-in modules remain unscoped.
+
 ### Id pools
 
 Entity ids are drawn from configurable pools. The defaults

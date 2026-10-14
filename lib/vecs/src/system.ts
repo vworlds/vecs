@@ -139,6 +139,19 @@ export class System<R extends ComponentType[] = []>
     this.phase(ON_UPDATE);
   }
 
+  /** Whether this system processes events and runs callbacks. */
+  public get enabled(): boolean {
+    return this._enabled;
+  }
+
+  /**
+   * Current cadence clock. Compare with {@link ALWAYS_TICK_SOURCE} to recognise
+   * the default every-frame cadence; interval/rate configuration replaces it.
+   */
+  public get cadence(): ITickSource {
+    return this._tickSource;
+  }
+
   /** @internal Reject non-reactive source/children terms before registering this system. */
   public override _build(): this {
     if (this._dsl !== undefined && containsDownTerm(this._dsl)) {

@@ -87,6 +87,11 @@ export class IntervalTickSource extends BaseTickSource {
     this._tickThresholdMs = this._intervalMs * (1 - INTERVAL_RELATIVE_TOLERANCE);
   }
 
+  /** Configured interval duration in seconds (not milliseconds). */
+  public get seconds(): number {
+    return this._intervalMs / 1000;
+  }
+
   /** @internal */
   public _evalTick(deltaMs: number, frameId: number): boolean {
     if (this._lastEvaluatedFrame === frameId) {
@@ -137,6 +142,16 @@ export class RateTickSource extends BaseTickSource {
     }
     this._rate = rate;
     this._source = source;
+  }
+
+  /** Number of upstream ticks, or world frames, per tick of this source. */
+  public get rate(): number {
+    return this._rate;
+  }
+
+  /** Upstream clock, or `undefined` when this source counts world frames. */
+  public get source(): ITickSource | undefined {
+    return this._source;
   }
 
   /** @internal */
@@ -197,5 +212,5 @@ class _AlwaysTickSource implements ITickSource {
   public _register(_world: World): void {}
 }
 
-/** @internal Shared default clock for unconfigured systems. */
+/** Shared every-frame clock. Compare with `system.cadence` to identify default cadence. */
 export const ALWAYS_TICK_SOURCE: ITickSource = new _AlwaysTickSource();

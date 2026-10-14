@@ -206,12 +206,13 @@ world.dispose();
 handle.released; // true
 ```
 
-Each entity goes through the ordinary destroy path. Every `remove` hook fires once,
-[cleanup policies and cascades](./relationships.md#cleanup-when-a-target-dies) run as for any
-`destroy()`, and an entity that a `ChildOf` or `OwnedTarget` cascade, or a hook, has already
-destroyed is skipped instead of destroyed twice.
+Disposal uses two passes through the existing entity destroy path. Every `remove` hook fires once;
+entities already destroyed by a hook or cascade are skipped. In **pass 1**, every application entity
+uses ordinary [cleanup policies and cascades](./relationships.md#cleanup-when-a-target-dies).
+This includes plain entities created inside module scopes, even though their parent is infrastructure.
+Application hook-generated commands settle before pass 2 starts.
 
-The final pass destroys infrastructure too (`lib/vecs/src/world/world.disposal.ts`):
+**Pass 2** destroys remaining infrastructure (`lib/vecs/src/world/world.disposal.ts`):
 
 | Infrastructure                | Recognized by                                                 |
 | ----------------------------- | ------------------------------------------------------------- |
@@ -223,12 +224,22 @@ Data stored on component entities (including singletons set with `world.set`) is
 after queued application cleanup. Bind module-owned resources to that data with `remove` hooks;
 you do not need a separate disposal callback.
 
+During pass 2 only, cleanup policies are suspended. `ChildOf`/`OwnedTarget` do not cascade;
+children are destroyed explicitly in the pass. A component still carried by another entity is removed
+from each carrier through the ordinary remove path, firing its public `remove` hooks, instead of
+throwing or deleting the carriers. Irrevocable relationship-trait guards are bypassed, extending the
+existing destroy-time exemption. This suspension also covers the pass's hook-generated commands and
+is reset in `finally`. Successful disposal leaves nothing, including component-carrier cycles.
+
 - **Order.** Among unrelated entities the order is unspecified, so do not make a hook depend on it.
-  Systems and queries go before the components they read; modules prefer reverse registration
-  order. Every [component key](#entities-as-component-keys) goes after its carriers, taking
-  precedence over module order when the two conflict. If teardown stalls with registered entities,
-  it throws an `Error` listing every survivor's eid, name or component class, and its carriers.
-  Cycles are reported, not broken. `clearAllEntities()` retains its own throwing behavior.
+  Pass 2 processes systems and queries first, then modules in reverse registration order, then the
+  rest. Beyond those priorities the order is unspecified; it is not a resource dependency contract.
+  There is no infrastructure carriers-first sort or dependency-survivor error. If an internal bug
+  prevents a full teardown pass from destroying anything, an invariant error names the remaining
+  registered entities instead of looping forever. `clearAllEntities()` retains its
+  ordinary cleanup policies and throwing behavior; it orders both carriers before component keys
+  and children before parents, and throws if those dependencies cannot be ordered. The suspension
+  belongs only to `dispose()`.
 - **Call site.** Call at top level: not inside `progress()`, `defer`, a command drain or an
   entity's destroy. A forbidden call throws before disposal changes anything, leaving the world
   usable; finish the enclosing operation and dispose afterwards. Ordinary synchronous top-level
