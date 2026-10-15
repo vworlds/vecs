@@ -233,12 +233,6 @@ session in that worktree. Follow the owner's model order: `codexbal/gpt-6.1-sol`
 
 ## Review and merge
 
-### Merging a pack
-
-Merge an approved integration-pack PR with `merge-task.sh <pr> --merge-commit`. This uses a merge
-commit so the pack branch's integration history is preserved. The `pack/*` head branch is kept by
-default; pass `--delete-branch` only when the owner wants it removed.
-
 1. Read the READY report and the diff. Verify the behavior independently: run the code, and use
    your own oracle for any invariant the worker claims. Check per-tick cost against
    `lib/vecs/docs/design-guide.md`; require benchmark evidence for hot-path changes.
@@ -252,3 +246,9 @@ default; pass `--delete-branch` only when the owner wants it removed.
 4. **Stop the worker before merging**, so it doesn't spend tokens reacting to the merge:
    `worker.sh stop <worktree>`.
 5. `merge-task.sh <pr>`.
+
+### Merging a pack
+
+Merge an approved integration-pack PR with `merge-task.sh <pr> --merge-commit`. This uses a merge
+commit so the pack branch's integration history is preserved. The `pack/*` head branch is kept by
+default; pass `--delete-branch` only when the owner wants it removed.
