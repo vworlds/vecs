@@ -82,6 +82,10 @@ export class PhysicsEngine {
   public readonly fast!: FastPath;
   /** Reusable buffer that `PhysicsPoseSyncOut` exports the move events into. */
   public moveExporter!: MoveExporter;
+  /** Reused post-step entity view, published by pose-out; may include repeated application writes. */
+  public readonly poseChanges: Entity[] = [];
+  /** Application poses admitted by the existing pose-in systems, awaiting the next pose-out. */
+  public readonly pendingPoseChanges: Entity[] = [];
   public readonly phases!: PhysicsPhases;
 
   // Resolved configuration (flattened from PhysicsOptions).
@@ -213,6 +217,8 @@ export class PhysicsEngine {
       return;
     }
     this.disposed = true;
+    this.poseChanges.length = 0;
+    this.pendingPoseChanges.length = 0;
     if (this.worldId !== undefined) {
       this.box2d.b2DestroyWorld(this.worldId);
     }

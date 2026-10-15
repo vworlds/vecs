@@ -40,6 +40,9 @@ Keep the [Glossary](./glossary.md) at hand for terminology.
 
 For Node clients that need replicated Phaser poses, see [Headless clients](../../vecs-phaser-client/README.md#headless-clients).
 
+For physics integration, see the [post-step pose-change view](../../vecs-physics/docs/queries.md#pose-changes)
+after reading the execution-model and systems guides.
+
 | Guide                                              | Covers                                                                                                   |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | [getting-started.md](./getting-started.md)         | A runnable tutorial from `npm install` to a ticking world.                                               |

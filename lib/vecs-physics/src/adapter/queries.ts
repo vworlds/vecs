@@ -2,7 +2,7 @@
 //
 // The ONE narrow imperative entry point vecs-physics exposes: world-scoped,
 // read-only queries against the live Box2D world. Results are always Vecs
-// entities (shape entities) and plain data — never Box2D handles.
+// entities (shapes for spatial hits, bodies for pose changes) and plain data — never Box2D handles.
 //
 // box2d3-wasm imports are confined to `src/adapter/`; this file is part of
 // that boundary. Scratch allocations (b2Vec2, b2QueryFilter, b2AABB,
@@ -140,7 +140,7 @@ export interface ShapeCastHit {
 
 /**
  * Stable, world-scoped facade for synchronous read-only physics queries: ray
- * casts, shape casts, and spatial overlaps. Obtained via {@link physics}.
+ * casts, shape casts, spatial overlaps and the post-step pose-change view. Obtained via {@link physics}.
  * Never mutates the world, never creates or destroys entities, and never
  * wakes bodies.
  */
@@ -155,6 +155,17 @@ export interface PhysicsQueries {
 
   /** Returns the settings the Box2D world was built with. The object is shared: do not mutate it. */
   settings(): PhysicsSettings;
+
+  /**
+   * Reused read-only entity view published by the most recent pose-out. Contains live Dynamic
+   * move events (including unchanged final sleep events), preceded by application pose writes
+   * admitted by the existing pose-in systems, including static/disabled bodies. Entries may repeat.
+   * Empty before the first pose-out and cleared on disposal. The same array is overwritten by the
+   * next pose-out: consume it after physics, do not mutate it, and copy it if retaining a snapshot.
+   * No Box2D handles or per-call allocations. Application writes made after pose-in drains appear
+   * on the following tick; this is not a synchronous ECS pose-write notification.
+   */
+  poseChanges(): readonly Entity[];
 
   /**
    * Returns whether `entity`'s body is awake: `false` for an entity without a live body. It
@@ -269,6 +280,10 @@ class PhysicsQueriesImpl implements PhysicsQueries {
       bodyId !== undefined &&
       this.engine.fast.module._b2x_Body_IsAwake(bodyId.index1, rev(bodyId)) !== 0
     );
+  }
+
+  public poseChanges(): readonly Entity[] {
+    return this.engine.poseChanges;
   }
 
   public settings(): PhysicsSettings {

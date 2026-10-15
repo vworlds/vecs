@@ -14,7 +14,9 @@ import {
   stepMotion,
 } from "@vworlds/vecs-phaser";
 import {
+  Body,
   BodyMotion,
+  BodyType,
   physics,
   Position as PhysicsPosition,
   Rotation as PhysicsRotation,
@@ -171,8 +173,13 @@ export interface DeadReckonedOptions {
  * written. It asks Box2D whether the body is awake only when the physics pose did
  * not change since the previous step, since a sleeping body never moves, and reads the rest of the
  * body's motion only when it writes a baseline. An unchanged resting baseline is not visited.
- * The reactive position watcher excludes moving baselines; a rotation set hook covers rotation-only
- * writes. The eligible query retains the full pose query's membership order for baseline writes.
+ * Pose-out's reused `PhysicsQueries.poseChanges()` view supplies eligibility without a DR hook or
+ * watcher on the physics pose. Bodyless entities and non-Dynamic or disabled bodies remain in an
+ * always-eligible compatibility lane, costing the original cheap comparison on unchanged frames.
+ * A resting Dynamic pose written after pose-in drains is checked this tick if pose-out already
+ * reported the body, otherwise next tick. Baselines describe the current ECS pose; moving
+ * baselines are checked every tick regardless. The eligible query
+ * retains the full pose query's membership order for baseline writes.
  *
  * `Motion` and the prediction are world-local: a body restored in another world, by
  * `moveSubtree` or `restoreSubtree`, starts with a fresh prediction and gets a new baseline, at the
@@ -197,6 +204,7 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
     world.component(MotionPrediction).snapshotPolicy(DontSnapshot);
     world.component(MovingBaseline).snapshotPolicy(DontSnapshot);
     world.component(PendingMotion).snapshotPolicy(DontSnapshot);
+    world.component(ApplicationBaseline).snapshotPolicy(DontSnapshot);
 
     // Entities whose first baseline may not be written yet, and entities that left dead reckoning
     // and are due a render pose. `phaser.guard.motion` drains both before the frame is recorded.
@@ -267,56 +275,69 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
     const scratch = new BodyMotion();
     let nextOrder = 0;
 
-    world
+    const members = world
       .system("phaser.motion.membership")
       .with(PhysicsPosition, PhysicsRotation, DeadReckoned, Motion, MotionPrediction)
+      .track()
       .phase(POST_UPDATE)
       .enter([MotionPrediction], (entity, [prediction]) => {
         prediction.order = nextOrder++;
         // The late guard may already have made this prediction eligible. Notify orderBy too.
         entity.modified(MotionPrediction);
         entity.add(prediction.primed && !prediction.rest ? MovingBaseline : PendingMotion);
+        if (!entity.has(Body)) {
+          entity.add(ApplicationBaseline);
+        }
       })
       .exit((entity) => {
         entity.remove(MovingBaseline);
         entity.remove(PendingMotion);
+        entity.remove(ApplicationBaseline);
       });
 
-    // Moving predictions already need a tick. Excluding them prevents their pose writes from
-    // routing update callbacks; resting entities become eligible only when their pose is written.
-    const pending = (entity: Entity): void => {
-      if (!entity.has(PendingMotion)) {
-        entity.add(PendingMotion);
-      }
-    };
-    // Pose-out can write only Rotation (a body spinning in place), and applications can too.
-    // A hook avoids a second routed watcher; moving bodies pay only a direct tag check here.
-    world.component(PhysicsRotation).on("set", (entity) => {
-      if (!entity.has(MovingBaseline) && entity.has(DeadReckoned)) {
-        pending(entity);
-      }
-    });
+    // Application-owned poses keep the legacy per-tick comparison. Watch Body configuration,
+    // never the pose components: physics write-back must not pay a DR routing probe or hook.
     world
-      .system("phaser.motion.changed")
+      .system("phaser.motion.body")
       .with(PhysicsPosition, PhysicsRotation, DeadReckoned, Motion, MotionPrediction)
-      .without(MovingBaseline)
       .phase(POST_UPDATE)
-      .update(PhysicsPosition, pending);
+      .update({ watch: Body, onEnter: true }, (entity, body) => {
+        if (body.type !== BodyType.Dynamic || !body.enabled) {
+          entity.add(ApplicationBaseline);
+        } else {
+          entity.remove(ApplicationBaseline);
+        }
+      })
+      .exit((entity) => {
+        if (!entity.destroyed && !entity.has(Body) && members.has(entity)) {
+          entity.add(ApplicationBaseline);
+        }
+      });
 
     world
+      .system("phaser.motion.changed")
+      .phase(POST_UPDATE)
+      .run(() => {
+        for (const entity of queries.poseChanges()) {
+          // The usual case is already eligible: no component lookup or queued command.
+          if (!sync.has(entity) && members.has(entity)) {
+            entity.add(PendingMotion);
+          }
+        }
+      });
+
+    const sync = world
       .system("phaser.sync.motion")
       .with(PhysicsPosition, PhysicsRotation, DeadReckoned, Motion, MotionPrediction)
-      .with({ any: [MovingBaseline, PendingMotion] })
+      .with({ any: [MovingBaseline, PendingMotion, ApplicationBaseline] })
       // Eligibility changes must not reorder baseline writes (and therefore snapshots on the wire).
       // OrderedSet maintains this order on entry/removal, without sorting every moving tick.
       .orderBy([MotionPrediction], (_a, [a], _b, [b]) => a.order - b.order)
       .phase(POST_UPDATE)
+      .enter((entity) => entity.remove(PendingMotion))
       .each(
         [PhysicsPosition, PhysicsRotation, Motion, MotionPrediction],
         (entity, [position, rotation, motion, prediction]) => {
-          if (entity.has(PendingMotion)) {
-            entity.remove(PendingMotion);
-          }
           const frame = world.frame;
           const unchanged =
             position.x === prediction.lastX &&
@@ -560,6 +581,9 @@ class MovingBaseline {}
 
 /** Local eligibility consumed by the next motion comparison after entry or a resting pose write. */
 class PendingMotion {}
+
+/** Compatibility lane for poses not driven by an enabled Dynamic physics body. */
+class ApplicationBaseline {}
 
 const TWO_PI = 2 * Math.PI;
 

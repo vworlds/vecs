@@ -1,4 +1,4 @@
-import { ON_STORE } from "@vworlds/vecs";
+import { ON_STORE, POST_UPDATE, type Entity } from "@vworlds/vecs";
 import { Motion, phaserMotionComponents, phaserNetworkComponents } from "@vworlds/vecs-phaser";
 import {
   Body,
@@ -7,6 +7,7 @@ import {
   Circle,
   LinearVelocity,
   PhysicsModule,
+  physics,
   Position,
   preloadPhysics,
   Rotation,
@@ -19,12 +20,13 @@ import { DeadReckoned, DeadReckonedModule } from "../src/index.js";
 
 beforeAll(preloadPhysics);
 
-function scene(maxBaselineAge = 30) {
+function scene(maxBaselineAge = 30, beforeMotion?: (world: ServerWorld) => void) {
   const world = new ServerWorld({
     networkComponents: [...phaserNetworkComponents, ...phaserMotionComponents],
     keepAliveFrames: 1,
   });
   world.module(PhysicsModule, { gravity: { x: 0, y: 0 }, fixedTimeStep: 1 / 30 });
+  beforeMotion?.(world);
   world.module(DeadReckonedModule, { maxBaselineAge });
   const writes: number[] = [];
   world.component(Motion).on("set", (_entity, motion) => writes.push(motion.frame));
@@ -49,6 +51,112 @@ function scene(maxBaselineAge = 30) {
 }
 
 describe("dead-reckoning eligibility", () => {
+  it.each([
+    { type: BodyType.Static, enabled: true },
+    { type: BodyType.Kinematic, enabled: true },
+    { type: BodyType.Dynamic, enabled: false },
+  ])(
+    "keeps application-owned $type / enabled=$enabled poses in the compatibility lane",
+    (config) => {
+      let target: Entity | undefined;
+      let edit = false;
+      const { world, step, moving } = scene(30, (world) => {
+        world
+          .system("late application pose")
+          .phase(POST_UPDATE)
+          .run(() => {
+            if (edit) {
+              target!.set(Rotation, { angle: 1 });
+              edit = false;
+            }
+          });
+      });
+      try {
+        target = moving().set(Body, config).set(LinearVelocity, { x: 0, y: 0 });
+        step(3);
+        expect(target.get(Motion)).toMatchObject({ rest: true });
+        edit = true;
+        step();
+        expect(target.get(Motion)).toMatchObject({ angle: 1, rest: true, frame: world.frame - 1 });
+      } finally {
+        world.dispose();
+      }
+    }
+  );
+
+  it.each([false, true])(
+    "checks a late resting Dynamic pose on its next eligible tick (awake=%s)",
+    (awake) => {
+      let target: Entity | undefined;
+      let edit = false;
+      const { world, step, moving } = scene(30, (world) => {
+        world
+          .system("late sleeping teleport")
+          .phase(POST_UPDATE)
+          .run(() => {
+            if (edit) {
+              target!.set(Position, { x: 10, y: 0 });
+              edit = false;
+            }
+          });
+      });
+      try {
+        target = moving()
+          .set(LinearVelocity, { x: 0, y: 0 })
+          .set(Sleep, { enabled: !awake, awake });
+        step(3);
+        const baseline = { ...target.get(Motion)! };
+        expect(baseline.rest).toBe(true);
+        expect(physics(world).isAwake(target)).toBe(awake);
+        edit = true;
+        step();
+        expect(target.get(Position)).toEqual({ x: 10, y: 0 });
+        expect(physics(world).poseChanges().includes(target)).toBe(awake);
+        if (awake) {
+          expect(target.get(Motion)).toMatchObject({ x: 10, rest: true, frame: world.frame - 1 });
+        } else {
+          expect(target.get(Motion)).toEqual(baseline);
+        }
+        expect(physics(world).overlapCircle({ center: { x: 0, y: 0 }, radius: 0.6 })).toHaveLength(
+          1
+        );
+        expect(physics(world).overlapCircle({ center: { x: 10, y: 0 }, radius: 0.6 })).toHaveLength(
+          0
+        );
+        step();
+        expect(target.get(Motion)).toMatchObject({ x: 10, rest: true });
+        if (!awake) {
+          expect(target.get(Motion)!.frame).toBe(world.frame - 1);
+        }
+        expect(physics(world).overlapCircle({ center: { x: 10, y: 0 }, radius: 0.6 })).toHaveLength(
+          1
+        );
+      } finally {
+        world.dispose();
+      }
+    }
+  );
+
+  it("switches a sleeping Dynamic body into the bodyless compatibility lane", () => {
+    const { world, step, moving } = scene();
+    try {
+      const target = moving()
+        .set(LinearVelocity, { x: 0, y: 0 })
+        .set(Sleep, { enabled: true, awake: false });
+      step(3);
+      target.remove(Body);
+      step();
+      target.set(Rotation, { angle: 1 });
+      step();
+      expect(target.get(Motion)).toMatchObject({ angle: 1, rest: true, frame: world.frame - 1 });
+      target.set(Body, { type: BodyType.Dynamic });
+      step(3);
+      expect(target.get(Motion)!.rest).toBe(true);
+    } finally {
+      world.dispose();
+    }
+  });
+
   it("preserves baseline write order when an earlier resting entity becomes eligible again", () => {
     const { world, step, moving } = scene();
     try {

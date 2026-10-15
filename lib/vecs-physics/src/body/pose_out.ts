@@ -13,7 +13,9 @@ import { PhysicsCoreModule } from "../core/module.js";
 
 /** Export moved bodies once per post-step tick and write only changed Dynamic-body components.
  * The pinned fast path refreshes heap views; optional components and modification routing remain
- * unchanged, and no per-body Box2D handle, marshalling object or typed-array view is created. */
+ * unchanged, and no per-body Box2D handle, marshalling object or typed-array view is created.
+ * Publishes the reused `PhysicsQueries.poseChanges()` view, including admitted application poses
+ * and final sleep events even when their pose did not change. */
 export class BodyPoseOutModule extends Module {
   public init(): void {
     const world = this.world;
@@ -47,6 +49,15 @@ export class BodyPoseOutModule extends Module {
         // Export after preceding postStep systems; exportMoves also refreshes memory views.
         const exporter = engine.moveExporter;
         const bodyEntities = engine.bodyEntities;
+        const changes = engine.poseChanges;
+        const pending = engine.pendingPoseChanges;
+        let changedCount = 0;
+        for (const entity of pending) {
+          if (!entity.destroyed && entity.has(ids.body)) {
+            changes[changedCount++] = entity;
+          }
+        }
+        pending.length = 0;
         const count = exporter.exportMoves(engine.world, flags);
         const i32 = fast.i32;
         const f32 = fast.f32;
@@ -63,8 +74,10 @@ export class BodyPoseOutModule extends Module {
           if (body?.type !== BodyType.Dynamic) {
             continue;
           }
+          changes[changedCount++] = entity;
           writePose(entity, f32, base, offsets, ids);
         }
+        changes.length = changedCount;
       })
       .add(PhysicsSystemTag);
   }
