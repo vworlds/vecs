@@ -27,7 +27,7 @@ test("master, latest, numeric/range tags, invalid versions and run numbers fail 
   assert.throws(() => betaVersion("not-a-version", "test", 1));
 });
 
-test("all nine manifests and prepared dependencies use exact beta pins; external packages unchanged", async () => {
+test("all published manifests and prepared dependencies use exact beta pins; external packages unchanged", async () => {
   const root = await mkdtemp(resolve(".beta-version-test-"));
   try {
     for (const name of betaPackageNames) {

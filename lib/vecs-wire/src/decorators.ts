@@ -65,6 +65,24 @@ const scalarMethods: Record<WireScalarType, { read: string; write: string }> = {
 const fieldsByConstructor = new WeakMap<Function, IWireField[]>();
 const compiledConstructors = new WeakSet<Function>();
 
+/**
+ * Read a detached, frozen snapshot of registered wire fields, base classes first.
+ * Non-wire classes return an empty array. Standard decorators register when an
+ * instance is constructed; construct one before reading their metadata.
+ */
+export function wireFields(
+  C: abstract new () => unknown
+): readonly { key: string; spec: WireTypeSpec }[] {
+  return Object.freeze(
+    getWireFields(C as DecoratedConstructor).map(({ key, spec }) =>
+      Object.freeze({
+        key,
+        spec: Array.isArray(spec) ? (Object.freeze([...spec]) as WireTypeSpec) : spec,
+      })
+    )
+  );
+}
+
 export function wireType(spec: WireTypeSpec): PropertyDecorator {
   assertValidSpec(spec);
 

@@ -13,7 +13,7 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @vworlds/vecs && npm run build -w @vworlds/vecs-wire && npm run build -w @vworlds/vecs-protocol && npm run build -w @vworlds/vecs-client && npm run build -w @vworlds/vecs-server && npm run clean -w @vworlds/vecs-physics && npm run compile -w @vworlds/vecs-physics && npm run build -w @vworlds/vecs-phaser && npm run build -w @vworlds/vecs-phaser-server && npm run build -w @vworlds/vecs-phaser-client && npm run build -w @vworlds/vecs-demo-client --if-present && npm run build -w @vworlds/vecs-demo-server --if-present",
+    "build": "npm run build -w @vworlds/vecs && npm run build -w @vworlds/vecs-wire && npm run build -w @vworlds/vecs-protocol && npm run build -w @vworlds/vecs-client && npm run build -w @vworlds/vecs-server && npm run build -w @vworlds/vecs-mcp && npm run clean -w @vworlds/vecs-physics && npm run compile -w @vworlds/vecs-physics && npm run build -w @vworlds/vecs-phaser && npm run build -w @vworlds/vecs-phaser-server && npm run build -w @vworlds/vecs-phaser-client && npm run build -w @vworlds/vecs-demo-client --if-present && npm run build -w @vworlds/vecs-demo-server --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc -p bench",
     "lint": "npm run lint --workspaces --if-present && eslint bench",
     "format": "prettier --write . --ignore-unknown && prettier --write --plugin=prettier-plugin-sh \"scripts/**/*.sh\" \".agents/skills/release/release.sh\" \"apps/*/docker/*.sh\" && prettier --write --plugin=prettier-plugin-nginx --parser nginx \"apps/*/docker/nginx.conf\" && dockerfmt -w -n apps/*/docker/Dockerfile",

@@ -7,6 +7,7 @@ export const betaPackageNames = [
   "vecs-physics",
   "vecs-protocol",
   "vecs-server",
+  "vecs-mcp",
   "vecs-wire",
   "vecs-phaser",
   "vecs-phaser-server",
@@ -30,7 +31,7 @@ export function betaVersion(base, branch, runNumber) {
   return { slug, version };
 }
 
-/** Set all nine package versions and exact internal dependency pins in a checkout. */
+/** Set all published package versions and exact internal dependency pins in a checkout. */
 export async function setBetaVersions(root, branch, runNumber) {
   const packages = await Promise.all(
     betaPackageNames.map(async (name) => {

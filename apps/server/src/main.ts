@@ -30,6 +30,14 @@ world.module(DemoModule, {
   worldName: world.name,
 });
 
+if (process.env.VECS_MCP_PORT) {
+  const { VecsMcpServer } = await import("@vworlds/vecs-mcp");
+  const mcp = new VecsMcpServer();
+  mcp.registerWorld(world);
+  const port = await mcp.listen(Number(process.env.VECS_MCP_PORT));
+  console.log(`vecs MCP listening on http://127.0.0.1:${port}/mcp`);
+}
+
 const vecsListener = new VecsListener();
 vecsListener.registerWorld(world);
 await vecsListener.listen(app, createDgramOptions());

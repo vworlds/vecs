@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 const workspaceRoot = new URL("../..", import.meta.url).pathname;
 const packages = [
   "@vworlds/vecs",
+  "@vworlds/vecs-mcp",
   "@vworlds/vecs-phaser",
   "@vworlds/vecs-phaser-server",
   "@vworlds/vecs-physics",
@@ -14,6 +15,9 @@ const packages = [
 export default defineConfig({
   resolve: {
     alias: {
+      "@vworlds/vecs-mcp/schema": new URL("../../lib/vecs-mcp/src/schema/index.ts", import.meta.url)
+        .pathname,
+      "@vworlds/vecs-mcp": new URL("../../lib/vecs-mcp/src/index.ts", import.meta.url).pathname,
       "@vworlds/vecs": new URL("../../lib/vecs/src/index.ts", import.meta.url).pathname,
       "@vworlds/vecs-phaser": new URL("../../lib/vecs-phaser/src/index.ts", import.meta.url)
         .pathname,

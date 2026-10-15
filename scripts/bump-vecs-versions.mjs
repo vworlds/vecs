@@ -6,6 +6,7 @@ const packagePaths = [
   "lib/vecs-physics/package.json",
   "lib/vecs-protocol/package.json",
   "lib/vecs-server/package.json",
+  "lib/vecs-mcp/package.json",
   "lib/vecs-wire/package.json",
   "lib/vecs-phaser/package.json",
   "lib/vecs-phaser-server/package.json",
@@ -18,6 +19,7 @@ const syncedDependencyNames = [
   "@vworlds/vecs-wire",
   "@vworlds/vecs-client",
   "@vworlds/vecs-server",
+  "@vworlds/vecs-mcp",
   "@vworlds/vecs-physics",
   "@vworlds/vecs-phaser",
 ];

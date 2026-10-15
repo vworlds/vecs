@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@vworlds/vecs": "*",
+    "@vworlds/vecs-mcp": "*",
     "@vworlds/vecs-phaser": "*",
     "@vworlds/vecs-phaser-server": "*",
     "@vworlds/vecs-physics": "*",

@@ -2,6 +2,9 @@
 
 Binary serialization utilities for `vecs` networking packages.
 
+See the [documentation map](./docs/README.md), including
+[read-only field metadata](./docs/field-metadata.md) with `wireFields(C)`.
+
 `@vworlds/vecs-wire` provides a small TypeScript encoder/decoder pair for writing deterministic binary messages into caller-owned `Uint8Array` buffers. It is used by the protocol, client, and server packages to encode primitive values, flexible `any` payloads, and custom classes that implement `wireEncode` / `wireDecode`.
 
 ## Install
