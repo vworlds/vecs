@@ -8,8 +8,7 @@ import {
 import { cid_pack, setLocalComponentMin } from "./cid.js";
 
 const DEFAULT_ENTITY_ID_START = 1000;
-const MODULE_ID_RANGE_SIZE = 100;
-const DEFAULT_MODULE_ID_COUNT = MODULE_ID_RANGE_SIZE;
+const DEFAULT_MODULE_ID_COUNT = 100;
 let configuredLocalComponentMin: number | undefined;
 
 export interface RegisteredNetworkComponent {
@@ -104,9 +103,9 @@ function configureLocalComponentMin(localComponentMin: number): void {
 
 function buildNetworkIdPools(options: NetworkWorldOptions): IdPoolConfig[] {
   const entityIdStart = options.entityIdStart ?? DEFAULT_ENTITY_ID_START;
-  validateEntityStart("entityIdStart", entityIdStart);
+  validatePositiveInteger("entityIdStart", entityIdStart);
   const moduleIdCount = options.moduleIdCount ?? DEFAULT_MODULE_ID_COUNT;
-  validateEntityStart("moduleIdCount", moduleIdCount);
+  validatePositiveInteger("moduleIdCount", moduleIdCount);
   const moduleIdStart = entityIdStart - moduleIdCount;
   if (moduleIdStart <= 0) {
     throw new Error("entityIdStart and moduleIdCount leave no room for component ids");
@@ -128,7 +127,7 @@ function buildNetworkIdPools(options: NetworkWorldOptions): IdPoolConfig[] {
   }
 
   const localEntityIdStart = options.localEntityIdStart;
-  validateEntityStart("localEntityIdStart", localEntityIdStart);
+  validatePositiveInteger("localEntityIdStart", localEntityIdStart);
   if (localEntityIdStart <= entityIdStart) {
     throw new Error("localEntityIdStart must be greater than entityIdStart");
   }
@@ -162,7 +161,7 @@ function nextPowerOfTwo(value: number): number {
   return power;
 }
 
-function validateEntityStart(name: string, value: EID): void {
+function validatePositiveInteger(name: string, value: number): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive safe integer`);
   }

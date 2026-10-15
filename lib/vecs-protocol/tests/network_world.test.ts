@@ -6,39 +6,39 @@ class Position {}
 class Velocity {}
 class LocalOnly {}
 
+function makeModule(index: number) {
+  class TestModule extends Module {
+    public init(): void {}
+  }
+  Object.defineProperty(TestModule, "name", { value: `Module${index}` });
+  return TestModule;
+}
+
+function fillModulePool(world: NetworkWorld): void {
+  const pool = world.pools.find((candidate) => candidate.name === "module")!;
+  const allocated = world.entities
+    .values()
+    .filter((entity) => entity.eid >= pool.min && entity.eid <= pool.max!).length;
+  const capacity = pool.max! - pool.min + 1;
+  for (let index = allocated; index < capacity; index++) {
+    world.module(makeModule(index));
+  }
+}
+
 describe("NetworkWorld", () => {
   it("reserves the requested number of module ids and defaults to 100", () => {
-    const makeModules = (count: number) =>
-      Array.from({ length: count }, (_, index) => {
-        class TestModule extends Module {
-          public init(): void {}
-        }
-        Object.defineProperty(TestModule, "name", { value: `Module${index}` });
-        return TestModule;
-      });
-
     const expanded = new NetworkWorld({ moduleIdCount: 300 });
-    const pool = expanded.pools.find((candidate) => candidate.name === "module")!;
-    const alreadyAllocated = expanded.entities
-      .values()
-      .filter((entity) => entity.eid >= pool.min && entity.eid <= pool.max!).length;
-    makeModules(300 - alreadyAllocated).forEach((ModuleClass) => expanded.module(ModuleClass));
+    fillModulePool(expanded);
     expect(expanded.pools.find((pool) => pool.name === "module")).toEqual({
       name: "module",
       min: 700,
       max: 999,
     });
-    expect(() => expanded.module(makeModules(301)[300])).toThrow("Id pool 'module' is exhausted");
+    expect(() => expanded.module(makeModule(300))).toThrow("Id pool 'module' is exhausted");
 
     const defaults = new NetworkWorld();
-    const defaultPool = defaults.pools.find((candidate) => candidate.name === "module")!;
-    const defaultAlreadyAllocated = defaults.entities
-      .values()
-      .filter((entity) => entity.eid >= defaultPool.min && entity.eid <= defaultPool.max!).length;
-    makeModules(100 - defaultAlreadyAllocated).forEach((ModuleClass) =>
-      defaults.module(ModuleClass)
-    );
-    expect(() => defaults.module(makeModules(1)[0])).toThrow("Id pool 'module' is exhausted");
+    fillModulePool(defaults);
+    expect(() => defaults.module(makeModule(100))).toThrow("Id pool 'module' is exhausted");
   });
 
   it.each([0, -1, 1.5])("rejects invalid moduleIdCount %s", (moduleIdCount) => {
