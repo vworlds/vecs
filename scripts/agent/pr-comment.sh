@@ -11,4 +11,5 @@ if head -c 8 "$file" | grep -q '^\[worker\]'; then cp "$file" "$body"; else {
   printf '[worker] '
   cat "$file"
 } > "$body"; fi
+"$(dirname "$0")/check-markdown.sh" "$body"
 retry 3 gh pr comment "$pr" -R "$REPO_SLUG" --body-file "$body"
