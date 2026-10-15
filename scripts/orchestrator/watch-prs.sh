@@ -55,6 +55,11 @@ set -uo pipefail
 . "$(dirname "$0")/../lib/board.sh"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/vecs-watch"
 mkdir -p "$STATE"
+exec 9> "$STATE/watcher.lock"
+if ! flock -n 9; then
+  printf 'watch-prs: another watcher is already running for %s\n' "$STATE" >&2
+  exit 4
+fi
 INTERVAL="${INTERVAL:-10}"
 BUDGET_RESERVE="${BUDGET_RESERVE:-500}"
 POLL_COST=2 # GraphQL points a poll costs
@@ -87,7 +92,10 @@ needs_me() {
 # Watcher-only board writes must not spend the remaining GraphQL reserve when BLIND.
 watch_progress() {
   [ "${BLIND:-false}" != true ] || return 2
-  board_progress "$@"
+  board_progress "$@" || {
+    quiet "watcher: Progress update failed for #$1 ($*)"
+    return 1
+  }
 }
 watch_progress_clear() { watch_progress "$1" state=- round=- ci=ok; }
 watch_progress_move() {
@@ -97,13 +105,13 @@ watch_progress_move() {
 # report_comment <number> <first line> <event line>: wake or stay quiet, and on a worker's READY
 # for an open task PR move its card to In review.
 report_comment() {
-  local number="$1" first="$2" line="$3"
+  local number="$1" first="$2" line="$3" confirmed_open="${4:-false}"
   if needs_me "$first"; then emit "$line"; else quiet "$line"; fi
-  [ -e "$STATE/open-$number" ] || return 0
+  [ -e "$STATE/open-$number" ] || [ "$confirmed_open" = true ] || return 0
   local round
   case "$first" in
     "[worker] READY"*)
-      watch_progress_move "$number" "In review" 2> /dev/null || true
+      watch_progress_move "$number" "In review" 2> /dev/null || quiet "watcher: In review move failed for #$number"
       round="$(grep -o -i -E 'round [0-9]+' <<< "$first" | grep -o -E '[0-9]+' | head -1)"
       watch_progress "$number" state=ready ${round:+round=$round} 2> /dev/null || true
       ;;
@@ -406,7 +414,7 @@ while :; do
         O) progress_of_head "$num" "$url" "$first" "$second" ;;
         C)
           once "c-$(key "$url")" || continue
-          report_comment "$num" "$first" "PR #$num ($branch) comment: $first"
+          report_comment "$num" "$first" "PR #$num ($branch) comment: $first" true
           ;;
         S)
           once "s-$(key "$url")" \
