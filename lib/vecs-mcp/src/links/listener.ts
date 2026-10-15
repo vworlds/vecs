@@ -3,7 +3,7 @@ import { WebSocketServer } from "ws";
 import type { Router } from "../bridge/router.js";
 import { Link } from "./link.js";
 
-/** @internal WebSocket upgrades and control-frame keepalive on the MCP HTTP listener. */
+/** @internal WebSocket upgrades; the shared Link handles application-level liveness. */
 export function listenLinks(http: Server, router: Router, token?: string): () => void {
   const server = new WebSocketServer({ noServer: true });
   const links = new Set<Link>();
@@ -15,26 +15,13 @@ export function listenLinks(http: Server, router: Router, token?: string): () =>
     server.handleUpgrade(request, socket, head, (ws) => {
       const link = new Link(router, token);
       links.add(link);
-      let alive = true;
-      ws.on("pong", () => {
-        alive = true;
-      });
-      const ping = setInterval(() => {
-        if (!alive) {
-          ws.terminate();
-          return;
-        }
-        alive = false;
-        ws.ping();
-      }, 15_000);
       ws.on("message", (data, binary) => link._receive(binary ? data : data.toString()));
       ws.on("error", () => ws.terminate());
       ws.on("close", () => {
-        clearInterval(ping);
         link._disconnected();
         links.delete(link);
       });
-      link._attach(ws);
+      link._attach({ send: (data) => ws.send(data), close: () => ws.terminate() });
     });
   });
   return () => {

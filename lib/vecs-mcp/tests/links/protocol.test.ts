@@ -6,6 +6,8 @@ const target = { path: "game/world", kind: "world", node, via: ["game-id"] };
 
 describe("link frame validation", () => {
   it.each([
+    { type: "ping" },
+    { type: "pong" },
     { type: "hello", protocol: 1, role: "join", name: "game", nodeId: "game-id", token: "secret" },
     { type: "hello", protocol: 1, role: "mount", name: "game", nodeId: "game-id" },
     { type: "welcome", name: "game", nodeId: "game-id" },
@@ -20,6 +22,8 @@ describe("link frame validation", () => {
 
   it.each([
     null,
+    { type: "ping", extra: true },
+    { type: "pong", extra: true },
     [],
     {},
     { type: "hello", protocol: 2, role: "join", name: "game", nodeId: "id" },

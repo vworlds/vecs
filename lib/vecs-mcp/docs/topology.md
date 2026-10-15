@@ -47,7 +47,8 @@ IDs identify node lifetimes, not stable instance names.
 ## Lifecycle and latency
 
 `join(url)` and `mount(url)` return a `Link` immediately. Its `state` is
-`connecting`, `handshake`, `linked`, `backoff` or `closed`. Connection failures,
+`connecting`, `handshake`, `linked`, `backoff` or `closed`. Invalid URLs and schemes
+other than `ws:`/`wss:` throw synchronously from `join`/`mount`. Connection failures,
 authentication failures and name collisions do not throw; they retry with
 jittered exponential backoff from 1 s up to 30 s. `link.close()` permanently stops
 that link; `server.close()` stops all links and the listener. A join-only node
@@ -55,9 +56,11 @@ need not call `listen` unless it also needs inbound MCP or links.
 
 Advertisements replace the whole previous table after the handshake, world
 registration or a peer change. A closed transport removes its subtree immediately;
-reconnection advertises again. Listener-side WebSocket control pings run every
-15 s; an unanswered ping terminates the socket at the following check. The native
-Node 24 connector automatically responds with control pongs.
+reconnection advertises again. On idle links, the listener sends JSON `ping` frames
+every 15 s; either side answers a JSON `ping` with `pong`. Each side checks for
+45 s without an inbound frame and closes the socket, so the native Node 24 connector
+also detects a dead listener without waiting for a TCP close. Advertisements,
+requests and responses count as liveness; recent traffic suppresses needless pings.
 
 Every tool request crosses each hop once and waits for its response. Each forwarded
 request has a 30 s timeout. Errors preserve their `code` and `message`, and each
@@ -75,6 +78,7 @@ the mounting side sends `request` with `id`, `target`, `command` and `params`.
 The exposing side returns `response` with the same `id` and exactly one of
 `result` or `error: { code, message, hops }`. Invalid shapes, binary frames,
 unexpected handshake order and wrong-direction frames close the link.
+Both sides also accept `{ type: "ping" }` and `{ type: "pong" }` liveness frames.
 
 See `src/links/link.ts` for the shared state machine and `src/links/listener.ts`
-for control pings. The listener uses `ws`; connectors use Node's global WebSocket.
+for upgrades. The listener uses `ws`; connectors use Node's global WebSocket.

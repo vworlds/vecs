@@ -109,15 +109,17 @@ export class VecsMcpServer {
     this._router.register(world, name ?? worldName);
   }
 
-  /** Expose this node to a hub at a ws(s) /link URL; failures retry until close(). */
+  /** Expose this node to a hub. Invalid/non-ws(s) URLs throw; connection failures retry until close(). */
   public join(url: string): Link {
+    validateLinkUrl(url);
     const link = new Link(this._router, this._token, { url, role: "join" });
     this._links.add(link);
     return link;
   }
 
-  /** Mount a remote node at a ws(s) /link URL; failures retry until close(). */
+  /** Mount a remote node. Invalid/non-ws(s) URLs throw; connection failures retry until close(). */
   public mount(url: string): Link {
+    validateLinkUrl(url);
     const link = new Link(this._router, this._token, { url, role: "mount" });
     this._links.add(link);
     return link;
@@ -184,6 +186,13 @@ export class VecsMcpServer {
       );
     }
     return server;
+  }
+}
+
+function validateLinkUrl(value: string): void {
+  const url = new URL(value);
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+    throw new Error("Link URL must use ws: or wss:");
   }
 }
 

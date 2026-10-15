@@ -198,10 +198,7 @@ describe("links through MCP", () => {
     link.close();
     await vi.waitFor(async () => expect(await paths(reconnected)).toEqual([]));
     expect(link.state).toBe("closed");
-    const failing = game.server.mount("not a URL");
-    expect(failing.state).toBe("backoff");
-    failing.close();
-    expect(failing.state).toBe("closed");
+    expect(() => game.server.mount("not a URL")).toThrow();
   });
 
   it("rejects duplicate/local names and incorrect tokens without disturbing existing peers", async () => {
@@ -242,6 +239,108 @@ describe("links through MCP", () => {
 });
 
 describe("wire boundaries", () => {
+  it("a native connector answers application pings with JSON pongs", async () => {
+    const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+    cleanup.push(() => {
+      for (const ws of server.clients) {
+        ws.terminate();
+      }
+      server.close();
+    });
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const pong = new Promise<unknown>((resolve) =>
+      server.on("connection", (socket) => {
+        socket.once("message", () => {
+          socket.send(JSON.stringify({ type: "welcome", name: "hub", nodeId: "hub-id" }));
+          socket.once("message", (data) => resolve(JSON.parse(data.toString())));
+          socket.send(JSON.stringify({ type: "ping" }));
+        });
+      })
+    );
+    const port = (server.address() as { port: number }).port;
+    const link = new Link(new Router("game", {}), undefined, {
+      url: `ws://127.0.0.1:${port}`,
+      role: "mount",
+    });
+    cleanup.push(() => link.close());
+    expect(await pong).toEqual({ type: "pong" });
+    expect(link.state).toBe("linked");
+  });
+
+  it("a native connector detects a silent listener without FIN and enters reconnect backoff", async () => {
+    const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+    cleanup.push(() => {
+      for (const ws of server.clients) {
+        ws.terminate();
+      }
+      server.close();
+    });
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    server.on("connection", (socket) => {
+      socket.once("message", () =>
+        socket.send(JSON.stringify({ type: "welcome", name: "silent", nodeId: "silent-id" }))
+      );
+    });
+    const router = new Router("game", {});
+    const port = (server.address() as { port: number }).port;
+    const link = new Link(
+      router,
+      undefined,
+      { url: `ws://127.0.0.1:${port}`, role: "mount" },
+      { heartbeat: 20, silence: 200, backoff: 1000 }
+    );
+    cleanup.push(() => link.close());
+    await vi.waitFor(() => expect(link.state).toBe("linked"), { interval: 5 });
+    expect([...router.destinations.keys()]).toEqual(["game", "silent"]);
+    await vi.waitFor(() => expect(link.state).toBe("backoff"), { interval: 5 });
+    expect([...router.destinations.keys()]).toEqual(["game"]);
+  });
+
+  it("preserves a three-segment local target while stripping mounted peer prefixes", async () => {
+    const router = new Router("hub", {});
+    router.destinations.set("hub", {
+      paths: () => ["hub/main/ab12"],
+      dispatch: (request) => ({ reached: request.target }),
+    });
+    router.destinations.set("peer", {
+      paths: () => ["peer/world"],
+      dispatch: (request) => ({ reached: request.target }),
+    });
+    const sent: unknown[] = [];
+    const link = new Link(router);
+    cleanup.push(() => link.close());
+    link._attach({
+      send: (data) => sent.push(JSON.parse(data)),
+      close: () => link._disconnected(),
+    });
+    link._receive(
+      JSON.stringify({
+        type: "hello",
+        protocol: 1,
+        role: "mount",
+        name: "outer",
+        nodeId: "outer-id",
+      })
+    );
+    for (const target of ["hub/main/ab12", "hub/peer/world"]) {
+      link._receive(
+        JSON.stringify({ type: "request", id: target, target, command: "vecs_stats", params: {} })
+      );
+    }
+    await vi.waitFor(() => {
+      expect(sent).toContainEqual({
+        type: "response",
+        id: "hub/main/ab12",
+        result: { reached: "hub/main/ab12" },
+      });
+      expect(sent).toContainEqual({
+        type: "response",
+        id: "hub/peer/world",
+        result: { reached: "peer/world" },
+      });
+    });
+  });
+
   it.each([
     "wrong node",
     "wrong path",

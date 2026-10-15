@@ -10,6 +10,8 @@ const error = z.object({ code: z.string(), message: z.string(), hops: z.array(z.
 /** @internal Validate every inbound JSON frame before the state machine sees it. */
 export const frameSchema = z
   .discriminatedUnion("type", [
+    z.object({ type: z.literal("ping") }).strict(),
+    z.object({ type: z.literal("pong") }).strict(),
     z
       .object({
         type: z.literal("hello"),

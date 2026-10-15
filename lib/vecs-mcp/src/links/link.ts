@@ -21,6 +21,8 @@ export interface LinkSocket {
 export interface LinkTiming {
   backoff?: number;
   timeout?: number;
+  heartbeat?: number;
+  silence?: number;
 }
 
 /** A join or mount link. Connection failures retry forever until explicitly closed. */
@@ -34,6 +36,9 @@ export class Link {
   private _timer?: ReturnType<typeof setTimeout>;
   private _handshake?: ReturnType<typeof setTimeout>;
   private _attempt = 0;
+  private _heartbeat?: ReturnType<typeof setInterval>;
+  private _received = 0;
+  private _traffic = 0;
   private readonly _pending = new Map<
     string,
     {
@@ -76,6 +81,8 @@ export class Link {
   public _attach(socket: LinkSocket): void {
     this._socket = socket;
     this._state = "handshake";
+    this._received = this._traffic = Date.now();
+    this._heartbeat = setInterval(() => this._checkLiveness(), this._timing.heartbeat ?? 15_000);
     this._handshake = setTimeout(() => socket.close(), 30_000);
     if (this._connector) {
       this._send({
@@ -96,6 +103,14 @@ export class Link {
         throw new Error("Text frame required");
       }
       const frame = frameSchema.parse(JSON.parse(data));
+      this._received = this._traffic = Date.now();
+      if (frame.type === "ping") {
+        this._send({ type: "pong" });
+        return;
+      }
+      if (frame.type === "pong") {
+        return;
+      }
       if (frame.type === "reject" && this._connector && this._state === "handshake") {
         this._socket?.close();
         return;
@@ -164,8 +179,16 @@ export class Link {
           this._attach(socket);
         }
       };
-      socket.onmessage = (event) => this._receive(event.data);
-      socket.onclose = () => this._disconnected();
+      socket.onmessage = (event) => {
+        if (this._socket === socket) {
+          this._receive(event.data);
+        }
+      };
+      socket.onclose = () => {
+        if (this._socket === socket) {
+          this._disconnected();
+        }
+      };
       socket.onerror = () => socket.close();
     } catch {
       this._disconnected();
@@ -274,7 +297,11 @@ export class Link {
     const socket = this._socket;
     const parts = frame.target.split("/");
     const target =
-      parts[0] === this._router.name && parts.length > 2 ? parts.slice(1).join("/") : frame.target;
+      parts[0] === this._router.name &&
+      this._router.destinations.has(parts[1]) &&
+      parts[1] !== this._router.name
+        ? parts.slice(1).join("/")
+        : frame.target;
     const response = await this._router.dispatch({ ...frame, target });
     if (this._socket === socket && this._state === "linked") {
       this._send({ type: "response", ...response } as Frame);
@@ -298,6 +325,7 @@ export class Link {
   private _send(frame: Frame | ({ type: "response" } & BridgeResponse)): void {
     try {
       this._socket?.send(JSON.stringify(frame));
+      this._traffic = Date.now();
     } catch {
       this._socket?.close();
     }
@@ -305,6 +333,7 @@ export class Link {
 
   private _detach(): void {
     clearTimeout(this._handshake);
+    clearInterval(this._heartbeat);
     this._unsubscribe?.();
     this._unsubscribe = undefined;
     this._socket = undefined;
@@ -318,5 +347,17 @@ export class Link {
       pending.reject(new BridgeError({ code: "LINK_CLOSED", message: "Link closed", hops: [] }));
     }
     this._pending.clear();
+  }
+
+  private _checkLiveness(): void {
+    if (Date.now() - this._received >= (this._timing.silence ?? 45_000)) {
+      this._socket?.close();
+      this._disconnected();
+    } else if (
+      !this._connector &&
+      Date.now() - this._traffic >= (this._timing.heartbeat ?? 15_000)
+    ) {
+      this._send({ type: "ping" });
+    }
   }
 }

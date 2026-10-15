@@ -16,6 +16,10 @@ paths, schemas and component values are supplied by remote application code.
 Use `wss://` with a TLS reverse proxy when crossing hosts; WebSocket JSON hello
 contains the token. The CLI's `--token` is also visible in process arguments.
 
+On `ws://`, the `hello` token crosses the network in cleartext; anyone able to
+observe the traffic can read and reuse it. A link outside loopback needs `wss://`
+or a trusted network. A token authenticates access but does not encrypt transport.
+
 `{ readOnly: true }` rejects `vecs_mutate` and both `vecs_systems` controls.
 It does not redact data: registered worlds, component values, process pid/cwd,
 and best-effort git branch/sha remain visible. Register only worlds the agent
