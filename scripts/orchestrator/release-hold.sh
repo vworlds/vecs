@@ -28,4 +28,5 @@ if ! pr_field "$pr" '.comments' | grep -q '\[orchestrator\] GO'; then
 fi
 board_move "$pr" "In progress" || true
 board_turn "$pr" nobody || true
+board_progress "$pr" state=working || true
 log "#$pr released: $new_title"

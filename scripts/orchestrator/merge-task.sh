@@ -79,6 +79,7 @@ for n in $closes; do
   fi
   board_move "$n" "Done" || true
   board_turn "$n" nobody || true
+  board_progress_clear "$n" || true
 done
 fetch_refs "+dev:refs/remotes/origin/dev" || die "fetch failed"
 gh api -X DELETE "repos/$REPO_SLUG/git/refs/heads/$branch" > /dev/null 2>&1 && log "deleted branch $branch" || true
@@ -94,6 +95,7 @@ else
 fi
 board_move "$pr" "Done" || true
 board_turn "$pr" nobody || true
+board_progress_clear "$pr" || true
 log "#$pr merged as ${sha:0:8}"
 board_announce_startable || true
 board_release_startable

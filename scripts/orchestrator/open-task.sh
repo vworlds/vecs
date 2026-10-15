@@ -167,8 +167,10 @@ log "opened $url"
 if $hold; then
   board_move "${url##*/}" "In review" || true
   board_turn "${url##*/}" owner || true
+  board_progress "${url##*/}" state=hold round=1 || true
 else
   board_move "${url##*/}" "In progress" || true
+  board_progress "${url##*/}" state=working round=1 || true
 fi
 if ! $direct; then
   board_move "$issue" "In progress" || true

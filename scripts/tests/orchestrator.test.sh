@@ -64,6 +64,60 @@ if note_budget "$TEST_DIR/answer"; then exit 1; fi
 checks=$((checks + 1))
 unset -f date
 
+# Progress formatting, partial updates, conditional writes, and no-op suppression use offline fakes.
+declare -A PROGRESS_STATES=([working]="🤖🔨" [ready]="🤖👍" [silent]="⏳")
+check test "$(progress_text working 12 red)" = '🤖🔨 🔁1️⃣2️⃣ 🔴'
+check test "$(progress_parse '🤖👍 🔁2️⃣ 🔴')" = $'ready\t2\tred'
+export VECS_BOARD=on
+_board_gql() {
+  local arg
+  case "$*" in
+    *'field(name: "Progress")'*) printf 'PVTF_progress\n' ;;
+    *'fieldValueByName'*) printf '%s\n' "${TEST_PROGRESS:-}" ;;
+    *'updateProjectV2ItemFieldValue'*)
+      TEST_WRITES=$((${TEST_WRITES:-0} + 1))
+      for arg in "$@"; do case "$arg" in t=*) TEST_PROGRESS="${arg#t=}" ;; esac done
+      ;;
+    *'clearProjectV2ItemFieldValue'*)
+      TEST_WRITES=$((${TEST_WRITES:-0} + 1))
+      TEST_PROGRESS=''
+      ;;
+    *) return 1 ;;
+  esac
+}
+board_item() { printf 'PVTI_progress\n'; }
+TEST_PROGRESS='' TEST_WRITES=0
+board_progress 999 state=working round=1
+check test "$TEST_PROGRESS" = '🤖🔨 🔁1️⃣'
+board_progress 999 ci=red
+check test "$TEST_PROGRESS" = '🤖🔨 🔁1️⃣ 🔴'
+board_progress 999 state=ready if=silent
+check test "$TEST_PROGRESS" = '🤖🔨 🔁1️⃣ 🔴'
+board_progress 999 state=ready if=working round=2
+check test "$TEST_PROGRESS" = '🤖👍 🔁2️⃣ 🔴'
+board_progress 999 state=ready round=2
+check test "$TEST_WRITES" = 3
+board_progress 999 state=- round=- ci=ok
+check test "$TEST_PROGRESS" = ''
+check test "$TEST_WRITES" = 4
+unset VECS_BOARD
+_board_gql() { retry 3 gh api graphql -f p="$BOARD_PROJECT" "$@"; }
+unset -f board_item
+board_progress() { printf '%s\n' "$*" >> "$TEST_DIR/progress-events"; }
+board_move() { printf 'move %s\n' "$*" >> "$TEST_DIR/progress-events"; }
+touch "$STATE/open-77"
+report_comment 77 '[worker] READY FOR REVIEW (round 3)' 'ready'
+report_comment 77 '[worker] QUESTION: clarify' 'question'
+report_comment 77 '[worker] DESIGN: option' 'design'
+report_comment 77 '[worker] BLOCKED: needs help' 'blocked'
+report_comment 77 '[worker] progress note' 'note'
+check grep -q 'state=ready round=3' "$TEST_DIR/progress-events"
+check grep -q 'state=question' "$TEST_DIR/progress-events"
+check grep -q 'state=design' "$TEST_DIR/progress-events"
+check grep -q 'state=blocked' "$TEST_DIR/progress-events"
+check grep -q 'state=working if=silent,permission,failed,idle,conflict' "$TEST_DIR/progress-events"
+unset -f board_progress board_move
+
 # One exhausted-budget polling turn: REST keeps running, no board GraphQL call is made.
 # MAX_MINUTES=0 exits after that single turn, so this cannot poll even a mocked API in a loop.
 gh() {

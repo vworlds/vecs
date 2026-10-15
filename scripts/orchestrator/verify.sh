@@ -5,6 +5,7 @@
 #   --packages limits only the test step to the listed npm workspaces; other checks stay full-repo.
 set -euo pipefail
 . "$(dirname "$0")/../lib/common.sh"
+. "$(dirname "$0")/../lib/board.sh"
 bench=false
 packages_arg=""
 packages_requested=false
@@ -50,6 +51,7 @@ for pr in "$@"; do
     }
 done
 log "verifying $(git rev-parse --short HEAD): dev + PR $*"
+for pr in "$@"; do board_progress "$pr" state=verifying || true; done
 
 step() {
   local name="$1"

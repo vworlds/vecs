@@ -24,15 +24,28 @@ head -c 14 "$file" | grep -q '^\[orchestrator\]' || die "the comment must start 
 url="$(retry 3 gh api -X POST "repos/$REPO_SLUG/issues/$pr/comments" -F body=@"$file" --jq .html_url)" \
   || die "could not post the comment"
 log "posted $url"
+is_pr="$(retry 3 gh api "repos/$REPO_SLUG/issues/$pr" --jq 'has("pull_request")' 2> /dev/null || echo false)"
 case "$outcome" in
   changes)
     board_move "$pr" "In progress" || true
     board_turn "$pr" nobody || true
+    board_progress "$pr" state=working || true
     ;;
   owner)
     board_move "$pr" "In review" || true
     board_turn "$pr" owner || true
+    board_progress "$pr" state=owner-review || true
     ;;
-  approve | answer) board_turn "$pr" nobody || true ;;
-  ask) board_turn "$pr" owner || true ;;
+  approve)
+    board_turn "$pr" nobody || true
+    board_progress "$pr" state=- || true
+    ;;
+  answer)
+    board_turn "$pr" nobody || true
+    if [ "$is_pr" = true ]; then board_progress "$pr" state=working || true; else board_progress "$pr" state=- || true; fi
+    ;;
+  ask)
+    board_turn "$pr" owner || true
+    board_progress "$pr" state=owner-question || true
+    ;;
 esac
