@@ -23,12 +23,13 @@ case "$1 $2" in
     count=$(cat "$STATE/run-count" 2>/dev/null || echo 0)
     echo $((count + 1)) > "$STATE/run-count"
     case "$SCENARIO" in
-      failed) printf '42\t7\tcompleted\tfailure\thttps://example.test/42\tpushed-sha\n' ;;
-      moved) printf '42\t7\tcompleted\tsuccess\thttps://example.test/42\tother-sha\n' ;;
-      timeout) printf '42\t7\tin_progress\tpending\thttps://example.test/42\tpushed-sha\n' ;;
+      failed) printf '42\0377\037completed\037failure\037https://example.test/42\037pushed-sha\n' ;;
+      moved) printf '42\0377\037completed\037success\037https://example.test/42\037other-sha\n' ;;
+      timeout) printf '42\0377\037in_progress\037pending\037https://example.test/42\037pushed-sha\n' ;;
+      empty-conclusion) if ((count == 0)); then printf '42\0377\037in_progress\037\037https://example.test/42\037pushed-sha\n'; else printf '42\0377\037completed\037success\037https://example.test/42\037pushed-sha\n'; fi ;;
       lag) if ((count == 0)); then exit 0; fi
-        printf '42\t7\tcompleted\tsuccess\thttps://example.test/42\tpushed-sha\n' ;;
-      *) printf '42\t7\tcompleted\tsuccess\thttps://example.test/42\tpushed-sha\n' ;;
+        printf '42\0377\037completed\037success\037https://example.test/42\037pushed-sha\n' ;;
+      *) printf '42\0377\037completed\037success\037https://example.test/42\037pushed-sha\n' ;;
     esac ;;
   *) echo "Unexpected gh call" >&2; exit 1 ;;
 esac
@@ -80,6 +81,11 @@ test "$(cat "$TMP/vecs-wire-count")" -eq 3
 test "$(cat "$TMP/vecs-count")" -eq 1
 test "$(cat "$TMP/run-count")" -eq 2
 echo 'PASS: discovery lag and registry catch-up poll only pending packages'
+
+run_case empty-conclusion 0
+assert_output 'Publish run succeeded: https://example.test/42'
+test "$(cat "$TMP/run-count")" -eq 2
+echo 'PASS: empty in-progress conclusion remains pending until success'
 
 PUBLISH_MAX_WAIT_SEC=1 run_case timeout 1
 assert_output 'Publish run timeout'

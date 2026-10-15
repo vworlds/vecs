@@ -22,13 +22,15 @@ count=$(cat "$STATE/gh-count" 2>/dev/null || echo 0)
 echo $((count + 1)) > "$STATE/gh-count"
 case "$SCENARIO" in
   gh-stall) sleep 20 ;;
-  failed) printf '42\tcompleted\tfailure\thttps://example.test/run/42\n' ;;
-  publish-timeout) printf '42\tin_progress\tpending\thttps://example.test/run/42\n' ;;
+  failed) printf '42\037completed\037failure\037https://example.test/run/42\n' ;;
+  publish-timeout) printf '42\037in_progress\037pending\037https://example.test/run/42\n' ;;
   lag)
     if ((count == 0)); then exit 0; fi
-    if ((count == 1)); then printf '42\tin_progress\tpending\thttps://example.test/run/42\n'; exit 0; fi
-    printf '42\tcompleted\tsuccess\thttps://example.test/run/42\n' ;;
-  *) printf '42\tcompleted\tsuccess\thttps://example.test/run/42\n' ;;
+    if ((count == 1)); then printf '42\037in_progress\037pending\037https://example.test/run/42\n'; exit 0; fi
+    printf '42\037completed\037success\037https://example.test/run/42\n' ;;
+  empty-conclusion)
+    if ((count == 0)); then printf '42\037in_progress\037\037https://example.test/run/42\n'; else printf '42\037completed\037success\037https://example.test/run/42\n'; fi ;;
+  *) printf '42\037completed\037success\037https://example.test/run/42\n' ;;
 esac
 SH
 cat > "$TMP/bin/npm" << 'SH'
@@ -74,6 +76,11 @@ assert_output 'npm: @vworlds/beta 1.2.3'
 test "$(cat "$TMP/alpha-count")" -eq 3
 test "$(cat "$TMP/gh-count")" -eq 3
 echo 'PASS: publish discovery, pending run, and registry lag'
+
+run_case empty-conclusion 0
+test "$(cat "$TMP/gh-count")" -eq 2
+assert_output 'Publish run succeeded: https://example.test/run/42'
+echo 'PASS: empty in-progress conclusion remains pending until success'
 
 run_case failed 1
 assert_output 'Publish run failed (failure): https://example.test/run/42'
