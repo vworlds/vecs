@@ -37,6 +37,7 @@ export class BodyPoseInModule extends Module {
           position.x,
           position.y
         );
+        engine.pendingPoseChanges.push(entity);
       })
       .add(PhysicsSystemTag);
 
@@ -53,6 +54,7 @@ export class BodyPoseInModule extends Module {
 
         // SetTransform with the body's existing position and b2MakeRot(angle).
         engine.fast.module._b2x_Body_SetAngle(bodyId.index1, rev(bodyId), rotation.angle);
+        engine.pendingPoseChanges.push(entity);
       })
       .add(PhysicsSystemTag);
 

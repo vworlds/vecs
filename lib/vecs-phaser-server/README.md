@@ -170,9 +170,29 @@ A baseline at rest bypasses the integrator on both ends: the server's prediction
 hold exactly the baseline's `x`, `y` and `angle`, with no center-of-mass round trip and no `atan2`,
 so an off-center body is held where the physics pose put it.
 
-Per body per step the system steps the integrator once and compares, allocating nothing and looking
-up no component. It asks Box2D whether the body sleeps only when its pose did not change, and reads
-the rest of the body's motion only when it writes a baseline. A body at rest costs one comparison.
+Per moving body per step the system steps the integrator once and compares, allocating nothing.
+It asks Box2D whether the body sleeps only when its pose did not change, and reads the rest of the
+body's motion only when it writes a baseline. Unchanged sleeping Dynamic bodies are not visited.
+Server-local eligibility tags narrow the sync query to moving baselines, query entrants, and bodies
+in physics' reused [pose-change view](../vecs-physics/docs/queries.md#pose-changes). DR installs no
+watcher or set hook on the physics pose. A moved body already eligible costs only an eid-indexed
+flag read when gathering changes, not an entity lookup, Set probe, baseline comparison or tag transition.
+
+Bodyless entities and non-Dynamic or disabled bodies stay in an **always-eligible compatibility
+lane**: game-written poses still work without an explicit signal or new application API. Their
+unchanged frames cost the original cheap pose comparison; the zero-idle-work optimization targets
+enabled Dynamic bodies. Changing or removing `Body` updates the lane automatically.
+
+Application teleports admitted by the existing physics pose-in systems join the view, even when a
+sleeping/static body produces no move event. A **resting Dynamic** pose written after pose-in drains
+and before motion sync is checked when that body is next eligible: this tick if pose-out already
+reported it (including an unchanged awake body), otherwise next tick for an unreported sleeper.
+Either outcome baselines the current ECS pose, at most one tick late; an already-reported body's
+baseline can precede Box2D admitting the late write. Moving baselines remain eligible even without a pose write, preserving
+sleep detection and refresh deadlines. The late pose guard still primes new entities in their creation
+frame. Eligibility tags are not captured in subtree snapshots.
+The eligible query retains the full pose query's membership order, so returning resting entities do
+not reorder baseline writes or replicated snapshots.
 
 ### Body constants
 

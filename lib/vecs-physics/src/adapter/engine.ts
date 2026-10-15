@@ -82,6 +82,10 @@ export class PhysicsEngine {
   public readonly fast!: FastPath;
   /** Reusable buffer that `PhysicsPoseSyncOut` exports the move events into. */
   public moveExporter!: MoveExporter;
+  /** Reused post-step eid view; only the count-prefix is valid, and growth replaces the buffer. */
+  public readonly poseChanges = { eids: new Int32Array(64), count: 0 };
+  /** Application poses admitted by the existing pose-in systems, awaiting the next pose-out. */
+  public readonly pendingPoseChanges: Entity[] = [];
   public readonly phases!: PhysicsPhases;
 
   // Resolved configuration (flattened from PhysicsOptions).
@@ -213,6 +217,8 @@ export class PhysicsEngine {
       return;
     }
     this.disposed = true;
+    this.poseChanges.count = 0;
+    this.pendingPoseChanges.length = 0;
     if (this.worldId !== undefined) {
       this.box2d.b2DestroyWorld(this.worldId);
     }

@@ -50,6 +50,7 @@ if [ "$state" = OPEN ]; then
   else
     printf 'See #%s for the review.%s\n' "$pr" "$(for n in $closes; do printf ' Closes #%s.' "$n"; done)" > "$bf"
   fi
+  "$(dirname "$0")/../agent/check-markdown.sh" "$bf"
   # Tell the watcher this merge is ours, so it doesn't report the PR leaving the open list.
   mkdir -p "${BOARD_STATE%/board}" && touch "${BOARD_STATE%/board}/merged-$pr"
   merged=false

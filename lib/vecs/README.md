@@ -75,6 +75,9 @@ For opt-in timings and cadence run counts, see [Measuring systems](./docs/system
 For Node clients that need replicated Phaser poses, see [Headless clients](../vecs-phaser-client/README.md#headless-clients).
 For server keepalive gates and the idle replicated-state clock, see [Replication](../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate).
 
+For physics-driven change processing without extra pose watchers, see the
+[post-step pose-change view](../vecs-physics/docs/queries.md#pose-changes).
+
 The full documentation lives in [`docs/`](./docs/README.md). Recommended reading order:
 
 1. [Getting started](./docs/getting-started.md) — install to first ticking world.
