@@ -183,6 +183,7 @@ fi
 if ! $direct; then
   board_move "$issue" "In progress" || true
   board_turn "$issue" nobody || true
+  board_progress_clear "$issue" || true
   board_beside "${url##*/}" "$issue" || true
 fi
 echo "${url##*/}"

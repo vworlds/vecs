@@ -121,6 +121,8 @@ checks=$((checks + 1))
 unset -f date
 
 # Progress formatting, partial updates, conditional writes, and no-op suppression use offline fakes.
+# Opening a task hands the issue from the owner to its PR; the issue has no separate Progress then.
+check grep -q 'board_progress_clear "$issue" || true' scripts/orchestrator/open-task.sh
 check test "$(progress_text working 12 red)" = '🤖🔨 🔁1️⃣2️⃣ 🔴'
 check test "$(progress_parse '🤖👍 🔁2️⃣ 🔴')" = $'ready\t2\tred'
 while IFS= read -r assignment; do
