@@ -197,9 +197,102 @@ it. The watcher refreshes REST labels every 30 seconds and stores per-track stat
   something it could have done itself, change the script so it doesn't happen again.
 - `VECS_BOARD=off` turns the board steps off, for forks and offline work.
 
+## Estimates and models
+
+**Grade every vecs card, and revise estimates as work changes.** `grade.sh <points|none> <ref>…`
+sets the Estimate number field. Empty means not yet graded, unless deliberately cleared with
+`none` (nothing meaningful to grade yet); that action records `graded-<n>` in the session's board
+state so it still counts as graded. Preserve that state across watcher restarts. `grade.sh ungraded`
+lists ungraded issues; `grade.sh list` lists cards with points and family. Both respect `VECS_TRACK`.
+The watcher emits `GRADE #n` once for each ungraded vecs issue in its track, using its existing
+board snapshot: no extra GraphQL call per poll and no grading or Model writes from the watcher.
+These writes happen on actions only, and `VECS_BOARD=off` disables them.
+
+The scale is `0 0.5 1 2 3 5 8 13 20 40 100 999`. Normalize GitHub's floats (`5.0` → `5`)
+before comparing or copying. `open-task.sh` copies the issue's Estimate onto its PR.
+After closing a blocker, `merge-task.sh` prints `revise estimates (their blocker closed): #a #b`:
+reconsider those open vecs issues, rather than automatically subtracting points.
+
+| Points | Meaning                                       | Vecs calibration                                             |
+| ------ | --------------------------------------------- | ------------------------------------------------------------ |
+| 0      | Already done                                  | No implementation remains                                    |
+| 0.5    | Trivial action                                | Owner-approved leftover cleanup (no PR)                      |
+| 1      | Small, localized and clear                    | #303 interval tolerance, #308 type-only Vec2, #329 Done rule |
+| 2      | Small multi-step change                       | #316 release wait, #320 getters, #331 TSV audit              |
+| 3      | Medium task, several callers or tests         | #321 Markdown validation, #333 Progress field                |
+| 5      | Several interacting concerns                  | #310 timing rows, #345 tracks                                |
+| 8      | Hard cross-package or lifecycle work          | #297 two-pass dispose, #319 DR hot path, #340 MCP package    |
+| 13     | Design/feasibility uncertainty or a hard hunt | Above the seeded 8-point examples; split when practical      |
+| 20     | Several dependent deliveries                  | Split into issues before launching                           |
+| 40     | Epic                                          | Decompose and grade its cards                                |
+| 100    | Vision-sized                                  | Not a worker task                                            |
+| 999    | Impossible as things stand                    | External dependency or platform limit                        |
+
+Move up for hot-path uncertainty, replication risk or expected playtest/design rounds; move down
+when closed blockers supply part of the implementation. Points measure work, not worker mistakes.
+Use vecs examples, not SpaceRocks gameplay calibrations.
+
+**Model is maintained by scripts.** The single-select options are sol, luna, astra, sonnet, opus,
+glm, glm-flash, big-pickle and other. `scripts/orchestrator/models.tsv` is the family → id registry,
+with backend kind (`opencode` or `claude`) and gate. Edit it to retarget a family; add the matching
+board option if adding one. `other` is for an explicitly supplied unknown `provider/id`, not a
+launchable family without an id.
+
+- `open-task.sh --model <family|provider/id>` takes precedence over the issue's Model hint; else
+  **sol** is the default. It writes `Worker model: <id>` in the PR header and sets the PR card's
+  family. `worker.sh start` reads that header for `auto-<pr>-…` worktrees unless explicitly
+  overridden. Older task PRs without a header require `--model`; arbitrary directories use
+  `WORKER_MODEL` or sol. Explicit launches and `worker.sh model` update the PR field on success.
+- `worker.sh model <session|dir> <family|provider/id>` retains the session and updates Model on
+  its PR. Backend switches (opencode ↔ Claude) are refused because they cannot retain context.
+- **astra is refused without `--owner-approved`**, even when supplied as its full id or inherited
+  from an issue/header. Pass it only for explicit owner authorization, not your own judgement.
+- On an issue, Model is a rare hint, not an automatic estimate-to-model mapping.
+  `suggest-model.sh <family|none> <issue> <reason.md> [--owner-approved]` requires substantive
+  technical analysis, posts it on the issue, and refuses PRs or other repositories/tracks.
+  Writing an issue up alone is not a reason; leaving Model empty is normal.
+
+| Family     | Starting guidance (revise from the log)                                                                                    |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| sol        | Strong default; design, judgement, cross-package and hot-path work                                                         |
+| luna       | Well-specified 1–3 point tooling/tests/refactors; push it, then check root causes and budget guards carefully (#333, #337) |
+| astra      | Owner-authorized work only                                                                                                 |
+| glm        | Large context, no vision; fallback when sol exhausts quota                                                                 |
+| glm-flash  | Cheap small tasks, including visual checks                                                                                 |
+| big-pickle | Free medium-small tasks; fallback after glm                                                                                |
+| sonnet     | Headless Claude Code; second opinions or when opencode families do not fit                                                 |
+| opus       | Headless Claude Code; design-heavy work                                                                                    |
+| other      | Explicit unknown provider/id; assess its capabilities first                                                                |
+
+Check quota before large assignments (where installed,
+`python3 ~/src/codexbal/codexbal.py remote usage --json`). When a model stops on quota, switch
+with `worker.sh model`, then send "continue where you left off"; do not replace the session.
+The usual opencode fallback order remains sol → glm → big-pickle.
+
+sonnet/opus use `claude-worker.sh` through `worker.sh start/send/status/log/stop/wait/model`.
+Install Claude Code and authenticate it first (`CLAUDE_BIN` can select the executable).
+It uses `acceptEdits`, with Bash, Edit, Write, Read, Grep and Glob allowed, never
+`bypassPermissions`. A busy Claude turn refuses ordinary send; `--queue` waits for idle and
+`--now` interrupts and confirms idle before resuming. Tokens never go on argv:
+`CLAUDE_WORKER_GH_TOKEN`, if set, becomes the child process's `GH_TOKEN`; otherwise it inherits
+the launching shell's GitHub identity. Records live beside opencode records under
+`vecs-orchestrator/claude-workers`; turn logs are `.claude-worker.log` in the worktree and prompts
+are temporary files in its ignored `.tmp/`. Stop workers before merging.
+
+After each merge append PR, family, points, rounds and findings to the checked-in
+[model calibration log](../model-log.md), which replaces the private log. Separate design churn
+and owner questions from model errors. Revise these guidelines from experience and try other
+families deliberately.
+
+`board.sh list --tsv` now has ten columns: item id, column, kind, repo, number, state, title,
+assignees, estimate, model. Missing values are `-`. Consumers must select columns explicitly
+or read all ten plus a trailing discard variable; never treat the final meaningful field as
+the rest of the line. Human-readable listings show points and family separately from assignees.
+
 ## Workers
 
-A worker is an opencode session that works in a task PR's worktree. `worker.sh` talks to the
+A worker is an opencode or headless Claude Code session in a task PR's worktree. For opencode,
+`worker.sh` talks to the
 opencode 2 HTTP server with the login in the environment (`OPENCODE_BASE_URL`,
 `OPENCODE_SERVER_USERNAME`, `OPENCODE_SERVER_PASSWORD`); `worker.sh health` says whether it
 answers, and `worker.sh models [filter]` lists its models. The default model is `WORKER_MODEL`
@@ -208,7 +301,7 @@ or `codexbal/gpt-6.1-sol`. Session mappings live in
 
 1. After `open-task.sh`, create the worktree:
    `git worktree add -b <branch> .worktrees/auto-<branch> origin/<branch>`.
-2. `worker.sh start <worktree> <prompt.md> --title "PR <n> work" [--model provider/id]`. The prompt
+2. `worker.sh start <worktree> <prompt.md> --title "PR <n> work" [--model family|provider/id] [--owner-approved]`. The prompt
    says which PR to read as the task; the task itself is the PR's description. It returns at once
    and prints the session id; from then on the worktree's path names the session too.
 3. Look at `worker.sh status <worktree>` a minute later: a worker that waits for a permission says

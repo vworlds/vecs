@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Delegate work to an opencode worker and look after it, over the opencode 2 HTTP API.
 # Usage: scripts/orchestrator/worker.sh <command>
-#   start <dir> <prompt.md|-> [--title t] [--model provider/id]
+#   start <dir> <prompt.md|-> [--title t] [--model family|provider/id] [--owner-approved]
 #                             a new session working in <dir> (a worktree); prints its id. Returns
 #                             at once: the worker runs on the server
 #   send [--now] <session> <prompt.md|-> [--queue|--now]
@@ -9,7 +9,7 @@
 #                             running one at its next step (--queue: only after it finishes;
 #                             --now: interrupt, wait up to 30s for idle, then send; if still busy
 #                             or the wait fails, do not send; cannot combine with --queue)
-#   model <session> <provider/id>  switch models in the same session, retaining context
+#   model <session> <family|provider/id> [--owner-approved]  switch models, retaining context
 #   status [session]          one line: running or idle, outcome, last activity, tokens, pending
 #                             permission requests. Without a session: every running one
 #   log <session> [n]         the last n (default 15) steps: what it said and the commands it ran
@@ -24,6 +24,7 @@
 # Authentication goes to curl through stdin, never in command-line arguments.
 set -euo pipefail
 . "$(dirname "$0")/../lib/common.sh"
+. "$(dirname "$0")/../lib/board.sh"
 BASE="${OPENCODE_BASE_URL:-http://127.0.0.1:4096}"
 MODEL="${WORKER_MODEL:-codexbal/gpt-6.1-sol}"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/vecs-orchestrator/workers"
@@ -31,11 +32,28 @@ usage() {
   sed -n '2,/^set /{ /^set /d; p; }' "$0" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
-[ -n "${OPENCODE_SERVER_PASSWORD:-}" ] || die "OPENCODE_SERVER_PASSWORD is not set"
+CLAUDE_WORKER="$(dirname "$0")/claude-worker.sh"
+is_claude() { [ -n "${1:-}" ] && bash "$CLAUDE_WORKER" location "$1" > /dev/null 2>&1; }
+case "${1:-}" in
+  send)
+    target="${2:-}"
+    [ "$target" != --now ] || target="${3:-}"
+    ! is_claude "$target" || exec bash "$CLAUDE_WORKER" "$@"
+    ;;
+  status | log | stop | wait) ! is_claude "${2:-}" || exec bash "$CLAUDE_WORKER" "$@" ;;
+esac
+# update_model <directory> <family>: only an action writes the board, never status/polling.
+update_model() {
+  local name="${1##*/}"
+  if [[ "$name" =~ ^auto-([0-9]+)- ]]; then
+    board_model "${BASH_REMATCH[1]}" "$2" || log "warning: PR Model not updated"
+  fi
+}
 
 # api <method> <path> [json body]: the body on stdout; fails on a non-2xx answer.
 api() {
   local method="$1" path="$2" body="${3:-}" out code
+  [ -n "${OPENCODE_SERVER_PASSWORD:-}" ] || die "OPENCODE_SERVER_PASSWORD is not set"
   out="$(mktemp)"
   code="$(printf 'user = %s\n' "$(jq -nr '(env.OPENCODE_SERVER_USERNAME | select(. != "")) // "opencode" | . + ":" + env.OPENCODE_SERVER_PASSWORD | tojson')" \
     | curl --config - -s -m "${API_TIMEOUT:-30}" -X "$method" \
@@ -89,7 +107,7 @@ cmd="${1:-}"
 case "$cmd" in
   start)
     [ $# -ge 2 ] || usage
-    dir="$(realpath "$1")" prompt="$(text_of "$2")" title=""
+    dir="$(realpath "$1")" prompt_file="$2" title="" selected="" owner_approved=false
     shift 2
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -98,13 +116,35 @@ case "$cmd" in
           shift 2
           ;;
         --model)
-          MODEL="$2"
+          selected="$2"
           shift 2
+          ;;
+        --owner-approved)
+          owner_approved=true
+          shift
           ;;
         *) usage ;;
       esac
     done
     [ -d "$dir" ] || die "$dir is not a directory"
+    # The task header is the launch contract; arbitrary directories retain WORKER_MODEL/default.
+    if [ -z "$selected" ] && [[ "${dir##*/}" =~ ^auto-([0-9]+)- ]]; then
+      pr="${BASH_REMATCH[1]}"
+      info="$(retry 3 gh pr view "$pr" -R "$REPO_SLUG" --json body,title,state)" || die "cannot read task PR"
+      [ "$(jq -r .state <<< "$info")" = OPEN ] || die "task PR is not open"
+      ! jq -e '(.title + "\n" + .body) | test("ON HOLD|\\[HOLD:"; "i")' <<< "$info" > /dev/null || die "task PR is on hold"
+      selected="$(jq -r '.body | [capture("Worker model: `(?<m>[^`]+)`").m][0] // empty' <<< "$info")"
+      [ -n "$selected" ] || die "task PR names no worker model: pass --model"
+    fi
+    resolved="$(model_resolve "${selected:-$MODEL}" "$owner_approved")" || exit 1
+    IFS=$'\t' read -r family MODEL kind <<< "$resolved"
+    if [ "$kind" = claude ]; then
+      id="$(bash "$CLAUDE_WORKER" start "$dir" "$prompt_file" --model "$MODEL")" || exit 1
+      update_model "$dir" "$family"
+      printf '%s\n' "$id"
+      exit 0
+    fi
+    prompt="$(text_of "$prompt_file")"
     id="$(api POST /api/session "$(jq -nc --arg d "$dir" --arg t "$title" --arg p "${MODEL%%/*}" --arg m "${MODEL#*/}" \
       '{location: {directory: $d}, model: {providerID: $p, id: $m}} + (if $t == "" then {} else {title: $t} end)')" \
       | jq -r .data.id)" || die "could not create the session"
@@ -113,6 +153,7 @@ case "$cmd" in
     api POST "/api/session/$id/prompt" "$(jq -nc --arg t "$prompt" '{text: $t}')" > /dev/null \
       || die "session $id was created but the prompt was refused"
     log "started $id in $dir on $MODEL"
+    update_model "$dir" "$family"
     printf '%s\n' "$id"
     ;;
   send)
@@ -144,12 +185,26 @@ case "$cmd" in
     log "sent to $id ($delivery)"
     ;;
   model)
-    [ $# -eq 2 ] || usage
-    [[ "$2" =~ ^[^/[:space:]]+/[^[:space:]]+$ ]] || die "model must be provider/id"
-    id="$(session "$1")" MODEL="$2"
-    api POST "/api/session/$id/model" "$(jq -nc --arg p "${MODEL%%/*}" --arg m "${MODEL#*/}" \
-      '{model:{providerID:$p,id:$m}}')" > /dev/null
-    log "switched $id to $MODEL"
+    [ $# -eq 2 ] || { [ $# -eq 3 ] && [ "$3" = --owner-approved ]; } || usage
+    approved=false
+    [ "${3:-}" != --owner-approved ] || approved=true
+    resolved="$(model_resolve "$2" "$approved")" || exit 1
+    IFS=$'\t' read -r family MODEL kind <<< "$resolved"
+    if is_claude "$1"; then
+      [ "$kind" = claude ] || die "cannot switch a Claude session to opencode and retain context"
+      dir="$(bash "$CLAUDE_WORKER" location "$1")"
+      bash "$CLAUDE_WORKER" model "$1" "$MODEL"
+    else
+      [ "$kind" = opencode ] || die "cannot switch an opencode session to Claude and retain context"
+      id="$(session "$1")"
+      api POST "/api/session/$id/model" "$(jq -nc --arg p "${MODEL%%/*}" --arg m "${MODEL#*/}" \
+        '{model:{providerID:$p,id:$m}}')" > /dev/null
+      log "switched $id to $MODEL"
+      if [ -d "$1" ]; then dir="$(realpath "$1")"; else
+        dir="$(api GET "/api/session/$id" | jq -r '.data.location.directory // empty')"
+      fi
+    fi
+    update_model "$dir" "$family"
     ;;
   status)
     if [ $# -eq 0 ]; then
