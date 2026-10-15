@@ -180,7 +180,7 @@ board_tracks() {
     | $all[] | (track // (if .pull_request then
         [(.body // "") | scan("(?i)(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|part of)\\s+#([0-9]+)") | .[0] | $issues[.] // empty][0]
       else null end) // "-") as $track
-    | "\\(.number)\\t\\($track)"'
+    | "\(.number)\t\($track)"'
 }
 board_load_tracks() {
   local file="${1:-}" rows number track
@@ -248,8 +248,17 @@ board_ref() {
 
 # board_item <ref>: the card's item id, adding the issue or PR to the board if it isn't there
 # (adding an existing one returns its card). A PVTI_… id passes through.
+board_lookup_item() {
+  local repo="$1" number="$2" node
+  node="$(retry 3 gh api "repos/$repo/issues/$number" --jq .node_id)" || return 1
+  gh api graphql -f c="$node" -f query='
+    query($c: ID!) { node(id: $c) { ... on Issue { projectItems(first: 100) { nodes {
+      id projectV2 { id } status: fieldValueByName(name: "Status") {
+        ... on ProjectV2ItemFieldSingleSelectValue { name } }
+    } } } } }' --jq '.data.node.projectItems.nodes[] | select(.projectV2.id == "'"$BOARD_PROJECT"'") | [.id, (.status.name // "-")] | @tsv'
+}
 board_item() {
-  local repo="" number="" node
+  local repo="" number="" node item existing
   case "$1" in PVTI_*)
     printf '%s\n' "$1"
     return 0
@@ -260,7 +269,20 @@ board_item() {
     log "board: cannot read '$1' as an issue or PR"
     return 1
   }
+  item="$(board_items 2> /dev/null | awk -F'\t' -v r="$repo" -v n="$number" '$4 == r && $5 == n { print $1; exit }')" || true
+  if [ -n "$item" ]; then
+    printf '%s\n' "$item"
+    return 0
+  fi
   node="$(retry 3 gh api "repos/$repo/issues/$number" --jq .node_id)" || return 1
+  existing="$(gh api graphql -f c="$node" -f query='
+    query($c: ID!) { node(id: $c) { ... on Issue { projectItems(first: 100) { nodes {
+      id projectV2 { id }
+    } } } } }' --jq '.data.node.projectItems.nodes[] | select(.projectV2.id == "'"$BOARD_PROJECT"'") | .id' 2> /dev/null || true)"
+  if [ -n "$existing" ]; then
+    printf '%s\n' "${existing%%$'\t'*}"
+    return 0
+  fi
   _board_gql -f c="$node" -f query='
     mutation($p: ID!, $c: ID!) { addProjectV2ItemById(input: {projectId: $p, contentId: $c}) {
       item { id } } }' --jq '.data.addProjectV2ItemById.item.id'
@@ -414,10 +436,14 @@ board_progress_clear() { board_progress "$1" state=- round=- ci=ok; }
 
 # board_where <ref>: the column an issue's or PR's card is in; nothing if it has no card.
 board_where() {
-  local repo="" number=""
+  local repo="" number="" result
   IFS=$'\t' read -r repo number < <(board_ref "$1") || true
   [ -n "$number" ] || return 1
-  board_items | awk -F'\t' -v r="$repo" -v n="$number" '$4 == r && $5 == n { print $2; exit }'
+  result="$(board_items | awk -F'\t' -v r="$repo" -v n="$number" '$4 == r && $5 == n { print $2; exit }')"
+  if [ -z "$result" ]; then
+    result="$(board_lookup_item "$repo" "$number" | cut -f2)"
+  fi
+  [ "$result" = - ] || printf '%s\n' "$result"
 }
 
 # board_beside <ref> <anchor ref>: rank a card right below another one (a task PR under its issue).

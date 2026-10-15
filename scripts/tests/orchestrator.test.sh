@@ -144,7 +144,10 @@ _board_gql() {
       TEST_WRITES=$((${TEST_WRITES:-0} + 1))
       TEST_PROGRESS=''
       ;;
-    *) return 1 ;;
+    *)
+      printf 'unexpected gh request: %s\n' "$*" >&2
+      return 1
+      ;;
   esac
 }
 board_item() { printf 'PVTI_progress\n'; }
@@ -166,6 +169,157 @@ unset VECS_BOARD
 _board_gql() { retry 3 gh api graphql -f p="$BOARD_PROJECT" "$@"; }
 unset -f board_item
 BLIND=false
+# Track discovery is REST-only and associates task PRs with their labelled issue.
+gh() {
+  case "$*" in
+    *'issues?state=open&per_page=100'*)
+      jq -nc '[
+        {number:339,labels:[{name:"track:mcp"}]},
+        {number:340,pull_request:{},labels:[{name:"track:mcp"}],body:""},
+        {number:341,pull_request:{},labels:[],body:"Part of #339"},
+        {number:342,labels:[],body:"ordinary"}
+      ]'
+      ;;
+    *'/issues/comments?'*)
+      printf '339\tworker\thttps://example/339\tcomment\n340\tworker\thttps://example/340\tcomment\n350\tworker\thttps://example/350\tcomment\n'
+      ;;
+    *'/issues/343'*) printf '%s\n' '{"number":343,"pull_request":{},"labels":[],"body":"Closes #339"}' ;;
+    *)
+      printf 'unexpected gh request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+BOARD_TRACK=() BOARD_KNOWN=() BOARD_LISTED=false
+export VECS_TRACK=mcp
+board_load_tracks "$TEST_DIR/tracks"
+check test "${BOARD_TRACK[339]}:${BOARD_TRACK[340]}:${BOARD_TRACK[341]}" = mcp:mcp:mcp
+board_ours 339 && board_ours 340 && board_ours 341
+check test ! "$(VECS_TRACK=other board_ours 339 && echo yes)"
+board_ours 343
+check test "${BOARD_TRACK[343]}" = mcp
+BOARD_KNOWN[350]=1
+watch_lines=$'F\t339\t339-task\thead\tdev\nS\t340\t340-task\tcomment\nQ\t341\t341-task\tseen\nC\t343\t343-task\turl\ttext\nF\t350\t350-task\thead\tdev'
+check test "$(watch_filter_pr_lines "$watch_lines" | cut -f1-2 | tr '\t\n' '  ')" = 'F 339 S 340 Q 341 C 343 '
+check test "$(board_ours_rows $'339\tISSUE\ttracked\n350\tISSUE\tuntracked')" = $'339\tISSUE\ttracked'
+board_me() { printf 'tester\n'; }
+STATE="$TEST_DIR/comment-track"
+mkdir -p "$STATE"
+printf '2026-01-01T00:00:00Z\n' > "$STATE/.comments-since"
+check test "$(watch_comments | sed -nE 's/^COMMENT #([0-9]+).*/\1/p' | tr '\n' ' ')" = '339 340 '
+VECS_TRACK=
+check test ! "$(board_ours 339 && echo yes)"
+check test "$(watch_filter_pr_lines "$watch_lines" | cut -f1-2 | tr '\t\n' '  ')" = 'F 350 '
+check test "$(board_ours_rows $'339\tISSUE\ttracked\n350\tISSUE\tuntracked')" = $'350\tISSUE\tuntracked'
+STATE="$TEST_DIR/comment-main"
+mkdir -p "$STATE"
+printf '2026-01-01T00:00:00Z\n' > "$STATE/.comments-since"
+check test "$(watch_comments | sed -nE 's/^COMMENT #([0-9]+).*/\1/p' | tr '\n' ' ')" = '350 '
+unset -f board_me
+VECS_TRACK=mcp
+declare -f board_items > "$TEST_DIR/board-items-original.sh"
+board_items() {
+  printf 'PVTI_339\tIn review\tISSUE\tvworlds/vecs\t339\tOPEN\ttracked card\t-\nPVTI_350\tIn review\tISSUE\tvworlds/vecs\t350\tOPEN\tordinary card\t-\n'
+}
+BOARD_STATE="$TEST_DIR/board-track/board"
+mkdir -p "$BOARD_STATE"
+touch "$BOARD_STATE/.seen"
+printf 'Backlog\n' > "$BOARD_STATE/PVTI_339"
+printf 'Backlog\n' > "$BOARD_STATE/PVTI_350"
+check test "$(watch_board | sed -nE 's/^BOARD #([0-9]+).*/\1/p')" = 339
+printf 'Backlog\n' > "$BOARD_STATE/PVTI_339"
+printf 'Backlog\n' > "$BOARD_STATE/PVTI_350"
+VECS_TRACK=
+check test "$(watch_board | sed -nE 's/^BOARD #([0-9]+).*/\1/p')" = 350
+export VECS_TRACK=mcp
+source "$TEST_DIR/board-items-original.sh"
+gh() {
+  case "$*" in
+    *'issues?state=open&assignee='*) printf '339\tISSUE\ttracked\n340\tPR\ttracked PR\n350\tISSUE\tordinary\n' ;;
+    *)
+      printf 'unexpected gh request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+board_me() { printf 'tester\n'; }
+STATE="$TEST_DIR/assigned-track"
+mkdir -p "$STATE"
+check test "$(watch_assigned | sed -nE 's/^ASSIGNED #([0-9]+).*/\1/p' | tr '\n' ' ')" = '339 340 '
+VECS_TRACK=
+STATE="$TEST_DIR/assigned-main"
+mkdir -p "$STATE"
+check test "$(watch_assigned | sed -nE 's/^ASSIGNED #([0-9]+).*/\1/p' | tr '\n' ' ')" = '350 '
+unset -f board_me
+VECS_TRACK=
+gh() {
+  case "$*" in
+    *'issues?state=open&per_page=100'*) jq -nc '[{number:339,labels:[{name:"track:mcp"}]},{number:340,pull_request:{},labels:[{name:"track:mcp"}]}]' ;;
+    *'/issues/339'*) printf 'open\tfalse\tVecs MCP\n' ;;
+    *)
+      printf 'unexpected gh request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+printf 'placeholder task\n' > "$TEST_DIR/task.md"
+if VECS_TRACK='' VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/no-track" \
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT" \
+  bash scripts/orchestrator/open-task.sh 339 "$TEST_DIR/task.md" > "$TEST_DIR/open-refusal" 2>&1; then
+  printf 'FAIL: open-task accepted a track issue without VECS_TRACK\n' >&2
+  exit 1
+fi
+check grep -q "#339 is in track 'mcp'" "$TEST_DIR/open-refusal"
+if VECS_TRACK='' VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/no-track-merge" \
+  bash scripts/orchestrator/merge-task.sh 340 > "$TEST_DIR/merge-refusal" 2>&1; then
+  printf 'FAIL: merge-task accepted a track PR without VECS_TRACK\n' >&2
+  exit 1
+fi
+check grep -q "#340 is in track 'mcp'" "$TEST_DIR/merge-refusal"
+gh() {
+  case "$*" in
+    *'pr list '*) : ;;
+    *'issues?state=all'*) printf '100\n' ;;
+    *'api graphql'*) printf '100\n100\n' ;;
+    *'pr create '*)
+      printf '%s\n' "$*" > "$TEST_DIR/create-args"
+      while [ $# -gt 0 ]; do
+        if [ "$1" = --body-file ]; then
+          cp "$2" "$TEST_DIR/create-body"
+          break
+        fi
+        shift
+      done
+      printf 'https://github.com/vworlds/vecs/pull/101\n'
+      ;;
+    *'/issues/101/labels'*) printf '%s\n' "$*" > "$TEST_DIR/label-call" ;;
+    *)
+      printf 'unexpected gh request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+git() {
+  case "$*" in
+    'rev-parse --show-toplevel') printf '%s\n' "$ROOT" ;;
+    *'ls-remote '*) return 2 ;;
+    *'commit-tree '*) printf 'fixture-placeholder-sha\n' ;;
+    *'fetch '* | *' push '*) : ;;
+    *) command git "$@" ;;
+  esac
+}
+export -f gh git
+VECS_TRACK=mcp VECS_BASE=dev VECS_BOARD=off ROOT="$ROOT" \
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT" \
+  bash scripts/orchestrator/open-task.sh --direct 'Base Test' "$TEST_DIR/task.md" --slug base-test --base integration > "$TEST_DIR/open-success"
+check grep -q -- '--base integration' "$TEST_DIR/create-args"
+check grep -q 'base `integration`' "$TEST_DIR/create-body"
+check grep -q 'track:mcp' "$TEST_DIR/label-call"
+unset -f gh git
+export VECS_TRACK=mcp
+unset -f gh
+VECS_TRACK=
+BOARD_TRACK=() BOARD_KNOWN=() BOARD_LISTED=false
 board_progress() { printf '%s\n' "$*" >> "$TEST_DIR/progress-events"; }
 board_move() { printf 'move %s\n' "$*" >> "$TEST_DIR/progress-events"; }
 touch "$STATE/open-77"
@@ -194,6 +348,7 @@ check grep -q 'state=ready round=5' "$TEST_DIR/progress-events"
 board_me() { printf 'tester\n'; }
 gh() {
   case "$*" in
+    *'issues?state=open&per_page=100'*) printf '[]\n' ;;
     *'/issues/comments?'*)
       printf '81\tworker\thttps://github.com/vworlds/vecs/pull/81#issuecomment-81\t[worker] READY FOR REVIEW (round 7)\n'
       ;;
@@ -258,10 +413,13 @@ gh() {
       return 1
       ;;
     *'api user'*) printf 'tester\n' ;;
+    *'issues?state=open&per_page=100'*) printf '[]\n' ;;
     *'/issues/comments?'*)
       printf '42\tworker\thttps://github.com/vworlds/vecs/pull/42#issuecomment-1\t[worker] READY FOR REVIEW (round 2)\n'
       ;;
-    *'/issues/42'*) printf 'NODE\n' ;;
+    *'/issues/42'*)
+      if [[ "$*" == *'--jq .node_id'* ]]; then printf 'NODE\n'; else printf '%s\n' '{"number":42,"labels":[]}'; fi
+      ;;
     *'/issues?state=open&assignee='*) : ;;
     *)
       printf 'unexpected gh request: %s\n' "$*" >&2
@@ -290,11 +448,15 @@ gh() {
       printf 'HTTP/2.0 200 OK\n\n'
       cat "$TEST_DIR/pr-answer.json"
       ;;
+    *'issues?state=open&per_page=100'*) printf '[]\n' ;;
     'api repos/vworlds/vecs/pulls/42 '*)
       [ "$MISSING_STATE" != failure ] || return 1
       jq -r "$4" "$TEST_DIR/pr-state.json"
       ;;
-    *) return 1 ;;
+    *)
+      printf 'unexpected gh request: %s\n' "$*" >&2
+      return 1
+      ;;
   esac
 }
 export -f gh
@@ -450,6 +612,18 @@ unset -f curl
 unset OPENCODE_SERVER_PASSWORD OPENCODE_BASE_URL
 
 # Board fixtures include both repos, a draft, a closed card and owner assignments.
+gh() {
+  case "$*" in
+    *'repos/vworlds/vecs/issues/909'*) printf 'NODE_909\n' ;;
+    *'projectItems(first: 100)'*) printf 'PVTI_909\tReady\n' ;;
+    *)
+      printf 'unexpected gh request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+check test "$(board_lookup_item vworlds/vecs 909)" = $'PVTI_909\tReady'
+
 jq -nc '{data:{node:{items:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[
   {id:"PVTI_ready",status:{name:"Ready"},content:{__typename:"PullRequest",number:10,title:"ready",state:"OPEN",repository:{nameWithOwner:"vworlds/vecs"},assignees:{nodes:[]}}},
   {id:"PVTI_work",status:{name:"In progress"},content:{__typename:"PullRequest",number:11,title:"work",state:"OPEN",repository:{nameWithOwner:"vworlds/vecs"},assignees:{nodes:[{login:"jpeletier"}]}}},
@@ -466,6 +640,7 @@ gh() {
       else cat "$TEST_DIR/board.json"; fi
       ;;
     *'api user'*) printf 'tester\n' ;;
+    *'issues?state=open&per_page=100'*) printf '[]\n' ;;
     *'/issues?state=open&assignee='*) : ;;
     *)
       printf 'unexpected gh request: %s\n' "$*" >&2

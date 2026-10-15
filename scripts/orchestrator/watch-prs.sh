@@ -409,6 +409,13 @@ progress_of_head() {
     watch_progress "$num" ci="$ci" 2> /dev/null && printf '%s\n' "$ci" > "$STATE/ci-$num"
   fi
 }
+watch_filter_pr_lines() {
+  local what num rest
+  while IFS=$'\t' read -r what num rest; do
+    [[ "${num:-}" =~ ^[1-9][0-9]*$ ]] && board_ours "$num" && printf '%s\t%s\t%s\n' "$what" "$num" "$rest"
+  done <<< "$1"
+  return 0
+}
 polls=0
 tracks_read=false
 fails=0
@@ -452,7 +459,6 @@ while :; do
       if [ "${what:-}" = O ]; then touch "$STATE/open-$num"; fi
     done <<< "$lines"
     while IFS=$'\t' read -r what num branch url first second; do
-      [[ "${num:-}" =~ ^[1-9][0-9]*$ ]] && board_ours "$num" || continue
       case "${what:-}" in
         O) progress_of_head "$num" "$url" "$first" "$second" ;;
         C)
@@ -478,10 +484,14 @@ while :; do
             && { watch_progress "$num" state=silent if=working 2> /dev/null || true; }
           ;;
       esac
-    done <<< "$lines"
+    done < <(watch_filter_pr_lines "$lines")
     for f in "$STATE"/open-*; do
       [ -e "$f" ] || continue
       num="${f##*/open-}"
+      if ! board_ours "$num"; then
+        rm -f "$f"
+        continue
+      fi
       if ! grep -q "^O"$'\t'"$num"$'\t' <<< "$lines"; then
         state="$(gh api "repos/$REPO_SLUG/pulls/$num" --jq '
           if .merged == true then "MERGED"
