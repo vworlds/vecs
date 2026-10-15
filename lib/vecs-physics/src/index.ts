@@ -70,6 +70,7 @@ export { BodyMotion, physics } from "./adapter/queries.js";
 export type {
   CastGeometry,
   PhysicsQueries,
+  PoseChanges,
   PhysicsSettings,
   PhysicsStats,
   QueryFilter,

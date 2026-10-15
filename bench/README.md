@@ -3,6 +3,30 @@
 Headless, deterministic benchmarks that run against the built `dist` output of the vecs packages,
 the same JavaScript a consumer installs.
 
+## Dead-reckoning eligibility
+
+For the physics-backed dead-reckoning eligibility measurement, run
+`node --import ./bench/register-dist.mjs bench/dr-motion.ts` after building. It reports
+motion-sync, eligibility, pose-out (including pose-write routing), and total-tick microseconds for
+2,000 asleep / 50 moving and 100 asleep / 1,600 moving bodies. Set `BENCH_VECS_ROOT` to select a
+different built tree; alternate before/after processes and compare round medians. `BENCH_TICKS`
+(default 1,200) and `BENCH_WARMUP_TICKS` (default 300) control the horizons. Timings use the world's
+system stats, including each system's flush; total-tick time includes routing and instrumentation.
+Bodies occupy separate lanes and moving bodies cannot sleep, keeping the population stable. Moving
+bodies translate and rotate, exercising both pose writes rather than constant-rotation fast paths.
+
+`node --import ./bench/register-dist.mjs bench/dr-routing.ts` isolates the rejected membership
+probe in `Entity._routeModified` (`lib/vecs/src/entity/entity.queries.ts`). Nine alternating rounds
+compare no pose watcher with one excluded watcher, with eight unrelated memberships so the routing
+path takes the shorter watcher list. No physics, hooks, flushes, callback dispatch or inbox allocation
+is included. It reports nanoseconds/write; set `BENCH_WRITES` to override five million calls/round.
+
+`dr-bandwidth.ts` also hashes raw packets and packets re-encoded with logical entity ids in Networked
+creation order. Component payloads, snapshot/removal order and packet order remain untouched; packet
+lengths delimit the mapped hash. This scene has no entity references inside component payloads.
+Mapped hashes let builds with extra server-local registrations prove equivalence despite shifted ECS ids.
+Set `BENCH_PACKET_PREFIX` to capture mapped, length-delimited packets as `<prefix>-<mode>.bin`.
+
 ## Sector tick
 
 `sector-tick.ts` prices the per-tick bookkeeping of a game server that hosts several worlds, modelled
