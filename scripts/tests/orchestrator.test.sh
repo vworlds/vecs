@@ -116,6 +116,14 @@ check grep -q 'state=question' "$TEST_DIR/progress-events"
 check grep -q 'state=design' "$TEST_DIR/progress-events"
 check grep -q 'state=blocked' "$TEST_DIR/progress-events"
 check grep -q 'state=working if=silent,permission,failed,idle,conflict' "$TEST_DIR/progress-events"
+touch "$STATE/conflict-77"
+printf 'old-head\n' > "$STATE/head-77"
+progress_of_head 77 new-head MERGEABLE FAILURE
+check grep -q 'state=working if=silent,permission,failed,idle,conflict' "$TEST_DIR/progress-events"
+check grep -q 'state=working if=conflict' "$TEST_DIR/progress-events"
+check grep -q 'ci=red' "$TEST_DIR/progress-events"
+check test ! -e "$STATE/conflict-77"
+check test "$(cat "$STATE/head-77")" = new-head
 unset -f board_progress board_move
 
 # One exhausted-budget polling turn: REST keeps running, no board GraphQL call is made.
