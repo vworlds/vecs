@@ -3,6 +3,17 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## v1.0.56 (2026-10-15)
+
+- [repo]: Refresh root dependencies after a task merge changes the lockfile, and report missing checker dependencies clearly (#324).
+- [repo] Added: Publish non-master branches as isolated npm test releases with branch dist-tags, exact internal version pins, and an orchestrator command that verifies all nine packages (#323).
+- [repo] Validate Markdown fences and Mermaid diagrams before publishing GitHub bodies (#321).
+- [vecs] Added read-only system callback and update-watch introspection (#320).
+- [vecs-phaser-server] Performance: Compare moving or physics-reported dead-reckoned baselines without pose watchers; sleeping Dynamic bodies cost no per-tick comparison, while application-owned poses retain their compatibility lane (#319).
+- [vecs-phaser-server] Changed: Late resting Dynamic pose writes are checked on their next eligible tick: this tick for bodies already reported by physics, otherwise next tick for unreported sleepers (#319).
+- [vecs-physics] Added: Reused, read-only post-step poseChanges typed eid/count view, including admitted application teleports and final sleep events (#319).
+- [repo] Changed: Release verification now waits for the publish workflow and npm registry latest tags after completing git updates, with bounded waits and actionable failure diagnostics (#316).
+
 ## v1.0.55 (2026-10-15)
 
 - [repo] Fixed: Confirm missing task PRs are closed before reporting watcher events; reject GraphQL error answers (#314).
