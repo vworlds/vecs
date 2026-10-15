@@ -23,7 +23,7 @@ interface Session {
   timer?: ReturnType<typeof setTimeout>;
   subscriptions: Map<string, ReturnType<typeof setTimeout> | undefined>;
   listeners: Map<string, () => void>;
-  watches: Map<string, string | undefined>;
+  watches: Map<string, { watch: string; target: string | undefined }>;
   closing?: Promise<void>;
 }
 
@@ -178,10 +178,17 @@ export class VecsMcpServer {
     for (const local of this._router.worlds.values()) {
       local.watches.close(session.owner);
     }
-    const watches = [...session.watches];
+    const watches = [...session.watches.values()].filter(({ target }) => {
+      const segments = target?.split("/");
+      return !(
+        segments?.length === 2 &&
+        segments[0] === this._router.name &&
+        this._router.worlds.has(segments[1])
+      );
+    });
     session.watches.clear();
     await Promise.all(
-      watches.map(([watch, target]) =>
+      watches.map(({ watch, target }) =>
         this._router.dispatch({
           id: "session-close",
           target,
@@ -279,12 +286,9 @@ export class VecsMcpServer {
           const { target, ...rest } = params;
           // Remember the actual route at creation; adding another target later must
           // not make session-close cleanup ambiguous for an omitted target.
-          const paths =
-            name === "vecs_watch"
-              ? [...this._router.destinations.values()].flatMap((destination) =>
-                  destination.paths()
-                )
-              : [];
+          const paths = ["vecs_watch", "vecs_events", "vecs_unwatch"].includes(name)
+            ? [...this._router.destinations.values()].flatMap((destination) => destination.paths())
+            : [];
           const route =
             (target as string | undefined) ?? (paths.length === 1 ? paths[0] : undefined);
           const response = await this._router.dispatch({
@@ -311,13 +315,19 @@ export class VecsMcpServer {
                 },
               });
             } else {
-              session.watches.set((response.result as { watch: string }).watch, route);
+              const watch = (response.result as { watch: string }).watch;
+              session.watches.set(JSON.stringify([route, watch]), { watch, target: route });
             }
           }
           if (name === "vecs_unwatch") {
-            session.watches.delete(rest.watch as string);
+            session.watches.delete(JSON.stringify([route, rest.watch]));
             for (const uri of session.subscriptions.keys()) {
-              if (uri.endsWith(`/watch/${String(rest.watch)}`)) {
+              const segments = route?.split("/");
+              if (
+                segments?.length === 2 &&
+                segments[0] === this._router.name &&
+                uri === this._uri(segments[1], String(rest.watch))
+              ) {
                 clearTimeout(session.subscriptions.get(uri));
                 session.subscriptions.delete(uri);
               }

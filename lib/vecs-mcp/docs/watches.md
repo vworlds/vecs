@@ -12,6 +12,8 @@ nested expressions: those operators are filter-only and non-reactive in vecs.
 The error names the operator and directs you to `vecs_find`. `parent`, `target`
 and the other reactive operators remain supported; no polling fallback is installed.
 `members` counts current matches; creating the watch emits no backfill events.
+Treat watch ids as opaque, world-scoped handles, not credentials; always pair
+them with their target when addressing multiple worlds.
 Use a one-shot find when you need the initial entity values. `include` selects
 optional values and update hooks only: it never requires those components for
 membership. Duplicate include names install only one hook.

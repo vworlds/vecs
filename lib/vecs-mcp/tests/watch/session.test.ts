@@ -5,6 +5,7 @@ import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/typ
 import { World } from "@vworlds/vecs";
 import { VecsMcpServer } from "../../src/server.js";
 import { WATCH_IDLE_MS } from "../../src/bridge/watch.js";
+import { Router } from "../../src/bridge/router.js";
 
 const servers: VecsMcpServer[] = [];
 const transports: StreamableHTTPClientTransport[] = [];
@@ -51,6 +52,92 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
 }
 
 describe("session watches and MCP resources", () => {
+  it("retains each remote route when different worlds return the same watch id", async () => {
+    const { connect } = await setup();
+    const { client, transport } = await connect();
+    const original = Router.prototype.dispatch;
+    const dispatch = vi.spyOn(Router.prototype, "dispatch").mockImplementation(function (
+      this: Router,
+      request
+    ) {
+      if (request.target?.startsWith("remote/")) {
+        return Promise.resolve({
+          id: request.id,
+          result: request.command === "vecs_watch" ? { watch: "w1", members: 1 } : { watch: "w1" },
+        });
+      }
+      return original.call(this, request);
+    });
+    try {
+      for (const target of ["remote/a", "remote/b", "remote/c"]) {
+        expect(await call(client, "watch", { target, where: true })).toEqual({
+          watch: "w1",
+          members: 1,
+        });
+      }
+      await call(client, "unwatch", { target: "remote/a", watch: "w1" });
+      dispatch.mockClear();
+      await transport.terminateSession();
+      expect(
+        dispatch.mock.calls.map(([request]) => ({
+          target: request.target,
+          command: request.command,
+          watch: request.params.watch,
+        }))
+      ).toEqual([
+        { target: "remote/b", command: "vecs_unwatch", watch: "w1" },
+        { target: "remote/c", command: "vecs_unwatch", watch: "w1" },
+      ]);
+    } finally {
+      dispatch.mockRestore();
+    }
+  });
+
+  it("tears down local watches directly without routing duplicate unwatch commands", async () => {
+    const { connect, world, baseline, component, hook } = await setup();
+    const { client, transport } = await connect();
+    const { watch } = await call(client, "watch", { where: "Position", include: ["Position"] });
+    expect((await client.listResources()).resources[0].uri).toBe(
+      `vecs://sessions/world/watch/${watch}`
+    );
+    const dispatch = vi.spyOn(Router.prototype, "dispatch");
+    try {
+      await transport.terminateSession();
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(world.queries.length).toBe(baseline);
+      expect(component.meta._onSet).toBe(hook);
+    } finally {
+      dispatch.mockRestore();
+    }
+  });
+
+  it("keeps identical ids in different worlds isolated when unwatching and closing a session", async () => {
+    const { connect, server, world, baseline } = await setup();
+    const second = new World();
+    second.component(Position);
+    second.entity("second").add(Position);
+    second.flush();
+    const secondBaseline = second.queries.length;
+    server.registerWorld(second, "second");
+    const { client, transport } = await connect();
+    const a = await call(client, "watch", { target: "sessions/world", where: "Position" });
+    const b = await call(client, "watch", { target: "sessions/second", where: "Position" });
+    expect(a.watch).toBe(b.watch);
+    expect((await client.listResources()).resources.map((resource) => resource.uri).sort()).toEqual(
+      [`vecs://sessions/second/watch/${b.watch}`, `vecs://sessions/world/watch/${a.watch}`]
+    );
+    await call(client, "unwatch", { target: "sessions/world", watch: a.watch });
+    expect(world.queries.length).toBe(baseline);
+    expect(second.queries.length).toBe(secondBaseline + 1);
+    expect(await call(client, "events", { target: "sessions/second", watch: b.watch })).toEqual({
+      events: [],
+      latest: 0,
+      dropped: 0,
+    });
+    await transport.terminateSession();
+    expect(second.queries.length).toBe(secondBaseline);
+  });
+
   it.each(["source", "children"])(
     "rejects nested %s through MCP but keeps find support",
     async (operator) => {

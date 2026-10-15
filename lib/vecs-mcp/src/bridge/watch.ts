@@ -33,6 +33,7 @@ export class WatchSet {
   private readonly _watches = new Map<string, Watch>();
   private readonly _expired = new Map<string, string>();
   private readonly _listeners = new Set<(id: string) => void>();
+  private _nextId = 0;
 
   public constructor(private readonly world: World) {}
 
@@ -54,7 +55,7 @@ export class WatchSet {
     if (this._watches.size >= 32) {
       throw new Error(`Watch cap (32); live ids: ${[...this._watches.keys()].join(", ")}`);
     }
-    const id = globalThis.crypto.randomUUID();
+    const id = `w${++this._nextId}`;
     let ready = false;
     const selected = [...new Set(include as string[])].map(
       (name) => [name, registry.get(name)!] as const

@@ -44,6 +44,20 @@ function read(local: LocalWorld, watch: string, params = {}) {
 }
 
 describe("watch logs", () => {
+  it("creates world-scoped ids without crypto and never reuses a removed id", () => {
+    const { local } = setup();
+    const other = setup().local;
+    vi.stubGlobal("crypto", undefined);
+    try {
+      const first = create(local);
+      expect(first.watch).toBe("w1");
+      expect(create(other).watch).toBe("w1");
+      local.watches.remove({ watch: first.watch, _session: "one" });
+      expect(create(local).watch).toBe("w2");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it.each(
     ["source", "children"].flatMap((operator) => {
       const term = operator === "source" ? { source: ["ChildOf", "A"] } : { children: "A" };
