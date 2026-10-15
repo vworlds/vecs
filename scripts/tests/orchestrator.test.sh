@@ -263,6 +263,91 @@ gh() {
   esac
 }
 printf 'placeholder task\n' > "$TEST_DIR/task.md"
+# Exercise open-task's issue-to-PR handoff with offline board fakes. Seed the issue with owner
+# review Progress; retain updates per card so the assertions cover both the issue and new PR.
+python3 - "$ROOT/scripts/orchestrator/open-task.sh" "$TEST_DIR/open-task-offline.sh" "$ROOT" << 'PY'
+import pathlib
+import sys
+
+source, target, root = map(pathlib.Path, sys.argv[1:])
+text = source.read_text()
+def replace_once(pattern, replacement):
+    global text
+    if text.count(pattern) != 1:
+        raise SystemExit(f"open-task.sh changed: {pattern} not found")
+    text = text.replace(pattern, replacement)
+
+
+replace_once(
+    '. "$(dirname "$0")/../lib/common.sh"',
+    f'. "{root}/scripts/lib/common.sh"',
+)
+replace_once(
+    '. "$(dirname "$0")/../lib/board.sh"',
+    f'. "{root}/scripts/lib/board.sh"\n'
+    'board_enabled() { return 0; }\n'
+    'board_load_tracks() { :; }\n'
+    'board_require_ours() { :; }\n'
+    'board_blockers() { :; }\n'
+    'board_where() { printf "Approved\\n"; }\n'
+    'board_move() { :; }\n'
+    'board_turn() { :; }\n'
+    'board_beside() { :; }\n'
+    'board_progress() {\n'
+    '  local ref="$1" arg state="" round=""\n'
+    '  shift\n'
+    '  for arg in "$@"; do case "$arg" in state=*) state="${arg#state=}" ;; round=*) round="${arg#round=}" ;; esac; done\n'
+    '  if [ "$state" = - ]; then : > "$TEST_DIR/progress-$ref";\n'
+    '  else printf "%s\\t%s\\n" "$state" "$round" > "$TEST_DIR/progress-$ref"; fi\n'
+    '}\n',
+)
+replace_once(
+    '"$(dirname "$0")/../agent/check-markdown.sh" "$body"',
+    f'"{root}/scripts/agent/check-markdown.sh" "$body"',
+)
+target.write_text(text)
+PY
+printf 'owner-review\t-\n' > "$TEST_DIR/progress-339"
+gh() {
+  case "$*" in
+    *'issues/339 --jq'*) printf 'open\tfalse\tOffline task\n' ;;
+    *'pr list '*) : ;;
+    *'issues?state=all'*) printf '100\n' ;;
+    *'api graphql'*) printf '100\n100\n' ;;
+    *'/issues/101/labels'*) : ;;
+    *'pr create '*) printf 'https://github.com/vworlds/vecs/pull/101\n' ;;
+    *)
+      printf 'unexpected open-task gh request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+git() {
+  case "$*" in
+    'rev-parse --show-toplevel') printf '%s\n' "$ROOT" ;;
+    *'ls-remote '*) return 2 ;;
+    *'commit-tree '*) printf 'fixture-placeholder-sha\n' ;;
+    *'fetch '* | *' push '*) : ;;
+    *) command git "$@" ;;
+  esac
+}
+export -f gh git
+VECS_BOARD=on VECS_TRACK=mcp ROOT="$ROOT" TEST_DIR="$TEST_DIR" bash "$TEST_DIR/open-task-offline.sh" \
+  339 "$TEST_DIR/task.md" --slug offline-test > "$TEST_DIR/open-behavior"
+check test "$(cat "$TEST_DIR/progress-339")" = ''
+check test "$(cat "$TEST_DIR/progress-101")" = $'working\t1'
+unset -f gh git
+gh() {
+  case "$*" in
+    *'issues?state=open&per_page=100'*) jq -nc '[{number:339,labels:[{name:"track:mcp"}]},{number:340,pull_request:{},labels:[{name:"track:mcp"}]}]' ;;
+    *'/issues/339'*) printf 'open\tfalse\tVecs MCP\n' ;;
+    *)
+      printf 'unexpected gh request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+export -f gh
 if VECS_TRACK='' VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/no-track" \
   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT" \
   bash scripts/orchestrator/open-task.sh 339 "$TEST_DIR/task.md" > "$TEST_DIR/open-refusal" 2>&1; then
@@ -322,10 +407,17 @@ gh() {
     *'pr view 360 '*)
       if [ "${MERGE_CASE:-merged}" = conflict ]; then
         printf 'OPEN\t360-track-task\tfalse\tCONFLICTING\tTrack task\tintegration\n'
+      elif [ "${MERGE_CASE:-merged}" = merge-open ]; then
+        printf 'OPEN\tpack/idle-keepalive\tfalse\tMERGEABLE\tPack integration\tdev\n'
+      elif [ "${MERGE_CASE:-merged}" = squash-open ]; then
+        printf 'OPEN\t360-track-task\tfalse\tMERGEABLE\tTrack task\tdev\n'
       else
         printf 'MERGED\t360-track-task\tfalse\tMERGEABLE\tTrack task\tintegration\n'
       fi
       ;;
+    *'pr ready 360 '*) : ;;
+    *'pr merge 360 '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-gh-args" ;;
+    *'api -X DELETE '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-deletes" ;;
     *'api graphql'*) : ;;
     *'pulls/360'*) printf '0123456789abcdef0123456789abcdef01234567\n' ;;
     *'api -X DELETE '*) : ;;
@@ -339,7 +431,8 @@ git() {
   case "$*" in
     'rev-parse --path-format=absolute --git-common-dir') printf '%s/.git\n' "$ROOT" ;;
     'rev-parse --abbrev-ref HEAD') printf 'dev\n' ;;
-    'status --porcelain --untracked-files=no') : ;;
+    rev-parse\ origin/*) printf '0123456789abcdef0123456789abcdef01234567\n' ;;
+    'status --porcelain --untracked-files=no') [[ "${MERGE_CASE:-}" == *-open ]] && printf ' M mocked\n' ;;
     *' fetch -q '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-fetches" ;;
     *' update-ref '*) : ;;
     *' merge '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-git-merges" ;;
@@ -364,6 +457,21 @@ check grep -q '+integration:refs/remotes/origin/integration' "$TEST_DIR/merge-fe
 check test "$(grep -c '+dev:refs/remotes/origin/dev' "$TEST_DIR/merge-fetches" || true)" = 0
 check test ! -s "$TEST_DIR/merge-git-merges"
 check grep -q 'main checkout left alone (PR base is integration)' "$TEST_DIR/merge-success"
+: > "$TEST_DIR/merge-deletes"
+: > "$TEST_DIR/merge-gh-args"
+VECS_TRACK=mcp VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/merge-commit-state" MERGE_CASE=merge-open ROOT="$ROOT" \
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT" \
+  bash scripts/orchestrator/merge-task.sh 360 --merge-commit > "$TEST_DIR/merge-commit" 2>&1
+check grep -q -- '--merge ' "$TEST_DIR/merge-gh-args"
+check grep -q 'kept integration branch pack/idle-keepalive' "$TEST_DIR/merge-commit"
+check test ! -s "$TEST_DIR/merge-deletes"
+: > "$TEST_DIR/merge-gh-args"
+: > "$TEST_DIR/merge-deletes"
+VECS_TRACK=mcp VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/squash-state" MERGE_CASE=squash-open ROOT="$ROOT" \
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT" \
+  bash scripts/orchestrator/merge-task.sh 360 > "$TEST_DIR/squash-default" 2>&1
+check grep -q -- '--squash ' "$TEST_DIR/merge-gh-args"
+check grep -q 'deleted branch 360-track-task' "$TEST_DIR/squash-default"
 unset -f gh git
 export VECS_TRACK=mcp
 unset -f gh
