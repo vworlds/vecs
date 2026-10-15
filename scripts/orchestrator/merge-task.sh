@@ -84,7 +84,11 @@ fetch_refs "+dev:refs/remotes/origin/dev" || die "fetch failed"
 gh api -X DELETE "repos/$REPO_SLUG/git/refs/heads/$branch" > /dev/null 2>&1 && log "deleted branch $branch" || true
 git update-ref -d "refs/remotes/origin/$branch" 2> /dev/null || true
 if [ "$(git rev-parse --abbrev-ref HEAD)" = dev ] && [ -z "$(git status --porcelain --untracked-files=no)" ]; then
-  git merge -q --ff-only origin/dev && log "main checkout fast-forwarded to $(git rev-parse --short HEAD)"
+  old_head="$(git rev-parse HEAD)"
+  git merge -q --ff-only origin/dev
+  new_head="$(git rev-parse HEAD)"
+  log "main checkout fast-forwarded to ${new_head:0:7}"
+  "$(dirname "$0")/install-deps-after-fast-forward.sh" "$main" "$old_head" "$new_head"
 else
   log "main checkout not on a clean dev; left alone"
 fi
