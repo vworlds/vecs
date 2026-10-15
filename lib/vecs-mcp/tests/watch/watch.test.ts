@@ -44,6 +44,55 @@ function read(local: LocalWorld, watch: string, params = {}) {
 }
 
 describe("watch logs", () => {
+  it.each(
+    ["source", "children"].flatMap((operator) => {
+      const term = operator === "source" ? { source: ["ChildOf", "A"] } : { children: "A" };
+      return [
+        { label: operator, where: term },
+        { label: `${operator} in array`, where: ["A", term] },
+        { label: `${operator} in all`, where: { all: ["A", term] } },
+        { label: `${operator} in any`, where: { any: ["A", term] } },
+        { label: `${operator} in not`, where: { not: term } },
+        { label: `${operator} in target`, where: { target: ["ChildOf", term] } },
+        { label: `${operator} in parent`, where: { parent: term } },
+      ].map((row) => ({ ...row, operator }));
+    })
+  )("rejects $label without leaving queries or hooks behind", ({ where, operator, label }) => {
+    const { local, world, entity } = setup();
+    world.entity("child").add(A).childOf(entity);
+    world.flush();
+    const baseline = world.queries.length;
+    const hook = world.component(A).meta._onSet;
+    expect(() => create(local, { where })).toThrow(
+      `${operator} is filter-only: vecs_find supports it, vecs_watch does not`
+    );
+    expect(world.queries.length).toBe(baseline);
+    expect(world.component(A).meta._onSet).toBe(hook);
+    expect(local.watches.ids("one")).toEqual([]);
+    const total = label.endsWith("in not")
+      ? world.entities.size - 1
+      : label.endsWith("in any")
+        ? 2
+        : 1;
+    expect(local.command("vecs_find", { where })).toMatchObject({ total });
+  });
+
+  it.each([
+    { label: "parent", where: { parent: "A" } },
+    { label: "target", where: { target: ["ChildOf", "A"] } },
+  ])("keeps $label reactive", ({ where }) => {
+    const { local, world, entity } = setup();
+    const child = world.entity("child").add(A).childOf(entity);
+    const { watch, members } = create(local, { where, include: [] });
+    expect(members).toBe(1);
+    entity.remove(A);
+    entity.add(A);
+    expect(read(local, watch).events).toEqual([
+      { seq: 1, kind: "exit", eid: child.eid, name: "child" },
+      { seq: 2, kind: "enter", eid: child.eid, name: "child" },
+    ]);
+  });
+
   it("supports numeric browser timers without requiring Node timer methods", () => {
     const { local, entity } = setup();
     const timeout = vi

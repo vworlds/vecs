@@ -7,6 +7,10 @@ Follow reactive world changes without repeating a one-shot query.
 Call `vecs_watch` with the same JSON `where` DSL as
 [`vecs_find`](./tools.md#query-dsl), plus optional `include` names and a positive
 integer `maxEvents` (default 1000). The result is `{ watch, members }`.
+Unlike find, watches reject **`source` and `children` anywhere in `where`**, including
+nested expressions: those operators are filter-only and non-reactive in vecs.
+The error names the operator and directs you to `vecs_find`. `parent`, `target`
+and the other reactive operators remain supported; no polling fallback is installed.
 `members` counts current matches; creating the watch emits no backfill events.
 Use a one-shot find when you need the initial entity values. `include` selects
 optional values and update hooks only: it never requires those components for

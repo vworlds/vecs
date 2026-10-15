@@ -39,7 +39,7 @@ export class WatchSet {
   /** Create one membership query and removable hooks only for projected components. */
   public create(params: Record<string, unknown>, registry: Map<string, Component>): unknown {
     const owner = this._owner(params);
-    const where = query(params.where, registry);
+    const where = query(params.where, registry, true);
     const include = params.include ?? [];
     if (
       !Array.isArray(include) ||

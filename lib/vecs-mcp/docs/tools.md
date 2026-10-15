@@ -41,6 +41,10 @@ counts live instances, including infrastructure. Stats tools read existing
 - `{ "parent": expression }` and `{ "children": expression }` through `ChildOf`.
 
 `test` predicates are not expressible in JSON and are explicitly rejected.
+`vecs_watch` shares this translator but rejects `source` and `children` at any
+depth because they are filter-only, non-reactive operators. Use `vecs_find` for
+those expressions; watches still support `parent`, `target` and the other reactive
+operators. See [watches](./watches.md) for their live-query semantics.
 Only `include`d component values are projected; omitted `include` produces an
 empty components object. Pagination uses nonnegative integer `limit` and `offset`.
 

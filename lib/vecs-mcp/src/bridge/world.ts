@@ -240,8 +240,8 @@ export function resolveEntity(world: World, ref: unknown): Entity {
   return entity;
 }
 
-/** @internal Translate the shared JSON query language for finds and watches. */
-export function query(value: unknown, registry: Map<string, Component>): QueryDSL {
+/** @internal Translate JSON queries; watch mode rejects filter-only operators at any depth. */
+export function query(value: unknown, registry: Map<string, Component>, watch = false): QueryDSL {
   const component = (name: unknown): Component => {
     if (typeof name !== "string" || !registry.has(name)) {
       throw new Error(`Unknown component ${String(name)}`);
@@ -255,7 +255,7 @@ export function query(value: unknown, registry: Map<string, Component>): QueryDS
     return component(value);
   }
   if (Array.isArray(value)) {
-    return { all: value.map((v) => query(v, registry)) };
+    return { all: value.map((v) => query(v, registry, watch)) };
   }
   if (typeof value !== "object" || value === null) {
     throw new Error("where must be a query DSL expression");
@@ -268,6 +268,9 @@ export function query(value: unknown, registry: Map<string, Component>): QueryDS
     throw new Error("A query expression must have exactly one operator");
   }
   const [operator, term] = entries[0];
+  if (watch && (operator === "source" || operator === "children")) {
+    throw new Error(`${operator} is filter-only: vecs_find supports it, vecs_watch does not`);
+  }
   switch (operator) {
     case "all":
     case "any":
@@ -275,12 +278,12 @@ export function query(value: unknown, registry: Map<string, Component>): QueryDS
         throw new Error(`${operator} requires an array`);
       }
       return operator === "all"
-        ? { all: term.map((v) => query(v, registry)) }
-        : { any: term.map((v) => query(v, registry)) };
+        ? { all: term.map((v) => query(v, registry, watch)) }
+        : { any: term.map((v) => query(v, registry, watch)) };
     case "not":
     case "parent":
     case "children":
-      return { [operator]: query(term, registry) } as QueryDSL;
+      return { [operator]: query(term, registry, watch) } as QueryDSL;
     case "only":
       return { only: Array.isArray(term) ? term.map(component) : component(term) };
     case "target":
@@ -293,8 +296,8 @@ export function query(value: unknown, registry: Map<string, Component>): QueryDS
         throw new Error(`${term[0]} is not a relationship`);
       }
       return operator === "target"
-        ? { target: [rel, query(term[1], registry)] }
-        : { source: [rel, query(term[1], registry)] };
+        ? { target: [rel, query(term[1], registry, watch)] }
+        : { source: [rel, query(term[1], registry, watch)] };
     }
     default:
       throw new Error(`Unknown query operator ${operator}`);

@@ -51,6 +51,31 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
 }
 
 describe("session watches and MCP resources", () => {
+  it.each(["source", "children"])(
+    "rejects nested %s through MCP but keeps find support",
+    async (operator) => {
+      const { connect, world, baseline } = await setup();
+      const { client } = await connect();
+      const where = {
+        any: [
+          "Position",
+          operator === "source" ? { source: ["ChildOf", "Position"] } : { children: "Position" },
+        ],
+      };
+      const rejected = await client.callTool({
+        name: "vecs_watch",
+        arguments: { where, include: ["Position"] },
+      });
+      expect(rejected.isError).toBe(true);
+      expect(JSON.stringify(rejected.content)).toContain(
+        `${operator} is filter-only: vecs_find supports it, vecs_watch does not`
+      );
+      expect(world.queries.length).toBe(baseline);
+      expect((await client.listResources()).resources).toEqual([]);
+      expect(await call(client, "find", { where })).toMatchObject({ total: 1 });
+    }
+  );
+
   it("isolates two sessions' tools and resources and destroys only the DELETEd session's queries/hooks", async () => {
     const { connect, world, baseline, component, hook } = await setup();
     const a = await connect();

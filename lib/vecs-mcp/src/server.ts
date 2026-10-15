@@ -397,7 +397,7 @@ const entity = z.union([z.number().int().positive(), z.string()]);
 const tools = {
   vecs_watch: {
     description:
-      "Create a session-owned reactive query using vecs_find's JSON DSL. include selects optional component values and update hooks, never narrows membership. maxEvents bounds the event ring (default 1000). Returns watch id and current members, without backfill events.",
+      "Create a session-owned reactive query using vecs_find's JSON DSL except filter-only source/children, rejected even when nested; parent/target remain supported. include selects optional component values and update hooks, never narrows membership. maxEvents bounds the event ring (default 1000). Returns watch id and current members, without backfill events.",
     schema: {
       target,
       where: z.unknown(),
