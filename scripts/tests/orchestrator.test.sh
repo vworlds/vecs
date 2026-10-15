@@ -271,11 +271,18 @@ import sys
 
 source, target, root = map(pathlib.Path, sys.argv[1:])
 text = source.read_text()
-text = text.replace(
+def replace_once(pattern, replacement):
+    global text
+    if text.count(pattern) != 1:
+        raise SystemExit(f"open-task.sh changed: {pattern} not found")
+    text = text.replace(pattern, replacement)
+
+
+replace_once(
     '. "$(dirname "$0")/../lib/common.sh"',
     f'. "{root}/scripts/lib/common.sh"',
 )
-text = text.replace(
+replace_once(
     '. "$(dirname "$0")/../lib/board.sh"',
     f'. "{root}/scripts/lib/board.sh"\n'
     'board_enabled() { return 0; }\n'
@@ -294,9 +301,9 @@ text = text.replace(
     '  else printf "%s\\t%s\\n" "$state" "$round" > "$TEST_DIR/progress-$ref"; fi\n'
     '}\n',
 )
-text = text.replace(
-    '"$(dirname "$0")/../agent/check-markdown.sh"',
-    f'"{root}/scripts/agent/check-markdown.sh"',
+replace_once(
+    '"$(dirname "$0")/../agent/check-markdown.sh" "$body"',
+    f'"{root}/scripts/agent/check-markdown.sh" "$body"',
 )
 target.write_text(text)
 PY
