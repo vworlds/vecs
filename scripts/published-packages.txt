@@ -3,6 +3,7 @@ lib/vecs-wire
 lib/vecs-protocol
 lib/vecs-client
 lib/vecs-server
+lib/vecs-mcp
 lib/vecs-physics
 lib/vecs-phaser
 lib/vecs-phaser-server

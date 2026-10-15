@@ -7,6 +7,7 @@ const syncedDependencyNames = [
   "@vworlds/vecs-wire",
   "@vworlds/vecs-client",
   "@vworlds/vecs-server",
+  "@vworlds/vecs-mcp",
   "@vworlds/vecs-physics",
   "@vworlds/vecs-phaser",
 ];
@@ -15,6 +16,7 @@ const rootDistPackages = new Set([
   "vecs-physics",
   "vecs-protocol",
   "vecs-server",
+  "vecs-mcp",
   "vecs-phaser",
   "vecs-phaser-server",
   "vecs-phaser-client",

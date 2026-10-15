@@ -9,6 +9,7 @@ COPY apps/client/package.json apps/client/package.json
 COPY apps/server/package.json apps/server/package.json
 COPY lib/vecs/package.json lib/vecs/package.json
 COPY lib/vecs-client/package.json lib/vecs-client/package.json
+COPY lib/vecs-mcp/package.json lib/vecs-mcp/package.json
 COPY lib/vecs-phaser/package.json lib/vecs-phaser/package.json
 COPY lib/vecs-phaser-client/package.json lib/vecs-phaser-client/package.json
 COPY lib/vecs-phaser-server/package.json lib/vecs-phaser-server/package.json

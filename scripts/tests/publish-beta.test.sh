@@ -2,7 +2,7 @@
 # Offline only: every gh/npm invocation is intercepted, including dispatch.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-TMP="$(mktemp -d "$ROOT/.publish-beta-test.XXXXXX")"
+TMP="$(mktemp -d "${TMPDIR:-$ROOT}/.publish-beta-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin"
 export STATE="$TMP" PATH="$TMP/bin:$PATH"
@@ -48,6 +48,7 @@ else echo 1.0.56-pack-idle-keepalive.7; fi
 SH
 chmod +x "$TMP/bin/gh" "$TMP/bin/npm"
 export POLL_INTERVAL_SEC=1 PUBLISH_MAX_WAIT_SEC=5 REGISTRY_MAX_WAIT_SEC=4
+package_count=$(grep -cvE '^[[:space:]]*(#|$)' "$ROOT/scripts/published-packages.txt")
 
 run_case() {
   export SCENARIO="$1"
@@ -63,12 +64,12 @@ run_case() {
 assert_output() { grep -Fq -- "$1" "$TMP/output"; }
 
 run_case success 0
-assert_output 'npm: 9/9 packages at 1.0.56-pack-idle-keepalive.7'
+assert_output "npm: $package_count/$package_count packages at 1.0.56-pack-idle-keepalive.7"
 assert_output 'Install: npm i @vworlds/vecs@1.0.56-pack-idle-keepalive.7'
 assert_output 'Or track this branch: npm i @vworlds/vecs@pack-idle-keepalive'
-test "$(sort -u "$TMP/npm-calls" | wc -l)" -eq 9
+test "$(sort -u "$TMP/npm-calls" | wc -l)" -eq "$package_count"
 test "$(grep -c '^workflow run' "$TMP/gh-calls")" -eq 1
-echo 'PASS: correlated dispatch, all nine packages verified, exact install line (outside repo cwd)'
+echo 'PASS: correlated dispatch, all published packages verified, exact install line (outside repo cwd)'
 
 run_case failed 1
 assert_output 'Publish run failed (failure): https://example.test/42'
@@ -76,7 +77,7 @@ test ! -f "$TMP/npm-calls"
 echo 'PASS: failed run stops before registry'
 
 run_case lag 0
-assert_output 'npm: 9/9 packages'
+assert_output "npm: $package_count/$package_count packages"
 test "$(cat "$TMP/vecs-wire-count")" -eq 3
 test "$(cat "$TMP/vecs-count")" -eq 1
 test "$(cat "$TMP/run-count")" -eq 2

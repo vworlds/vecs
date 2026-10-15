@@ -16,6 +16,10 @@ npm run dev -w @vworlds/vecs-demo-server
 The server listens on `http://localhost:3000` by default. Set `PORT` to use another HTTP port,
 but keep the client in sync because the demo client connects to port `3000`.
 
+Set `VECS_MCP_PORT` to opt into a separate loopback MCP listener for the `main`
+world. Without it, no MCP server starts and the tick loop is unchanged. See
+[MCP setup and security](../../lib/vecs-mcp/docs/getting-started.md#demo-server).
+
 Start the client in another shell after the server is running:
 
 ```bash

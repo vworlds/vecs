@@ -10,6 +10,8 @@
     "paths": {
       "@vworlds/vecs": ["lib/vecs/src/index.ts"],
       "@vworlds/vecs-client": ["lib/vecs-client/src/index.ts"],
+      "@vworlds/vecs-mcp": ["lib/vecs-mcp/src/index.ts"],
+      "@vworlds/vecs-mcp/schema": ["lib/vecs-mcp/src/schema/index.ts"],
       "@vworlds/vecs-phaser": ["lib/vecs-phaser/src/index.ts"],
       "@vworlds/vecs-phaser-client": ["lib/vecs-phaser-client/src/index.ts"],
       "@vworlds/vecs-phaser-server": ["lib/vecs-phaser-server/src/index.ts"],
