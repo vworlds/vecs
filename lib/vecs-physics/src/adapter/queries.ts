@@ -9,15 +9,17 @@
 // b2ShapeProxy) reuse global pools allocated at module load. Transient
 // allocations like b2RayResult are freed via explicit `finally { .delete() }`.
 
-import { type EID, type Entity, type World } from "@vworlds/vecs";
+import { type EID, type Entity, type Vec2, type World } from "@vworlds/vecs";
 
 import { Body } from "../body/components.js";
-import { Box, Capsule, Circle, Polygon, Segment, type Vec2 } from "../shapes/components.js";
+import { Box, Capsule, Circle, Polygon, Segment } from "../shapes/components.js";
 import {
   scr_b2AABB,
   scr_b2QueryFilter,
   scr_b2ShapeProxy,
   scr_b2Vec2,
+  rev,
+  scr_fastOut,
   type Box2DModule,
 } from "./runtime.js";
 import {
@@ -156,15 +158,15 @@ export interface PhysicsQueries {
 
   /**
    * Returns whether `entity`'s body is awake: `false` for an entity without a live body. It
-   * allocates nothing, so it is cheap enough to call per body per step.
+   * Uses a scalar fast-path read and allocates nothing, so it is cheap enough per body per step.
    */
   isAwake(entity: Entity): boolean;
 
   /**
    * Reads `entity`'s body motion into `out`: whether it is awake, its velocities, its damping, its
-   * center of mass and the gravity scale Box2D applies to it. Each call reads Box2D, and the two
-   * vectors cost a short-lived wasm copy each, so call it when the values are needed, not every
-   * step.
+   * center of mass and the gravity scale Box2D applies to it. One composite fast-path call reads
+   * the same Box2D getters into reusable wasm scratch, with refreshed memory views and no
+   * per-call handle or marshalling allocation. The supplied output remains caller-owned.
    *
    * @param entity The body entity.
    * @param out The object to overwrite.
@@ -240,34 +242,33 @@ class PhysicsQueriesImpl implements PhysicsQueries {
     if (body === undefined || bodyId === undefined) {
       return false;
     }
-    const { box2d } = this.engine;
-    out.awake = box2d.b2Body_IsAwake(bodyId);
-    const linear = box2d.b2Body_GetLinearVelocity(bodyId);
-    try {
-      out.vx = linear.x;
-      out.vy = linear.y;
-    } finally {
-      linear.delete();
-    }
-    out.w = box2d.b2Body_GetAngularVelocity(bodyId);
-    out.linearDamping = box2d.b2Body_GetLinearDamping(bodyId);
-    out.angularDamping = box2d.b2Body_GetAngularDamping(bodyId);
-    const center = box2d.b2Body_GetLocalCenterOfMass(bodyId);
-    try {
-      out.localCenterX = center.x;
-      out.localCenterY = center.y;
-    } finally {
-      center.delete();
-    }
+    // The eight getters in one crossing, read in the same order.
+    const fast = this.engine.fast;
+    fast.module._b2x_Body_GetMotion(bodyId.index1, rev(bodyId), scr_fastOut);
+    fast.sync();
+    const m = fast.layout.motion;
+    const f32 = fast.f32;
+    const at = scr_fastOut;
+    out.awake = fast.i32[(at + m.awake) >> 2] !== 0;
+    out.vx = f32[(at + m.vx) >> 2]!;
+    out.vy = f32[(at + m.vy) >> 2]!;
+    out.w = f32[(at + m.w) >> 2]!;
+    out.linearDamping = f32[(at + m.linearDamping) >> 2]!;
+    out.angularDamping = f32[(at + m.angularDamping) >> 2]!;
+    out.localCenterX = f32[(at + m.localCenterX) >> 2]!;
+    out.localCenterY = f32[(at + m.localCenterY) >> 2]!;
     // Box2D applies gravity times the scale only to a body with mass (src/solver.c:99).
-    out.gravityScale = box2d.b2Body_GetMass(bodyId) > 0 ? box2d.b2Body_GetGravityScale(bodyId) : 0;
+    out.gravityScale = f32[(at + m.mass) >> 2]! > 0 ? f32[(at + m.gravityScale) >> 2]! : 0;
     out.allowFastRotation = body.allowFastRotation;
     return true;
   }
 
   public isAwake(entity: Entity): boolean {
     const bodyId = entity.get(Body)?._bodyId;
-    return bodyId !== undefined && this.engine.box2d.b2Body_IsAwake(bodyId);
+    return (
+      bodyId !== undefined &&
+      this.engine.fast.module._b2x_Body_IsAwake(bodyId.index1, rev(bodyId)) !== 0
+    );
   }
 
   public settings(): PhysicsSettings {

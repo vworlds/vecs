@@ -1,6 +1,6 @@
 # vecs-physics Engineering Architecture
 
-Status: **active, shipped.** Public API frozen at v1 (published `@vworlds/vecs-physics@1.0.x`). The simulation backend is **box2d3-wasm** (Emscripten build of Box2D v3, pinned to `box2d3-wasm@5.2.0`, upstream commit `3a4f0da8374af61293a03021c9a0b3ebcfe67948`).
+Status: **active, shipped.** Public API frozen at v1 (published `@vworlds/vecs-physics@1.0.x`). The simulation backend is **@vworlds/box2d3-wasm**, pinned exactly to `6.0.1` (Emscripten build of Box2D v3 at commit `3a4f0da8374af61293a03021c9a0b3ebcfe67948`). The owned fork preserves the existing simulation bits and adds the supported `b2x_` fast path.
 
 This document is the stable contract: what vecs-physics looks like from the outside (public exports, components, defaults, systems, phases, lifecycle semantics) and how the adapter is wired internally. It is what tests assert against and what eng architects read before touching the package.
 
@@ -38,7 +38,7 @@ These are deferred. Ray casts, shape casts, and spatial queries have shipped; th
 remaining items live in the central [`ROADMAP.md`](../../../architecture/ROADMAP.md).
 
 - Character movers, debug rendering. (Shape casts have shipped — see `docs/queries.md`; every Box2D joint type has shipped — see `docs/joints.md`; breakable-joint events remain deferred.)
-- Multithreading, SIMD. box2d3-wasm has a threaded "deluxe" build path but vecs-physics ships single-threaded (`compat` build).
+- Multithreading. Both package flavours are single-threaded with ordinary, non-shared memory. `deluxe` uses SIMD and is selected whenever WASM SIMD is available in Node or browsers; `compat` is the non-SIMD alternative. Cross-origin isolation is not required.
 - Pre-solve / custom-filter callbacks.
 - A broad imperative `Physics` global handle. The package exposes only the narrow
   `physics(world)` read-only query surface where components are not ergonomic.
@@ -238,9 +238,9 @@ Part of the contract. Match Box2D's `b2DefaultBodyDef()`, `b2DefaultShapeDef()`,
 
 All field initialisers belong on the class body so `new Component()` returns a valid, default-shaped instance — every component must work zero-arg.
 
-`box2d3-wasm@5.2.0` exposes `Body.allowFastRotation` only on the body create definition. Changing `Body.allowFastRotation` after creation is a no-op in vecs-physics until the upstream binding exposes `b2Body_SetAllowFastRotation`.
+`Body.allowFastRotation` remains create-time only in vecs-physics; changing it after creation is a no-op. The fork adoption does not change this component contract.
 
-`box2d3-wasm@5.2.0` does not expose runtime setters for `Material.rollingResistance`, `Material.tangentSpeed`, or `userMaterialId`. Changes to those fields recreate the shape so the new material values can be applied through the shape definition.
+Changes to `Material.rollingResistance`, `Material.tangentSpeed`, or `userMaterialId` still recreate the shape so values are applied through the shape definition. Adoption keeps the existing lifecycle contract even where the owned package adds bindings.
 
 ## Component model
 
@@ -279,7 +279,7 @@ There are **no private components on user entities.** Per-entity engine handles 
 
 ```text
 lib/vecs-physics/
-├── package.json                 (deps: @vworlds/vecs, box2d3-wasm)
+├── package.json                 (deps: @vworlds/vecs, @vworlds/box2d3-wasm)
 ├── tsconfig.json
 ├── vitest.config.ts
 ├── docs/                        (user-facing)
@@ -321,7 +321,7 @@ Module boundaries:
 - Each feature folder owns its ECS data classes, systems, and Vecs module wrappers. Components stay plain data; systems and modules perform behavior.
 - Feature module dependencies use `world.module(DependencyModule)` without config; re-registering is a no-op.
 - Modules that need the engine read it from the `PhysicsEngine` singleton via `getPhysicsEngine(world)` after `PhysicsCoreModule` has installed it.
-- `src/adapter/` is the only place that imports `box2d3-wasm`. It exposes `PhysicsEngine`, `getBox2D()`, and the `withAllocated` disposal helper; systems reach the module through `engine.box2d`, never by importing `box2d3-wasm` directly.
+- `src/adapter/` is the only place that imports `@vworlds/box2d3-wasm` and its `/fastpath` entry. It exposes `PhysicsEngine`, `getBox2D()`, `getFastPath()`, and `withAllocated`; systems reach the module through `engine.box2d` or `engine.fast`.
 
 ## Vecs integration
 
@@ -409,9 +409,9 @@ Each system below: phase, responsibility, and the box2d3-wasm primitives it call
 
 Query: `Body`.
 
-- `.enter` — read `Body`, `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity`, optional tunables. Fill a `b2DefaultBodyDef()`. Call `b2CreateBody(worldId, def)`. Store the `b2BodyId` on `Body._bodyId` and register `engine.entityByBodyIndex.set(bodyId.index1, entity.eid)`.
+- `.enter` — read `Body`, `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity`, optional tunables. Fill a `b2DefaultBodyDef()`. Call `b2CreateBody(worldId, def)`. Store the `b2BodyId` on `Body._bodyId`, register `engine.entityByBodyIndex.set(bodyId.index1, entity.eid)`, and store the entity in `engine.bodyEntities[bodyId.index1]`. Clear both reverse slots in cleanup before Box2D can reuse the index.
 - `PhysicsBodyTeardown` query `.exit` — immediately queue the injected body's handle and clear `Body._bodyId`. The reaper destroys it after shapes and chains and clears its reverse-index slot before Box2D can reuse it.
-- `.update(Body, …)` — `type` change → `b2Body_SetType`; `enabled` → `b2Body_Enable` / `Disable`; `bullet` → `b2Body_SetBullet`. `allowFastRotation` is create-time only under `box2d3-wasm@5.2.0`.
+- `.update(Body, …)` — `type` change → `b2Body_SetType`; `enabled` → `b2Body_Enable` / `Disable`; `bullet` → `b2Body_SetBullet`. `allowFastRotation` remains create-time only in vecs-physics.
 
 ### `PhysicsShapeLifecycle` (`physics-pre`)
 
@@ -442,7 +442,7 @@ Chains participate in sensor events only. `b2ChainDef` exposes `enableSensorEven
 
 ### `PhysicsMaterialFilterSync` (`physics-pre`)
 
-- Single-shape `.update(Material, …)` → `b2Shape_SetDensity(id, d, true)`, `b2Shape_SetFriction`, `b2Shape_SetRestitution`. Changes to `rollingResistance`, `tangentSpeed`, or `userMaterialId` recreate the shape because `box2d3-wasm@5.2.0` does not expose setters for those fields.
+- Single-shape `.update(Material, …)` → `b2Shape_SetDensity(id, d, true)`, `b2Shape_SetFriction`, `b2Shape_SetRestitution`. Changes to `rollingResistance`, `tangentSpeed`, or `userMaterialId` retain the shape-recreation path.
 - Single-shape `.update(CollisionFilter, …)` → build a `b2Filter` (32-bit fields widen to Box2D's 64-bit by zero-padding upper bits) and call `b2Shape_SetFilter`.
 - Single-shape `.update(Sensor, …)` — destroy + recreate the shape with `def.isSensor = true/false`. (Runtime solid↔sensor toggle has no in-place Box2D setter; recreate is the v1 path.)
 - Chain `Material`, `CollisionFilter`, and `Sensor` updates recreate the chain because Box2D does not expose in-place setters for chain material/filter/sensor state.
@@ -461,10 +461,10 @@ Chains are excluded from those b2Shape setters. When `SensorEvents` or `Detectab
 
 Treats user pose/velocity writes as teleports. Engine write-backs (from `PhysicsPoseSyncOut`, a tagged physics system) are filtered out by `ignoreSource([PhysicsSystemTag])`.
 
-- `.update(Position, …)` → `b2Body_SetTransform(bodyId, pos, currentRotation)`
-- `.update(Rotation, …)` → `b2Body_SetTransform(bodyId, currentPos, b2MakeRot(angle))`
-- `.update(LinearVelocity, …)` → `b2Body_SetLinearVelocity(bodyId, vec)`
-- `.update(AngularVelocity, …)` → `b2Body_SetAngularVelocity(bodyId, value)`
+- `.update(Position, …)` → `_b2x_Body_SetPosition(index1, rev, x, y)` (preserves current rotation)
+- `.update(Rotation, …)` → `_b2x_Body_SetAngle(index1, rev, angle)` (preserves current position, uses `b2MakeRot`)
+- `.update(LinearVelocity, …)` → `_b2x_Body_SetLinearVelocity(index1, rev, x, y)`
+- `.update(AngularVelocity, …)` → `_b2x_Body_SetAngularVelocity(index1, rev, value)`
 
 Entry-time initialization is **not** silenced, so a body still initializes through a tagged source. Confirmed in `tests/lifecycle/ignore_source.test.ts`.
 
@@ -511,11 +511,11 @@ Dedupe key: `(entity.eid, code)`. Structural changes (e.g. shape gets a parent b
 
 ### `PhysicsStep` (`physics-step`)
 
-`b2World_Step(engine.worldId, engine.fixedTimeStep, engine.subSteps)`. In `debug` mode it first warns once on `delta-mismatch` if the supplied delta diverges from `fixedTimeStep`.
+`_b2x_World_Step(engine.world, engine.fixedTimeStep, engine.subSteps)` calls the same Box2D step using a packed world id. In `debug` mode it first warns once on `delta-mismatch` if the supplied delta diverges from `fixedTimeStep`. At preload, profile timers are disabled for the whole module; `b2World_GetProfile` reads zeros. The timers do not affect simulation.
 
 ### `PhysicsPoseSyncOut` (`physics-post`)
 
-After `b2World_Step`, read `b2World_GetBodyEvents(worldId).moveCount` and walk `GetMoveEvent(i)` (Box2D emits these for awake bodies that moved). For each event resolve the entity via `entityByBodyIndex`, then:
+After the step and any preceding post-step systems, call `engine.moveExporter.exportMoves(engine.world, exportVelocity)` separately from stepping. This exports moves in Box2D order into a reusable buffer, including the event transform, exact Box2D angle and current velocities. Resolve the entity through `bodyEntities[bodyIndex]`, skip absent/destroyed entities and non-Dynamic bodies, then:
 
 - `entity.set(Position, { x, y })`
 - If the entity has `Rotation`: `entity.set(Rotation, { angle })`
@@ -523,15 +523,19 @@ After `b2World_Step`, read `b2World_GetBodyEvents(worldId).moveCount` and walk `
 
 Each `set` is conditional. Box2D reports every awake body on every step and returns bit-identical values for a body that did not move or turn, while a `set` always marks the component modified (`onSet`, `update` routing, and a replicated snapshot for a networked component). So `writePose` reads the current component with `entity.get`, which inside a system is the committed state, compares it field by field with exact `!==` (no epsilon), and calls `set` only when a field differs. The compare reads the new values into locals and allocates nothing; `Position` is created by the first write, and the optional components are written only when the body already carries them. A body flying straight therefore never rewrites `Rotation` or `AngularVelocity`, and an awake body at rest writes nothing.
 
-Embind handle ownership matters on this hot path. `GetMoveEvent(i)` and `b2Body_GetLinearVelocity` return owned heap copies, so each is `delete()`d exactly once. `move.transform`, `transform.p` and `transform.q` are views into the move event's memory (the same address on every read), not copies: read each once and never `delete()` them, because that would run a C++ destructor on an interior pointer. `move.bodyId` is a plain value object. The angle comes from `q.GetAngle()` rather than `Math.atan2(q.s, q.c)`, because Box2D's `b2Atan2` is not bit-identical to `Math.atan2` and `Rotation` output must not change.
+The fast path is the only hot read path: no embind fallback, private pointers, feature detection or initialization layout self-check. Offsets and strides come from the package's generated layout. The typed-array loop creates no per-body handles, marshalling objects or views. Angle conversion uses `b2Rot_GetAngle` inside WASM, preserving `b2Atan2` bits rather than using `Math.atan2`. Velocities are exported for all moved bodies but written only when the optional component exists. Server dead reckoning uses the separate `BodyMotion` query, which now reads a composite fast-path result into shared scratch.
+
+`exportMoves()` refreshes memory views after any step or buffer growth. Event publication fetches contact and sensor spans into adjacent reusable headers, then calls `fast.sync()` once before reading. Per-body out-parameter reads also sync before reading scratch. Never retain typed-array views across a step or any call that can grow memory, and never retain event spans across a step/world mutation. Body/shape/joint creation and other rare paths still use owned embind values with `withAllocated`/`finally` release discipline. The forced-growth regression verifies exact pose/velocity after an actual heap-buffer replacement.
+
+Remaining allocations are existing ECS changed-write payloads/deferred commands, public event records and array growth, and nonempty Set/Map iteration and backing storage. Move-export capacity growth and memory-view replacement are amortized; steady-state Box2D reads allocate nothing per body or event. The real-WASM benchmark in `bench/physics-pose-out.ts` measures compiled-output whole ticks and pose-out independently and hashes exact final state bits (see [benchmark instructions](../../../bench/README.md#real-wasm-physics-pose-out)).
 
 These set commands carry the `PhysicsSystemTag` source, so `PhysicsPoseSyncIn` filters them out next frame. Static body poses are user-owned and never written back.
 
 ### `PhysicsEvents` (`physics-post`)
 
-Poll once per step: `b2World_GetContactEvents`, `b2World_GetSensorEvents`, `b2World_GetBodyEvents`. Walk begin/end via `beginCount`/`GetBeginEvent(i)` and `endCount`/`GetEndEvent(i)`; sensor events with the same shape; hit events via `hitCount`/`GetHitEvent(i)`. Resolve `b2ShapeId.index1 → Entity` via `engine.entityByShapeIndex`; push into the receiving entity's `ContactEvents.begin/end`, `SensorEvents.begin/end`, or `HitEvents.hits`. Mark the component modified once per receiving entity per step.
+Poll `_b2x_World_GetContactSpans` and `_b2x_World_GetSensorSpans` once each per step, sync views once, then read native records in order: contact begins, ends, hits, sensor begins, ends. Resolve shape `index1 → Entity` via `engine.entityByShapeIndex`; push fresh public records into the receiving entity's `ContactEvents.begin/end`, `SensorEvents.begin/end`, or `HitEvents.hits`. Mark the component modified once per receiving entity per step.
 
-Embind ownership here: `b2World_Get*Events` results, contact `GetBeginEvent(i)` and `GetHitEvent(i)` are class handles and are `delete()`d in `finally`. Contact `GetEndEvent(i)` and sensor begin/end events are plain value objects with no `delete`, so nothing is released for them (`tests/events/event_handles.test.ts` fails if a binding change turns one into a handle).
+No embind event polling, per-event wrapper, marshalling object or typed-array view is created. `tests/events/event_handles.test.ts` checks zero polling while proving contact, hit and sensor delivery. Observable public event objects are never pooled or reused; component arrays retain their existing clear-in-place semantics.
 
 Silent-clear semantics for shapes that received events last step but not this step: set `length = 0` without calling `modified`. Three independent "previously touched" sets (`prevTouchedContact`, `prevTouchedSensor`, `prevTouchedHit`) are tracked per event component in `PhysicsEngine`.
 
@@ -592,7 +596,7 @@ Single-threaded. Determinism depends on:
 4. **System ordering.** Phase registration, system registration, and inbox arrival order all deterministic.
 5. **Map iteration.** ES Map iteration follows insertion order; index-keyed `ArrayMap`s are slot-stable.
 
-The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determined. Re-baseline if the pinned box2d3-wasm version changes.
+The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determined. The owned 6.0.1 adoption preserves it unchanged. Future Box2D updates require deliberate parity review rather than automatic re-baselining.
 
 ## Vecs dependencies
 
@@ -609,6 +613,7 @@ The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determ
 ## Settled decisions
 
 - **Internal engine:** world-scoped `Singleton` component (`PhysicsEngine`).
+- **World disposal boundary:** Vecs destroys infrastructure and singleton data synchronously after application cleanup. Disposal is forbidden inside `progress()`, `defer`, a command drain or an entity's destroy; refusal leaves the world usable. Ordinary synchronous top-level mutation hooks are allowed. No core tick, drain or destroy-cascade boundary carries disposal machinery. ClientWorld alone holds disconnect events until its outermost progress/apply call finishes, letting handlers dispose at top level. `PhysicsCoreModule`, loaded by `PhysicsModule`, registers a `PhysicsEngine` remove hook that calls `b2DestroyWorld` and `MoveExporter.dispose()` once. Pending reaper handles go with the world, without individual destruction. Contact/hit remove hooks and the immediate sensor teardown query skip WASM writes after engine release, independent of infrastructure order. Other immediate teardown queries only update JS bookkeeping. At release, `worldId` and packed `world` become throwing properties; live reads remain plain fields without a step-path check. See [Disposing a world](../../vecs/docs/entities.md#disposing-a-world) and the [physics disposal guide](../docs/getting-started.md#disposing-a-physics-world).
 - **Forward handles on components:** `Body._bodyId`, `SingleShape._shapeId`, `Chain._chainId`, `Chain._segmentIndices`, and `Joint._jointId` (`@internal`). Reverse lookups via `index1`-keyed `ArrayMap`s on `PhysicsEngine`.
 - **Joints:** a joint is its own entity with two exclusive body relationship slots (`JointBodyA`/`JointBodyB`, configured by `JointsModule` with `CleanupPolicy.Delete`), one exclusive joint-type component (`Joint` umbrella via `Implements`), an optional shared `JointFrame`, and optional feature components (`JointMotor`/`JointLimit`/`JointLinearSpring`/`JointAngularSpring`) whose **presence is the enable flag**. Adding a different body to either relationship replaces that slot's target; this relationship cardinality is independent of joint-type component exclusivity. The handle lives on the `Joint` base. `PhysicsJointLifecycle` builds the def with the box2d3-wasm local-frame API (anchors via `def.base.localFrameA.p.Set(...)`, reference angle via `localFrameA.q.SetAngle(...)`; no allocation beyond the def handle); feature sync systems apply in-place setters and call `b2Joint_WakeBodies`. `PhysicsReaper` drains `pendingJointDestroys` (before bodies) guarded by `b2Joint_IsValid`.
 - **Joint cascade-delete:** destroying a connected body destroys the joint entity. `JointsModule` sets `onDeleteTarget = CleanupPolicy.Delete` on `JointBodyA` and `JointBodyB`, matching Box2D (which destroys a body's joints with the body), so a game never has to cascade joint cleanup by hand. The Box2D side needs no extra guard: the joint's lifecycle exit queues its handle on `pendingJointDestroys`, which `PhysicsReaper` drains before `pendingBodyDestroys`, so `b2DestroyJoint` runs while the joint is still valid and `b2DestroyBody` then finds none left to cascade; the `b2Joint_IsValid` guard stays as a safety net. Removing `Body` from a connected body (without destroying its entity) is not a cascade: the joint stops matching `jointWithBothBodies`, its constraint is torn down, and the joint entity stays and rebuilds when `Body` returns. This replaces the earlier "detach, not cascade-delete" decision, which left a bodiless joint entity behind (#229).
@@ -628,7 +633,7 @@ The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determ
 ## Risks
 
 1. **WASM init lifecycle.** `preloadPhysics` is process-global and cached. Callers must `await preloadPhysics` exactly once before any `PhysicsModule`. Tests share a single `beforeAll(async () => { await preloadPhysics(); })` per file.
-2. **Emscripten manual cleanup.** Every `new b2Xxx()` and factory call leaks if not `.delete()`'d. The discipline is enforced through `withAllocated` in `src/adapter/disposal.ts`; allocations outside that helper are a review red flag. (Note: the long-lived global scratch pools (`scr_b2Vec2`/`scr_b2QueryFilter`/`scr_b2AABB` in `src/adapter/runtime.ts`) and the world itself are intentionally not freed — **no world-teardown helper exists yet**; the world GCs with the process.)
-3. **box2d3-wasm version pinning.** Upstream changes can shift parity baselines. Pinned via `package.json` (`5.2.0`); document the version on every parity golden.
+2. **Emscripten manual cleanup.** Owned embind structs/results require `.delete()` through `withAllocated` or local `finally` blocks; ids are plain value objects. The per-world WASM allocations are Box2D world storage (including all bodies/shapes/chains/joints and native events) and the move-export buffer, released by the engine remove hook. Failed world creation releases the already-allocated exporter and throws before contact tuning on a null id. The process-global scratch in `src/adapter/runtime.ts` (three Vec2, two QueryFilter, AABB, ShapeProxy, MassData and 64-byte fast output) intentionally lives with the cached WASM module, not any individual world. Reverse maps, event sets, pending queues and the cached query facade are JS-only.
+3. **Box2D package version pinning.** Simulation changes can shift parity baselines. Pin the owned package exactly via `package.json` (`6.0.1`); document the validated version on every parity golden.
 4. **Node `navigator.hardwareConcurrency`.** box2d3-wasm reads it on init; `preloadPhysics` polyfills it from `os.cpus().length` when missing, guarded with `??=`.
-5. **Single-thread `compat` build vs threaded `deluxe` build.** vecs-physics targets the `compat` path (no `crossOriginIsolated` required). The deluxe path is opt-in by environment, not by API.
+5. **SIMD flavour selection.** Both `deluxe` and `compat` are single-threaded. The factory automatically chooses SIMD `deluxe` when supported; neither flavour needs `crossOriginIsolated`.

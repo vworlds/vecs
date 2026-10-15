@@ -8,6 +8,8 @@ import {
   type InjectedCallback,
   type InjectSnapshot,
   type MaybeResolvedInjectTuple,
+  type ClockInject,
+  type InjectClock,
 } from "./inject.js";
 import { SOURCE_TRACKED_QUERY_ERROR, Query } from "./query/index.js";
 import type {
@@ -36,6 +38,8 @@ import {
 export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 
 type RunCallback = (now: number, delta: number) => void;
+/** A callback kind supported by a system. */
+export type SystemCallbackKind = "each" | "run" | "enter" | "update" | "exit";
 /** Discriminator for {@link _SystemInboxEvent}. */
 const enum InboxCommand {
   Enter,
@@ -103,7 +107,14 @@ type _SystemInboxEvent =
  *
  * @typeParam R - Component classes guaranteed present on every matched entity.
  */
-export class System<R extends ComponentType[] = []> extends Query<R> implements ITickSource {
+export class System<R extends ComponentType[] = []>
+  extends Query<R, ClockInject>
+  implements ITickSource
+{
+  /** @internal Processing tick timestamp; stable fields on all systems. */
+  public _injectNow = 0;
+  /** @internal Processing tick delta, including cadence accumulation. */
+  public _injectDelta = 0;
   /** @internal Single inbox replayed in arrival order on every `_run`. */
   private readonly _inbox: _SystemInboxEvent[] = [];
   /**
@@ -128,6 +139,54 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     this._queuesUpdates = true;
     this.entity.attach(System, this);
     this.phase(ON_UPDATE);
+  }
+
+  /** Whether this system processes events and runs callbacks. */
+  public get enabled(): boolean {
+    return this._enabled;
+  }
+
+  /**
+   * Current cadence clock. Compare with {@link ALWAYS_TICK_SOURCE} to recognise
+   * the default every-frame cadence; interval/rate configuration replaces it.
+   */
+  public get cadence(): ITickSource {
+    return this._tickSource;
+  }
+
+  /**
+   * Callback kinds registered on this system. The returned list is a frozen
+   * snapshot and reflects registrations immediately, before or after build.
+   */
+  public get callbacks(): readonly SystemCallbackKind[] {
+    const callbacks: SystemCallbackKind[] = [];
+    if (this._eachCallback !== undefined) {
+      callbacks.push("each");
+    }
+    if (this._runCallback !== undefined) {
+      callbacks.push("run");
+    }
+    if (this._enterCallback !== undefined) {
+      callbacks.push("enter");
+    }
+    if (this._componentUpdateCallbacks.size > 0) {
+      callbacks.push("update");
+    }
+    if (this._exitCallback !== undefined) {
+      callbacks.push("exit");
+    }
+    return Object.freeze(callbacks);
+  }
+
+  /** Component classes watched by registered `update` callbacks. */
+  public get watched(): readonly ComponentType[] {
+    const watched: ComponentType[] = [];
+    this._watchlistBitmask.forEach((eid) => {
+      if (this._componentUpdateCallbacks.get(eid) !== undefined) {
+        watched.push(this.world.entity(eid).meta.Class as ComponentType);
+      }
+    });
+    return Object.freeze(watched);
   }
 
   /** @internal Reject non-reactive source/children terms before registering this system. */
@@ -235,15 +294,19 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    *
    * The whole body executes inside a `World.defer` scope; mutations made by
    * callbacks land in the world queue and are processed when `_run` returns.
+   * Returns whether the enabled and cadence gates admitted execution, even
+   * when a reactive system has no pending events or an each query is empty.
    */
-  public _run(now: number, delta: number): void {
+  public _run(now: number, delta: number): boolean {
     if (!this._enabled) {
-      return;
+      return false;
     }
     if (!this._tickSource.didTick) {
-      return;
+      return false;
     }
     const tickDelta = this._tickSource.lastFireDelta;
+    this._injectNow = now;
+    this._injectDelta = tickDelta;
     const prevSource = this.world._currentSource;
     this.world._currentSource = this.entity;
     try {
@@ -251,6 +314,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     } finally {
       this.world._currentSource = prevSource;
     }
+    return true;
   }
 
   /**
@@ -361,6 +425,9 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * the current cadence source with an {@link IntervalTickSource}. When this
    * system has a cadence source, the `delta` passed to {@link run} is the
    * accumulated milliseconds since the previous fire, not the per-frame delta.
+   * Interval boundaries allow a relative tolerance of 1e-9 for floating-point
+   * frame-delta residue, clamping any negative remainder to zero. Large deltas
+   * still produce at most one fire per frame and preserve positive residual time.
    *
    * @param seconds - Positive interval duration in seconds.
    * @returns This system, for chaining.
@@ -464,6 +531,8 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
    * tracked entity.
    * Components declared via {@link with} are non-nullable in the resolved
    * tuple; any other component class may be `undefined` if the entity lacks it.
+   * `Now` and `Delta` tokens resolve to non-optional numbers from this processing
+   * tick, with the same accumulated delta as `run`.
    *
    * `each` does **not** modify the system's query — define membership with
    * {@link with} as usual. It does, however, implicitly
@@ -527,7 +596,7 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
     this.track();
     const { components, useIter } = normalizeFanInjectCallbackArgs(arg0);
     const callback = arg1 as InjectedCallback;
-    this._eachCallback = makeInjectedInvoker(this.world, components, useIter, callback);
+    this._eachCallback = makeInjectedInvoker(this.world, components, useIter, callback, this);
     return this;
   }
 
@@ -612,5 +681,10 @@ export class System<R extends ComponentType[] = []> extends Query<R> implements 
   public override destroy(): void {
     this.disable();
     super.destroy();
+  }
+
+  /** @internal Used only while registering injecting callbacks. */
+  protected override _getInjectClock(): InjectClock {
+    return this;
   }
 }

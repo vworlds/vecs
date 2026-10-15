@@ -13,7 +13,7 @@
 // steps at 60 Hz). Tests let a body fall asleep on its own, then apply the load under test.
 //
 // Pattern for "known mass": a default 1x1 Box with density 1 gives mass = 1 and inertia = 1/6 on
-// box2d3-wasm@5.2.0, so an impulse changes velocity by its own value (angular: times 6).
+// @vworlds/box2d3-wasm@6.0.1, so an impulse changes velocity by its own value (angular: times 6).
 //
 // Cases covered:
 //   1. A zero Force or Torque never keeps a body awake, on the body or on a child source.

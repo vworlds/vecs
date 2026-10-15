@@ -1,0 +1,4 @@
+2026-10-09T19:37:07.3620060Z ##[group]Run npm run format:check
+2026-10-09T19:37:07.3620060Z [warn] src/world.ts
+2026-10-09T19:37:07.3620060Z [warn] Code style issues found in the above file. Run Prettier with --write to fix.
+2026-10-09T19:37:32.2678271Z ##[error]Process completed with exit code 1.

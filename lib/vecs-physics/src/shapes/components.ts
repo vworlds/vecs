@@ -11,9 +11,7 @@
 // handle types — components are pure data.
 
 import type { b2ChainId, b2ShapeId } from "../adapter/engine.js";
-
-/** Plain 2D point used by {@link Polygon} and {@link Chain}. */
-export type Vec2 = { x: number; y: number };
+import type { Vec2 } from "@vworlds/vecs";
 
 /**
  * Empty umbrella marker for the six geometry components. Every shape entity carries

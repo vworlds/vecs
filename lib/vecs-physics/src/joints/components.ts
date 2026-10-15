@@ -16,7 +16,7 @@
 
 import { Relationship } from "@vworlds/vecs";
 
-import type { Vec2 } from "../shapes/components.js";
+import type { Vec2 } from "@vworlds/vecs";
 import type { b2JointId } from "../adapter/engine.js";
 
 /**

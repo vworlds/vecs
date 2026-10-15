@@ -5,8 +5,11 @@ import { System } from "../system.js";
 import { ALWAYS_TICK_SOURCE, type ITickSource } from "../timer.js";
 import type { WorldOptions } from "./world.base.js";
 import { Disposal } from "./world.disposal.js";
+import { WorldStats } from "./stats.js";
 
 export class Pipeline extends Disposal {
+  /** Opt-in per-system timing, including each admitted system's subsequent flush. */
+  public readonly stats = new WorldStats(() => this._pipeline);
   /** @internal Flat system execution pipeline, rebuilt from `_pipelineQuery`. */
   public _pipeline: System[] = [];
   /** @internal Query whose ordered result defines the system pipeline. */
@@ -19,6 +22,23 @@ export class Pipeline extends Disposal {
   public constructor(options: WorldOptions = {}) {
     super(options);
     this._tickSources.add(ALWAYS_TICK_SOURCE);
+  }
+
+  /**
+   * Systems in pipeline execution order, including disabled systems.
+   * Between frames, builds pending queries (finishing builder configuration)
+   * and refreshes the existing flat pipeline only when its query changed.
+   * During a frame, returns that frame's pipeline. Does not drain deferred
+   * commands or run systems.
+   * The array is read-only at the type level; do not mutate it. Re-read this
+   * getter after configuration changes rather than retaining an old array.
+   */
+  public get pipeline(): readonly System[] {
+    if (!this._frameInProgress) {
+      this._buildPendingQueries();
+      this._refreshPipelineIfChanged();
+    }
+    return this._pipeline;
   }
 
   /** Open a new frame and evaluate every registered tick source once. */
@@ -42,13 +62,17 @@ export class Pipeline extends Disposal {
     this._frameInProgress = false;
   }
 
-  /** Run every system in the pipeline query order. */
+  /** Run every system in pipeline order; opt-in stats include each system's flush. */
   public progress(now: number, delta: number): void {
     this.beginFrame(delta);
     try {
-      for (const system of this._pipeline) {
-        system._run(now, delta);
-        this.flush();
+      if (this.stats.systemsEnabled) {
+        this._progressInstrumented(now, delta);
+      } else {
+        for (const system of this._pipeline) {
+          system._run(now, delta);
+          this.flush();
+        }
       }
     } finally {
       this.endFrame();
@@ -86,5 +110,18 @@ export class Pipeline extends Disposal {
       }
     });
     this._pipeline = systems;
+  }
+
+  private _progressInstrumented(now: number, delta: number): void {
+    for (const system of this._pipeline) {
+      const slot = this.stats._systemSlot(system);
+      const start = performance.now();
+      const ran = system._run(now, delta);
+      this.flush();
+      const elapsed = performance.now() - start;
+      if (ran) {
+        this.stats._record(slot, elapsed);
+      }
+    }
   }
 }

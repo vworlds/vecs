@@ -3,6 +3,8 @@ import { Component } from "../component.js";
 import { type Entity } from "../entity/index.js";
 import { Phase } from "../modules/pipeline.js";
 import { Query } from "../query/index.js";
+import { Module } from "../module.js";
+import { carriersFirst } from "./destroy-order.js";
 import { Transfers } from "./world.transfers.js";
 import type { World } from "./world.js";
 
@@ -12,73 +14,124 @@ import type { World } from "./world.js";
  * to `Pipeline`.
  */
 export class Disposal extends Transfers {
-  /** `true` once {@link dispose} has started: what makes it idempotent and safe to re-enter. */
+  /** `true` once {@link dispose} has started: repeated top-level calls are idempotent. */
   private _disposeStarted = false;
 
   /**
-   * End the world's life: destroy every entity the application and its modules created, so the
+   * End the world's life: destroy application entities, then all world infrastructure, so the
    * `remove` hooks of the components they carry release what those components own (render
    * objects, handles, timers). Call it when the world is finished — a scene or route change, a
    * hot reload — and drop the reference afterwards.
    *
-   * Each entity goes through the ordinary destroy path, as if it had received
-   * {@link Entity.destroy}: every component's `remove` hook fires exactly once, cleanup policies
-   * and relationship cascades (`ChildOf`, `OwnedTarget`, `CleanupPolicy.Delete`) run as they
-   * always do, and an entity a cascade or a hook has already destroyed is skipped, never
-   * destroyed twice.
-   *
-   * ## What stays
-   *
-   * The infrastructure the world needs to stay coherent is not destroyed:
-   *
-   * - component and module entities (every {@link Component}),
-   * - the entities behind queries and systems (they carry the {@link Query} component), and
-   * - phase entities (they carry the {@link Phase} component).
-   *
-   * What those entities hold stays too: data stored on a component entity (a singleton set with
-   * {@link set}) and any entity they still carry as a component key, which cannot be destroyed
-   * while it is in use. Release such data yourself. {@link clearAllEntities} is the full wipe,
-   * infrastructure included.
+   * Both passes use the existing entity destroy path and fire every component's
+   * `remove` hook exactly once. Application cleanup retains ordinary cleanup policies
+   * and cascades. Infrastructure teardown suspends cleanup policies: it removes a
+   * component from remaining carriers instead of throwing or deleting them, and
+   * destroys children explicitly rather than through ChildOf/OwnedTarget cascades.
    *
    * ## Order
    *
-   * No order is specified among unrelated entities, so do not make a hook depend on one. The one
-   * guarantee is that an entity used as a component key is destroyed after every entity that
-   * carries it, because destroying it earlier would throw under the default cleanup policy.
+   * Queued application cleanup finishes before infrastructure teardown starts. Systems and
+   * queries go first in the infrastructure pass, then modules in reverse registration
+   * order, then the rest. Beyond these priorities the order is unspecified, not a
+   * resource dependency contract. Infrastructure carrier cycles are stripped, not
+   * reported as survivors. Nothing remains after successful disposal.
+   * {@link clearAllEntities} retains its own throwing behavior.
    *
-   * ## Pending commands
+   * ## Call site
    *
-   * Commands queued by an enclosing deferred scope are neither flushed early nor discarded: they
-   * run first, in order, and the destruction follows them in the same queue, so a hook still fires
-   * once per component instance however it was removed. An entity whose creation is still queued
-   * is created, then destroyed. At top level nothing is queued and `dispose()` returns with the
-   * application's entities gone. Called from a system, a hook or a {@link defer} block, it queues
-   * the destruction like any `destroy()` in that situation, and the destruction completes when
-   * the queue next drains: right after the running system, or at the end of the `defer` block.
+   * Call synchronously at top level: not inside {@link progress}, {@link defer}, a command drain
+   * or an entity's destroy. A refused call throws before teardown starts, leaving the world
+   * usable; call again after the enclosing operation finishes. Ordinary synchronous top-level
+   * `add`, `set` and `remove` hooks may call it. Cleanup and commands created by teardown hooks
+   * settle before this call returns.
    *
    * ## After disposal
    *
    * A disposed world must not be used again. Nothing enforces it — no other method checks, so
-   * `entity()` and `progress()` stay as cheap as ever — but the world has no application state
-   * left to run on. Calling `dispose()` again, from a hook included, does nothing. A hook that
-   * creates entities while the world is being disposed leaves them behind. A system's `exit`
-   * callback only queues its event, and a disposed world never runs the system again, so release
-   * resources in `remove` hooks, which fire during the call. A hook that throws propagates out of
+   * mutations have no disposal guard — but the world has no state left to run on. Calling
+   * `dispose()` again at top level does nothing. The call-site rule still applies during teardown.
+   * Do not create entities indefinitely from teardown hooks: the final pass repeats while it can
+   * destroy more entities. Release resources in `remove` hooks, not system `exit` callbacks,
+   * which will not run after teardown. A hook that throws propagates out of
    * the call and leaves the world partial, as it does from any destroy: treat it as a programming
    * error.
+   *
+   * @throws An `Error` for a forbidden call site before any disposal mutation,
+   * an internal-invariant error if infrastructure teardown makes no progress,
+   * or an error propagated by a teardown hook. The latter errors leave the world partial.
    */
   public dispose(this: World): void {
+    this._assertDisposalAllowed();
     if (this._disposeStarted) {
       return;
     }
     this._disposeStarted = true;
-    // The destroys are queued commands, as `Entity.destroy()` makes them in a deferred scope, so a
-    // queue that is already filling runs ahead of them. At top level this scope drains them now.
-    this.defer(() => {
-      for (const entity of this._destroyOrder()) {
-        this._enqueue({ kind: CommandKind.Destroy, entity });
+    // Settle application hooks and any entities they create before removing infrastructure.
+    let applications = this._destroyOrder();
+    while (applications.length > 0) {
+      this.defer(() => {
+        for (const entity of applications) {
+          this._enqueue({ kind: CommandKind.Destroy, entity });
+        }
+      });
+      applications = this._destroyOrder();
+    }
+    this._tearingDownInfrastructure = true;
+    try {
+      while (this._entities.size > 0) {
+        const entities = this._entities.values().filter((entity) => !entity.destroyed);
+        // The class registry is insertion-ordered; the dense entity map swaps entries on deletion.
+        const modules = [...this._classRegistry.values()]
+          .filter((entity) => entity instanceof Module && !entity.destroyed)
+          .reverse();
+        const queryEid = this.getEntity(Query)?.eid;
+        const queries = entities.filter((entity) => queryEid !== undefined && entity.has(queryEid));
+        const priority = new Set([...queries, ...modules]);
+        const ordered = [
+          ...queries,
+          ...modules,
+          ...entities.filter((entity) => !priority.has(entity)),
+        ];
+        let destroyed = 0;
+        for (const entity of ordered) {
+          if (!entity.destroyed) {
+            entity._destroy();
+            if (entity.destroyed) {
+              destroyed++;
+            }
+            this.flush();
+          }
+        }
+        this.flush();
+        if (destroyed === 0 && this._entities.size > 0) {
+          throw new Error(
+            `Internal invariant: infrastructure teardown made no progress; registered entities: ${this._entities
+              .values()
+              .map(
+                (entity) =>
+                  `${entity.eid} (${entity.meta.Class.name}, destroyed=${entity.destroyed})`
+              )
+              .join(", ")}`
+          );
+        }
       }
-    });
+    } finally {
+      this._tearingDownInfrastructure = false;
+    }
+  }
+
+  /**
+   * Validate the disposal call site before teardown changes any state.
+   * Subclasses overriding {@link dispose} must call this before starting their own cleanup.
+   * @throws An `Error` inside a frame, deferred scope, command drain or entity destroy.
+   */
+  protected _assertDisposalAllowed(): void {
+    if (this.deferred || this._frameInProgress || this._deletionScope) {
+      throw new Error(
+        "dispose() must be called outside progress(), defer, a command drain or an entity's destroy"
+      );
+    }
   }
 
   /**
@@ -94,70 +147,8 @@ export class Disposal extends Transfers {
       (queryEid !== undefined && entity.has(queryEid)) ||
       (phaseEid !== undefined && entity.has(phaseEid));
 
-    const entities = this._entities.values();
-    // In a deferred scope an entity created earlier is only queued, not registered yet. Its
-    // creation runs ahead of the destroy that is queued after it.
-    for (const command of this._commandQueue) {
-      if (
-        command.kind === CommandKind.CreateEntity &&
-        !command.entity.destroyed &&
-        this._entities.get(command.entity.eid) !== command.entity
-      ) {
-        entities.push(command.entity);
-      }
-    }
     return carriersFirst(
-      entities.filter((entity) => !isInfrastructure(entity)),
-      isInfrastructure
+      this._entities.values().filter((entity) => !entity.destroyed && !isInfrastructure(entity))
     );
   }
-}
-
-/**
- * Order `entities` so that an entity used as a component key follows every entity that carries it.
- *
- * A key destroyed while still carried throws under the default cleanup policy, so carriers go
- * first. A key that something outside `entities` carries, which is infrastructure in practice, or
- * that is caught in a cycle, cannot be ordered and is left out: destroying it would throw or strip
- * the infrastructure.
- */
-function carriersFirst(
-  entities: Entity[],
-  isInfrastructure: (entity: Entity) => boolean
-): Entity[] {
-  const ordered: Entity[] = [];
-  const keys = new Set<Entity>();
-  for (const entity of entities) {
-    if (entity.instanceCount() === 0) {
-      ordered.push(entity);
-    } else {
-      keys.add(entity);
-    }
-  }
-  let progressed = keys.size > 0;
-  while (progressed) {
-    progressed = false;
-    for (const key of keys) {
-      if (!isCarried(key, keys, isInfrastructure)) {
-        ordered.push(key);
-        keys.delete(key);
-        progressed = true;
-      }
-    }
-  }
-  return ordered;
-}
-
-/** Whether `key` is still carried by another key that waits to be ordered, or by infrastructure. */
-function isCarried(
-  key: Entity,
-  waiting: ReadonlySet<Entity>,
-  isInfrastructure: (entity: Entity) => boolean
-): boolean {
-  for (const carrier of key.meta._carriers ?? []) {
-    if (carrier !== key && (waiting.has(carrier) || isInfrastructure(carrier))) {
-      return true;
-    }
-  }
-  return false;
 }

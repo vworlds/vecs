@@ -36,11 +36,11 @@ that handles return to baseline after teardown.
 Three reads expose what a peer needs to predict a body, as the dead-reckoning sync in
 `@vworlds/vecs-phaser-server` does:
 
-| Method                    | Returns                                                                                                            | Cost                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
-| `settings()`              | `PhysicsSettings`: the world's `gravity`, `fixedTimeStep`, `subSteps` and `maximumLinearSpeed`, defaults filled in | none; one shared, frozen object                       |
-| `isAwake(entity)`         | whether the entity's body is awake; `false` without a live body                                                    | one Box2D call, no allocation: fine per body per step |
-| `bodyMotion(entity, out)` | fills a `BodyMotion`; `false` without a live body                                                                  | several Box2D calls and two short-lived vector copies |
+| Method                    | Returns                                                                                                            | Cost                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `settings()`              | `PhysicsSettings`: the world's `gravity`, `fixedTimeStep`, `subSteps` and `maximumLinearSpeed`, defaults filled in | none; one shared, frozen object                                             |
+| `isAwake(entity)`         | whether the entity's body is awake; `false` without a live body                                                    | one Box2D call, no allocation: fine per body per step                       |
+| `bodyMotion(entity, out)` | fills a `BodyMotion`; `false` without a live body                                                                  | one composite fast-path call, reusable wasm scratch, no per-call allocation |
 
 `BodyMotion` holds `awake`, the velocities `vx`, `vy`, `w`, `linearDamping`, `angularDamping`, the
 center of mass in body coordinates `localCenterX`, `localCenterY`, `allowFastRotation`, and the

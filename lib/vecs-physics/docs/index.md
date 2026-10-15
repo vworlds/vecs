@@ -577,9 +577,11 @@ world with the plain vecs transfer API — no physics-specific code in the calle
 const moved = world.moveSubtree(ship, nextSectorWorld);
 ```
 
-`PhysicsEngine` is world-bound and never crosses, and neither do `ContactEvents`, `SensorEvents`,
-or `HitEvents` — those are reports about the world that ran the solver and hold `Entity` references
-into it, so a destination that wants them opts in again on its own. Everything else crosses as
+`PhysicsEngine` is world-bound and never crosses. `ContactEvents`, `SensorEvents`, and `HitEvents`
+use `CustomSnapshot` to preserve only their presence: restore creates fresh instances with empty
+buffers, discarding reports that hold source-world `Entity` references. Event reporting is re-armed
+automatically in the destination; you can also explicitly select these components in `components`.
+The same policy applies to `snapshotSubtree` + `restoreSubtree` within one world. Everything else crosses as
 declarative state: the lifecycle table above then runs in the destination and allocates fresh Box2D
 handles, while the source world's registrations are reaped. Geometry arrays are captured by copy, so
 the destination does not alias the source component's `points` or `vertices`. Custom physics

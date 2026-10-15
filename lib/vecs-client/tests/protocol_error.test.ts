@@ -263,22 +263,42 @@ describe("ClientWorld snapshots it cannot decode", () => {
     expect(disconnects[0]?.code).toBe(CLOSE_PROTOCOL_ERROR_CODE);
   });
 
-  it("lets the disconnect handler dispose the world while progress() is applying", () => {
-    const { client, socket } = connect();
-    const released: number[] = [];
-    client.component(Spark).on("remove", (entity) => released.push(entity.eid));
-    const spark = client.entity().add(Spark);
-    client.events.on("disconnect", () => client.dispose());
-    // The valid snapshot creates entity 1000 inside the same deferred apply(), so its creation is
-    // still queued when the handler disposes the world.
-    socket.receive(diffFrame(0, 1, [posSnapshot(1000, 1, 1), unregisteredSnapshot(1001)]));
+  it.each(["progress", "apply"] as const)(
+    "lets the disconnect handler dispose after %s finishes applying",
+    (method) => {
+      const { client, socket } = connect();
+      const released: number[] = [];
+      const events: string[] = [];
+      client.component(Spark).on("remove", (entity) => released.push(entity.eid));
+      const spark = client.entity().add(Spark);
+      client.events.on("disconnect", () => {
+        events.push("disconnect");
+        expect(client.deferred).toBe(false);
+        expect(client.entity(1000).get(Position)).toMatchObject({ x: 1, y: 1 });
+        client.dispose();
+        client.dispose();
+      });
+      client.system("After apply").run(() => {
+        events.push("later system");
+        expect(socket.closeCalls).toBe(1);
+        expect(spark.alive).toBe(true);
+        // A nested apply must not publish the disconnect before the outer progress finishes.
+        client.apply(0);
+        expect(events).toEqual(["later system"]);
+      });
+      socket.receive(diffFrame(0, 1, [posSnapshot(1000, 1, 1), unregisteredSnapshot(1001)]));
 
-    expect(() => client.progress(0, 0)).not.toThrow();
+      expect(() => (method === "progress" ? client.progress(0, 0) : client.apply(0))).not.toThrow();
 
-    expect(released).toEqual([spark.eid]);
-    expect(spark.destroyed).toBe(true);
-    expect(client.getEntity(1000)).toBeUndefined();
-  });
+      expect(events).toEqual(
+        method === "progress" ? ["later system", "disconnect"] : ["disconnect"]
+      );
+      expect(released).toEqual([spark.eid]);
+      expect(spark.destroyed).toBe(true);
+      expect(client.getEntity(1000)).toBeUndefined();
+      expect(client.entities.values()).toEqual([]);
+    }
+  );
 
   it("does not close the client when application code throws while a valid snapshot is applied", () => {
     const { client, socket, disconnects } = connect();

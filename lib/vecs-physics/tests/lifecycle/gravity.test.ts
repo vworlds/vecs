@@ -22,7 +22,7 @@ describe("free fall under gravity", () => {
       .set(LinearVelocity, { x: 0, y: 0 });
     world.entity().childOf(e).set(Box, { hx: 0.5, hy: 0.5 });
 
-    // Frame 1 creates the body and its shape; subsequent frames free-fall under box2d3-wasm 5.2.0.
+    // Frame 1 creates the body and its shape; later frames free-fall under @vworlds/box2d3-wasm@6.0.1.
     world.progress(0, DT * 1000);
 
     // Fall for K frames; the engine write-back drives Position each frame and is
@@ -34,7 +34,7 @@ describe("free fall under gravity", () => {
       world.progress(now, DT * 1000);
     }
 
-    // Baseline recorded from box2d3-wasm 5.2.0.
+    // Baseline validated unchanged with @vworlds/box2d3-wasm@6.0.1.
     expect(e.get(Position)!.y).toBeCloseTo(2.6545135974884033, 6);
     expect(e.get(LinearVelocity)!.y).toBeCloseTo(-5.166665077209473, 6);
     // The body did not drift sideways.

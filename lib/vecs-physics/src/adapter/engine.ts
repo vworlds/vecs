@@ -1,4 +1,5 @@
 import { ArrayMap, type EID, type Entity, type World } from "@vworlds/vecs";
+import { type FastPath, type MoveExporter } from "@vworlds/box2d3-wasm/fastpath";
 
 import { type WarnSink, WarnDedupe } from "../util/warn.js";
 import { type PhysicsQueries } from "./queries.js";
@@ -71,8 +72,16 @@ export function hasPhysicsEngine(world: World): boolean {
 }
 
 export class PhysicsEngine {
+  /** Read only by teardown callbacks, never by the step/pose-out hot path. */
+  public disposed = false;
   public worldId!: b2WorldId;
+  /** `worldId` packed for the b2x_ fast path: index1 | generation << 16. */
+  public world = 0;
   public readonly box2d!: Box2DModule;
+  /** The b2x_ fast path: raw exports, layouts and whole-memory views. */
+  public readonly fast!: FastPath;
+  /** Reusable buffer that `PhysicsPoseSyncOut` exports the move events into. */
+  public moveExporter!: MoveExporter;
   public readonly phases!: PhysicsPhases;
 
   // Resolved configuration (flattened from PhysicsOptions).
@@ -99,6 +108,8 @@ export class PhysicsEngine {
   // check id generations in hot lookups: correctness comes from clearing each
   // slot on Box2D destruction before Box2D can reuse that index1.
   public readonly entityByBodyIndex = new ArrayMap<EID>();
+  /** Entity objects behind entityByBodyIndex for direct pose-out lookup; set and cleared with it. */
+  public readonly bodyEntities: (Entity | undefined)[] = [];
   public readonly entityByShapeIndex = new ArrayMap<EID>();
 
   // Bodies whose mass needs recomputing this step (populated by shape lifecycle).
@@ -156,19 +167,28 @@ export class PhysicsEngine {
     box2d: Box2DModule,
     options: ResolvedPhysicsOptions,
     phases: PhysicsPhases,
+    fast: FastPath,
     warnSink?: WarnSink
   );
   public constructor(
     box2d?: Box2DModule,
     options?: ResolvedPhysicsOptions,
     phases?: PhysicsPhases,
+    fast?: FastPath,
     warnSink?: WarnSink
   ) {
-    if (box2d === undefined || options === undefined || phases === undefined) {
+    if (
+      box2d === undefined ||
+      options === undefined ||
+      phases === undefined ||
+      fast === undefined
+    ) {
       return;
     }
 
     this.box2d = box2d;
+    this.fast = fast;
+    this.moveExporter = fast.createMoveExporter(64);
     this.phases = phases;
     this.gravityX = options.gravityX;
     this.gravityY = options.gravityY;
@@ -184,5 +204,25 @@ export class PhysicsEngine {
     this.maximumLinearSpeed = options.maximumLinearSpeed;
     this.enableSleep = options.enableSleep;
     this.enableContinuous = options.enableContinuous;
+  }
+
+  /** Release per-world WASM ownership once; queued child handles die with the world.
+   * Live ids are plain fields: install late-use errors only at teardown. */
+  public dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    if (this.worldId !== undefined) {
+      this.box2d.b2DestroyWorld(this.worldId);
+    }
+    this.moveExporter.dispose();
+    const deadWorld = (): never => {
+      throw new Error("Physics world has been disposed");
+    };
+    Object.defineProperties(this, {
+      worldId: { get: deadWorld, set: deadWorld },
+      world: { get: deadWorld, set: deadWorld },
+    });
   }
 }

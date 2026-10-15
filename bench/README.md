@@ -105,6 +105,71 @@ Timings on a shared or virtualized machine are noisy. Compare back to back on an
 machine, use several rounds, and read the per-round ratios rather than a single run. An identical
 build compared against itself shows the noise floor.
 
+## Real-WASM physics pose-out
+
+`physics-pose-out.ts` measures one physics world with 500, then 2,000 dynamic circle bodies.
+They drift and rotate deterministically without contacts, with sleeping disabled. Every body
+carries position, rotation and both velocity components. Timing uses the compiled package output:
+
+```bash
+npm run build -w @vworlds/vecs -w @vworlds/vecs-physics
+node --import ./bench/register-dist.mjs bench/physics-pose-out.ts
+```
+
+After creation and 300 warmup ticks, it measures 1,000 ticks at 30 Hz. Override these counts with
+`BENCH_WARMUP_TICKS` and `BENCH_TICKS`. Each `POSE_OUT_RESULT` line reports nanoseconds per body
+per step for the whole `world.progress` tick (including deferred writes) and for the built
+`PhysicsPoseSyncOut` system alone (excluding its subsequent flush). Two clock reads per step
+are included in whole-tick timing. The checksum hashes the exact float64 bytes of every body's
+final position, rotation and velocities in creation order. Compare several alternating builds
+with identical counts; checksum disagreement is a behavior change, while timings have host noise.
+
+## Dead-reckoning bandwidth
+
+```bash
+npm run bench:dr-bandwidth
+```
+
+Run the full 200-body scene (50 bullets, 50 damped containers, 100 rocks), with one
+client at 30 Hz, one second of connection warm-up and 60 measured seconds. The three
+modes are streamed, dead reckoned with the default refresh, and dead reckoned without
+refresh. `BENCH_RESULT` contains each mode's total bytes and bytes per second. The
+transport is in-memory and time is virtual: these are deterministic wire-size metrics,
+not elapsed-time measurements. The default correctness suite keeps a 20-body,
+10-second assertion that dead reckoning uses less than one tenth of streamed bytes.
+
+Normal and stress tests resolve workspace packages from source and run before any
+build. The application Vitest configurations merge their Vite configurations to
+preserve those source aliases while excluding stress files. Built `dist` output is
+required for the standalone bandwidth and sector benchmarks.
+
+## Check against the previous release
+
+```bash
+npm run bench:release-check
+```
+
+This extends `compare.ts`: it builds HEAD and the latest reachable release tag
+(`git describe --tags --abbrev=0`), runs the same HEAD benchmark programs against both
+builds, and removes the temporary release worktree when done. Set `BENCH_BASE_REF` to test a
+specific tag or ref instead. Temporary worktrees and JSON/Markdown reports live under ignored
+`.tmp/release-check/`; matching lockfiles reuse this checkout's dependencies, otherwise the base
+installs its own. Run `npm ci` first.
+
+The check includes sector tick, DR bandwidth, and an optional physics pose-out benchmark
+when a matching benchmark file is present. It defaults to three alternating runs per
+build; set `BENCH_ROUNDS` to an integer of at least three for more runs. Missing release
+package APIs produce “no previous data” for that benchmark; benchmark crashes fail the
+command. Each deterministic metric is compared exactly, including repeatability within
+each build; all changes are shown, with a warning when bytes increase. Timing means warn
+only above 10% regression and when the absolute difference exceeds both builds'
+run-to-run ranges. Warnings exit zero and become annotations in GitHub Actions.
+
+`comparison.json` contains the release tag, rounds, metric values, deltas, verdicts,
+and timing spread. `comparison.md` contains the single comparison table used in the
+nightly/manual workflow's job summary. The older explicit two-build comparison above
+still enforces identical fingerprints for optimization experiments.
+
 ## ECS microbenchmark
 
 `npm run bench:vecs` runs `lib/vecs/tests/ecs.bench.test.ts` from the TypeScript sources: entity
@@ -119,6 +184,11 @@ RUN_VECS_ECS_BENCH_COUNTS=16384,65536 RUN_VECS_ECS_BENCH_ROUNDS=7 npm run bench:
 
 The script pins Vitest's default reporter. Vitest 4 switches to a quieter reporter when it detects
 an AI agent, and that reporter hides the results the benchmark prints.
+
+Set `RUN_VECS_ECS_BENCH_FILTER=SystemsUpdate` to select the four system-update cases.
+Add `RUN_VECS_ECS_BENCH_SYSTEM_STATS=1` to measure those cases with opt-in system timing;
+leave it unset for the default plain-loop baseline. Use odd round counts so the XOR checksum
+does not cancel identical results.
 
 ## Known trade-off: bulk create and destroy
 

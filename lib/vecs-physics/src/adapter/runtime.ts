@@ -1,6 +1,5 @@
-import { cpus } from "node:os";
-
-import Box2DFactory from "box2d3-wasm";
+import Box2DFactory from "@vworlds/box2d3-wasm";
+import { createFastPath, type FastPath } from "@vworlds/box2d3-wasm/fastpath";
 
 import type { b2AABB, b2QueryFilter, b2ShapeProxy, b2Vec2 } from "./engine.js";
 
@@ -8,6 +7,9 @@ export type Box2DModule = Awaited<ReturnType<typeof Box2DFactory>>;
 
 let modulePromise: Promise<Box2DModule> | null = null;
 let module: Box2DModule | null = null;
+let fastPath: FastPath | null = null;
+/** 64-byte wasm scratch for fast-path pose/motion out-parameters; non-reentrant like scr_*. */
+export let scr_fastOut = 0;
 
 // Global scratch pools for common Box2D structs. Allocated once at module load,
 // reused across queries and other non-reentrant operations.
@@ -17,19 +19,20 @@ export let scr_b2AABB: b2AABB | null = null;
 export let scr_b2ShapeProxy: b2ShapeProxy | null = null;
 export let scr_b2MassData: InstanceType<Box2DModule["b2MassData"]> | null = null;
 
+/** Load the pinned owned Box2D module and fast path once, with profile timers disabled.
+ * Selects single-threaded SIMD when supported; initialization needs no navigator polyfill. */
 export async function preloadPhysics(): Promise<void> {
   if (modulePromise) {
     await modulePromise;
     return;
   }
 
-  // box2d3-wasm reads navigator.hardwareConcurrency during Node initialization.
-  const global = globalThis as unknown as { navigator?: Partial<Navigator> };
-  global.navigator ??= {};
-  (global.navigator as { hardwareConcurrency?: number }).hardwareConcurrency ??= cpus().length;
-
   modulePromise = Box2DFactory().then((loadedModule) => {
     module = loadedModule;
+    fastPath = createFastPath(loadedModule);
+    scr_fastOut = fastPath.alloc(64);
+    // Timers only feed b2World_GetProfile, which vecs never reads; they do not affect simulation.
+    fastPath.setProfileTimers(false);
     initializeScratchPools(loadedModule);
     return loadedModule;
   });
@@ -70,4 +73,19 @@ export function getBox2D(): Box2DModule {
     );
   }
   return module;
+}
+
+/** `rev` half of a packed fast-path id: world0 | generation << 16. */
+export function rev(id: { world0: number; generation: number }): number {
+  return id.world0 | (id.generation << 16);
+}
+
+/** The b2x_ fast path over the loaded module: raw exports, struct layouts, memory views. */
+export function getFastPath(): FastPath {
+  if (!fastPath) {
+    throw new Error(
+      "Box2D module not loaded. Call `await preloadPhysics()` before `world.module(PhysicsModule)`."
+    );
+  }
+  return fastPath;
 }

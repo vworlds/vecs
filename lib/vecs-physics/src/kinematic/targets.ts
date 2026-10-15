@@ -8,7 +8,7 @@ import {
 } from "../adapter/engine.js";
 import { Body } from "../body/components.js";
 import { KinematicTargetPosition, KinematicTargetRotation } from "./components.js";
-import { scr_b2Vec2 } from "../adapter/runtime.js";
+import { rev, scr_fastOut } from "../adapter/runtime.js";
 import { PhysicsCoreModule } from "../core/module.js";
 
 export class KinematicTargetsModule extends Module {
@@ -52,29 +52,30 @@ function drivePositionTarget(
     return;
   }
 
-  const position = engine.box2d.b2Body_GetPosition(bodyId);
-  try {
-    const dx = target.x - position.x;
-    const dy = target.y - position.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist > target.tolerance) {
-      let vx = dx / dt;
-      let vy = dy / dt;
-      const speed = Math.hypot(vx, vy);
-      if (speed > engine.maximumLinearSpeed) {
-        const scale = engine.maximumLinearSpeed / speed;
-        vx *= scale;
-        vy *= scale;
-      }
-      setLinearVelocity(engine, bodyId, vx, vy);
-      if (target.wake) {
-        engine.box2d.b2Body_SetAwake(bodyId, true);
-      }
-    } else {
-      setLinearVelocity(engine, bodyId, 0, 0);
+  const fast = engine.fast;
+  fast.module._b2x_Body_GetPosition(bodyId.index1, rev(bodyId), scr_fastOut);
+  fast.sync();
+  const out = scr_fastOut >> 2;
+  const px = fast.f32[out]!;
+  const py = fast.f32[out + 1]!;
+  const dx = target.x - px;
+  const dy = target.y - py;
+  const dist = Math.hypot(dx, dy);
+  if (dist > target.tolerance) {
+    let vx = dx / dt;
+    let vy = dy / dt;
+    const speed = Math.hypot(vx, vy);
+    if (speed > engine.maximumLinearSpeed) {
+      const scale = engine.maximumLinearSpeed / speed;
+      vx *= scale;
+      vy *= scale;
     }
-  } finally {
-    position.delete();
+    setLinearVelocity(engine, bodyId, vx, vy);
+    if (target.wake) {
+      fast.module._b2x_Body_SetAwake(bodyId.index1, rev(bodyId), 1);
+    }
+  } else {
+    setLinearVelocity(engine, bodyId, 0, 0);
   }
 }
 
@@ -88,30 +89,32 @@ function driveRotationTarget(
     return;
   }
 
-  const rotation = engine.box2d.b2Body_GetRotation(bodyId);
-  try {
-    const da = wrap(target.angle - rotation.GetAngle(), -Math.PI, Math.PI);
-    if (Math.abs(da) > target.tolerance) {
-      engine.box2d.b2Body_SetAngularVelocity(bodyId, da / dt);
-      if (target.wake) {
-        engine.box2d.b2Body_SetAwake(bodyId, true);
-      }
-    } else {
-      engine.box2d.b2Body_SetAngularVelocity(bodyId, 0);
+  const fast = engine.fast;
+  const r = rev(bodyId);
+  fast.module._b2x_Body_GetPose(bodyId.index1, r, scr_fastOut);
+  fast.sync();
+  // The exact Box2D b2Atan2 result used by embind's GetAngle.
+  const angle = fast.f32[(scr_fastOut + fast.layout.pose.angle) >> 2]!;
+  const da = wrap(target.angle - angle, -Math.PI, Math.PI);
+  if (Math.abs(da) > target.tolerance) {
+    fast.module._b2x_Body_SetAngularVelocity(bodyId.index1, r, da / dt);
+    if (target.wake) {
+      fast.module._b2x_Body_SetAwake(bodyId.index1, r, 1);
     }
-  } finally {
-    rotation.delete();
+  } else {
+    fast.module._b2x_Body_SetAngularVelocity(bodyId.index1, r, 0);
   }
 }
 
 function isKinematicBody(engine: PhysicsEngine, bodyId: b2BodyId): boolean {
-  return engine.box2d.b2Body_GetType(bodyId) === engine.box2d.b2BodyType.b2_kinematicBody;
+  return (
+    engine.fast.module._b2x_Body_GetType(bodyId.index1, rev(bodyId)) ===
+    engine.box2d.b2BodyType.b2_kinematicBody.value
+  );
 }
 
 function setLinearVelocity(engine: PhysicsEngine, bodyId: b2BodyId, x: number, y: number): void {
-  const vec = scr_b2Vec2[0];
-  vec.Set(x, y);
-  engine.box2d.b2Body_SetLinearVelocity(bodyId, vec);
+  engine.fast.module._b2x_Body_SetLinearVelocity(bodyId.index1, rev(bodyId), x, y);
 }
 
 function wrap(value: number, min: number, max: number): number {

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --tsconfig tsconfig.json src/main.ts",
-    "build": "rimraf dist && esbuild src/main.ts --bundle --platform=node --format=esm --target=node24 --tsconfig=tsconfig.json --external:express --external:@vworlds/dgram-server --external:node-datachannel --external:box2d3-wasm --outfile=dist/main.js",
+    "build": "rimraf dist && esbuild src/main.ts --bundle --platform=node --format=esm --target=node24 --tsconfig=tsconfig.json --external:express --external:@vworlds/dgram-server --external:node-datachannel --external:@vworlds/box2d3-wasm --outfile=dist/main.js",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" --no-error-on-unmatched-pattern",

@@ -15,6 +15,8 @@ export class Components extends Entities {
    * and its id is drawn from the `"component"` id pool (1–899 by default).
    * Subsequent calls with the same class return the same entity. The same class
    * may be registered independently in multiple worlds.
+   * A newly registered definition inherits the current scope parent immediately.
+   * Scopes must be entered outside deferred mode. Existing lookups do not reparent it.
    *
    * Pass an explicit numeric `ceid` to pin the component to a server-assigned
    * stable id instead of auto-allocating one.
@@ -137,6 +139,10 @@ export class Components extends Entities {
     const component = new Constructor(this, ceid, ComponentClass);
     this._entities.set(ceid, component);
     this._classRegistry.set(ComponentClass, component);
+    const parent = this._scope;
+    if (parent !== undefined) {
+      component.childOf(parent);
+    }
     // Component-definition entities are first-class entities: notify so any
     // live world-rooted query/term picks them up reactively (reflection),
     // exactly like an ordinary `world.entity()`.

@@ -34,6 +34,10 @@ world.module(PoseSyncModule);
 module on first call — drawing its entity id from the `module` pool (900–999 by default, or pass
 an explicit `eid`) — and invokes `init(config)` exactly once. Subsequent calls return the existing
 module instance; passing a config again after the first registration throws.
+Install new modules outside `progress()` and `defer`; installation also throws during a command
+drain, before registering anything. Looking up an already installed module works in any of those
+contexts. Lazy loading from a system or hook is the application's job: schedule it after
+`progress()` returns.
 
 ## Configuration
 
@@ -84,6 +88,63 @@ Guidelines:
   placement, component registration. Keep that out of application code.
 - **One module per cohesive thing.** Don't pile unrelated features into one `init`.
 
+## Scopes and module provenance
+
+`world.scope(parent, fn)` assigns `ChildOf parent` to entities created **synchronously in its body**:
+plain entities, components, modules, query/system backing entities, and phases.
+Nested scopes restore the caller's parent in `finally`, even when the callback throws. Enter scopes
+outside deferred mode: `world.scope()` throws inside `progress()`, a `defer` block, or a command
+drain, without running the callback. Scoped creations use `.childOf(parent)` before their creation
+notification. Existing name/id/class lookups do not reparent anything. An explicit
+`.childOf(other)` afterwards replaces the scope parent, just as any other exclusive `ChildOf` edge.
+The parent must be live and belong to the same world. Async continuations are outside the scope.
+
+Entities created by callbacks that vecs runs deferred inside the body are **not parented**. This
+includes `query.forEach(cb)`, a query's `enter` backfill when built, and an explicit `world.defer`
+inside a module's `init`. Callback-created entities are run-time data: the same callback outside the
+scope would not parent them either. For example, a module's `enter` or `forEach` callback may create
+one health-bar entity per existing ship. Those health bars remain roots; an entity created directly
+in `init` is a child of the module.
+
+```ts
+import { Entity, Module, World } from "@vworlds/vecs";
+
+class Position {}
+class Feature extends Module {
+  public init(): void {
+    this.world.component(Position);
+    this.world.entity("camera");
+  }
+}
+const world = new World();
+const feature = world.module(Feature);
+world.component(Position).parent === feature; // true
+world.entity("camera").parent === feature; // true
+
+function owningModule(entity: Entity): Module | undefined {
+  const visited = new Set<Entity>();
+  for (let parent = entity.parent; parent && !visited.has(parent); parent = parent.parent) {
+    if (parent instanceof Module) return parent;
+    visited.add(parent);
+  }
+  return undefined;
+}
+owningModule(world.component(Position)); // feature
+world.scope(feature, () => world.entity("another child"));
+```
+
+`world.module()` runs a new module's `init` inside `world.scope(moduleEntity, ...)`. Nested modules
+are children of the enclosing scope; their own creations belong to the nested module. Provenance is
+the **nearest module ancestor**, not necessarily the direct parent: a `OneOf` value may be parented
+to its relationship entity, which is parented to the module. This is a real ownership hierarchy:
+ordinary parent destruction cascades through its children, and subtree traversal follows it.
+
+Vecs' own built-in modules installed by the `World` constructor are **not scoped**; their entities
+remain roots. Provenance covers modules installed after the world is constructed, including physics,
+network, Phaser and application modules. Registration outside a scope leaves a root. Idempotent
+re-registration keeps the existing parent: there is no list of duplicate registrars and no record of
+which module added a trait edge. Explicit reparenting changes ownership, not a historical audit.
+
 ## Built-in modules
 
 Every `World` constructor installs these (`lib/vecs/src/world/world.ts`); you interact with their
@@ -107,4 +168,5 @@ All are exported, so a custom world setup can reuse them.
 | `init(config)`                                                                 | One-time setup hook; called by the world on first registration.                                     |
 | `world.module(M)` / `world.module(M, config)` / `world.module(M, config, eid)` | Register (first call) or retrieve (later calls) the module. Config after first registration throws. |
 | `this.world`                                                                   | Inside `init`: the owning world (a module is an entity).                                            |
+| `world.scope(parent, fn)`                                                      | Parent all synchronous creations in `fn`; existing lookups are unchanged.                           |
 | `ModuleConfig<T>`                                                              | Utility type extracting a module's config type.                                                     |

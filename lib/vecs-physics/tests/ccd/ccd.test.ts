@@ -221,9 +221,9 @@ describe("Bullet-vs-bullet skip (solver.c:227-230)", () => {
     const posA = bulletA.get(Position)!;
     const posB = bulletB.get(Position)!;
 
-    // Baseline recorded from box2d3-wasm 5.2.0: upstream WASM backend keeps
+    // Baseline validated unchanged with @vworlds/box2d3-wasm@6.0.1: the WASM backend keeps
     // the bullets separated rather than tunnelling through each other.
-    // Baseline recorded against box2d3-wasm@5.2.0.
+    // Baseline validated unchanged against @vworlds/box2d3-wasm@6.0.1.
     expect(posA.x).toBeCloseTo(-0.056019868701696396, 6);
     expect(posB.x).toBeCloseTo(0.056019868701696396, 6);
   });

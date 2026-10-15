@@ -9,6 +9,8 @@ and on every tick. A **World** ties it all together and drives a phased update p
 
 ## Install
 
+The core package also exports the structural `Vec2` type for two-dimensional points and vectors.
+
 ```sh
 npm install @vworlds/vecs
 ```
@@ -58,6 +60,17 @@ world.progress(performance.now(), 16); // call once per frame
 ```
 
 ## Documentation
+
+For synchronous world teardown and its allowed call sites, see
+[Disposing a world](./docs/entities.md#disposing-a-world).
+
+System entity callbacks can inject [`Now` and `Delta`](./docs/systems.md#clock-injection) alongside
+components to read the processing tick's timestamp and the system's accumulated tick delta.
+
+Inspect [system execution order and cadence](./docs/systems.md#introspection) with `world.pipeline`,
+registered callbacks and watched components with `system.callbacks` and `system.watched`, and
+[scoped module provenance](./docs/modules.md#scopes-and-module-provenance) through entity parents.
+For opt-in timings and cadence run counts, see [Measuring systems](./docs/systems.md#measuring-systems).
 
 For Node clients that need replicated Phaser poses, see [Headless clients](../vecs-phaser-client/README.md#headless-clients).
 For server keepalive gates and the idle replicated-state clock, see [Replication](../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate).

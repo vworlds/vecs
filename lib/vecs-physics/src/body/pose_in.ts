@@ -2,7 +2,7 @@ import { Module } from "@vworlds/vecs";
 
 import { getPhysicsEngine, PhysicsSystemTag } from "../adapter/engine.js";
 import { AngularVelocity, Body, LinearVelocity, Position, Rotation } from "./components.js";
-import { scr_b2Vec2 } from "../adapter/runtime.js";
+import { rev } from "../adapter/runtime.js";
 import { PhysicsCoreModule } from "../core/module.js";
 
 export class BodyPoseInModule extends Module {
@@ -30,14 +30,13 @@ export class BodyPoseInModule extends Module {
           return;
         }
 
-        const rotation = engine.box2d.b2Body_GetRotation(bodyId);
-        try {
-          const vec = scr_b2Vec2[0];
-          vec.Set(position.x, position.y);
-          engine.box2d.b2Body_SetTransform(bodyId, vec, rotation);
-        } finally {
-          rotation.delete();
-        }
+        // SetTransform with the body's existing rotation, in one crossing.
+        engine.fast.module._b2x_Body_SetPosition(
+          bodyId.index1,
+          rev(bodyId),
+          position.x,
+          position.y
+        );
       })
       .add(PhysicsSystemTag);
 
@@ -52,14 +51,8 @@ export class BodyPoseInModule extends Module {
           return;
         }
 
-        const position = engine.box2d.b2Body_GetPosition(bodyId);
-        const wasmRotation = engine.box2d.b2MakeRot(rotation.angle);
-        try {
-          engine.box2d.b2Body_SetTransform(bodyId, position, wasmRotation);
-        } finally {
-          wasmRotation.delete();
-          position.delete();
-        }
+        // SetTransform with the body's existing position and b2MakeRot(angle).
+        engine.fast.module._b2x_Body_SetAngle(bodyId.index1, rev(bodyId), rotation.angle);
       })
       .add(PhysicsSystemTag);
 
@@ -76,9 +69,12 @@ export class BodyPoseInModule extends Module {
             return;
           }
 
-          const vec = scr_b2Vec2[0];
-          vec.Set(velocity.x, velocity.y);
-          engine.box2d.b2Body_SetLinearVelocity(bodyId, vec);
+          engine.fast.module._b2x_Body_SetLinearVelocity(
+            bodyId.index1,
+            rev(bodyId),
+            velocity.x,
+            velocity.y
+          );
         }
       )
       .add(PhysicsSystemTag);
@@ -96,7 +92,11 @@ export class BodyPoseInModule extends Module {
             return;
           }
 
-          engine.box2d.b2Body_SetAngularVelocity(bodyId, velocity.value);
+          engine.fast.module._b2x_Body_SetAngularVelocity(
+            bodyId.index1,
+            rev(bodyId),
+            velocity.value
+          );
         }
       )
       .add(PhysicsSystemTag);

@@ -75,8 +75,12 @@ export interface ClientWorldEvents {
    * why — the server closed the connection deliberately and its notice arrived,
    * or this client closed it because it could not decode or accept what the server
    * sent (code {@link CLOSE_PROTOCOL_ERROR_CODE}); see {@link ClientWorldDisconnectEvent}.
-   * For transport loss, a failed send, or a local `close()` / `dispose()` the
-   * handler receives `undefined`.
+   * For transport loss, a failed send, or a local `close()` the handler receives
+   * `undefined`. `dispose()` itself does not emit a disconnect event.
+   * During `progress()` or `apply()`, only event emission waits: handlers run once
+   * after the outermost call finishes, outside its frame and command drain, and may
+   * call `dispose()`. Socket closure and pending RPC rejection do not wait. Outside
+   * those calls the event is emitted immediately.
    */
   disconnect: (event?: ClientWorldDisconnectEvent) => void;
   reset: ClientWorldResetHandler;
@@ -142,6 +146,8 @@ export class ClientWorld extends NetworkWorld {
   private _disconnected = false;
   private _forceBaselineReset = false;
   private _disposed = false;
+  private _callDepth = 0;
+  private _pendingDisconnects: Array<CloseNotice | undefined> | undefined;
 
   public constructor(options: ClientWorldOptions = {}) {
     const localEntityIdStart = options.localEntityIdStart ?? DEFAULT_CLIENT_LOCAL_ENTITY_ID_START;
@@ -376,6 +382,8 @@ export class ClientWorld extends NetworkWorld {
    * the entities the diff removes (see below) and the snapshots before the bad
    * one stay applied. The replicated entities stay in place, as after any
    * `close()`; a later baseline on a new socket resynchronizes them.
+   * Event emission waits until the outermost `progress()` / `apply()` finishes;
+   * socket closure and pending RPC rejection do not wait.
    *
    * That handling covers only decoding at this point. An exception thrown by
    * application code while a valid snapshot is applied, such as an `on("set")`
@@ -420,8 +428,28 @@ export class ClientWorld extends NetworkWorld {
    * @param now - Timestamp in milliseconds to interpolate towards.
    */
   public apply(now: number): void {
-    this._pull(now);
-    this._applyPulled();
+    this._callDepth++;
+    try {
+      this._pull(now);
+      this._applyPulled();
+    } finally {
+      this._endCall();
+    }
+  }
+
+  /**
+   * Run the world's systems, then emit any disconnects raised during the tick.
+   * Handlers run after the outermost `progress()` / {@link apply} finishes, including
+   * on an application error, so they may dispose the world outside its frame/drain.
+   * Transport closure and RPC rejection still happen when the connection is lost.
+   */
+  public override progress(now: number, delta: number): void {
+    this._callDepth++;
+    try {
+      super.progress(now, delta);
+    } finally {
+      this._endCall();
+    }
   }
 
   /**
@@ -487,28 +515,33 @@ export class ClientWorld extends NetworkWorld {
    * queued for {@link ClientWorld.apply} are dropped unrun; replicated entities
    * are destroyed, which fires their components' `remove` hooks; the diff
    * buffer resets; the ack timer stops and the socket closes; and finally every
-   * other entity is destroyed through `World.dispose()`. Those are the
+   * other entity is destroyed through `World.dispose()`. These include the
    * client-local ones — UI, effects, `DrawBy` children — and destroying them
    * fires their `remove` hooks too, so render resources such as Phaser
    * GameObjects are released the same way as the replicated ones. A call whose
    * reply already arrived has settled with it, so it is not among the rejected
    * ones.
    *
-   * The client's own component, query and system entities, like those of any
-   * module, stay. A system's `exit` callback only queues its event, and a
-   * disposed world never runs the system again, so release resources in
-   * `remove` hooks. `World.dispose()` documents what else stays and what
-   * happens when it runs inside a system or hook, as it does from a
-   * `disconnect` handler that {@link ClientWorld.apply} triggers by closing the
-   * client for a protocol error.
+   * The client's own component, module, query, system and phase entities are
+   * destroyed last, releasing singleton resources through their `remove` hooks.
+   * Call at top level: not inside `progress()`, `defer`, a command drain or an
+   * entity's destroy. A refused call changes no client or world state. Release
+   * resources in `remove` hooks, not system `exit` callbacks. `World.dispose()`
+   * documents ordering. Disconnect events raised during {@link progress} or
+   * {@link apply} wait until the outermost call finishes, so their handlers may
+   * dispose the world.
    *
    * Idempotent, and safe to call on a world that never connected. `VecsSocket`
    * has no `off`, so after dispose the `receive` and `disconnect` handlers are
    * left attached but do nothing: a late frame cannot revive the world, and
    * dispose's own `disconnect` is not re-emitted. Reconnecting or re-attaching
    * a socket to a disposed world throws — build a new `ClientWorld` instead.
+   *
+   * @throws An error for a forbidden call site before teardown starts, or an error
+   * from `World.dispose()` during teardown (leaving the world partial).
    */
   public override dispose(): void {
+    this._assertDisposalAllowed();
     if (this._disposed) {
       return;
     }
@@ -936,7 +969,22 @@ export class ClientWorld extends NetworkWorld {
     }
     const notice = this._closeNotice;
     this._closeNotice = undefined;
-    this.events.emit("disconnect", notice);
+    if (this._callDepth > 0) {
+      (this._pendingDisconnects ??= []).push(notice);
+    } else {
+      this.events.emit("disconnect", notice);
+    }
+  }
+
+  private _endCall(): void {
+    this._callDepth--;
+    if (this._callDepth === 0 && this._pendingDisconnects) {
+      const pending = this._pendingDisconnects;
+      this._pendingDisconnects = undefined;
+      for (const notice of pending) {
+        this.events.emit("disconnect", notice);
+      }
+    }
   }
 
   private _startAckTimer(): void {

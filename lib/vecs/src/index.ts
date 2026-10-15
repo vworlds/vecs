@@ -1,8 +1,13 @@
-export { System, type SystemQuery } from "./system.js";
+export { System, type SystemCallbackKind, type SystemQuery } from "./system.js";
+export type { Vec2 } from "./geometry.js";
 export { Query, GroupedQuery, Group } from "./query/index.js";
 export type { EntityTestFunc, MaybeRequired, QueryDSL } from "./dsl.js";
-export { Iter } from "./inject.js";
+export { Delta, Iter, Now } from "./inject.js";
 export type {
+  ClockInject,
+  ComponentInjectElement,
+  ComponentInjectTuple,
+  ComponentFanInjectTuple,
   DownInject,
   FanInjectElement,
   FanInjectTuple,
@@ -17,6 +22,7 @@ export type {
   TargetsInject,
 } from "./inject.js";
 export { DEFAULT_POOLS, World, type WorldOptions } from "./world/index.js";
+export { WorldStats, type Timing, type SystemTiming, type OperationTiming } from "./world/stats.js";
 export { Filter } from "./filter.js";
 export {
   ChildOf,
@@ -84,7 +90,12 @@ export {
 } from "./modules/pipeline.js";
 export { getDSLKey } from "./dsl.js";
 export { Term, TermEventKind, type TermConsumer } from "./terms/term.js";
-export { IntervalTickSource, RateTickSource, type ITickSource } from "./timer.js";
+export {
+  ALWAYS_TICK_SOURCE,
+  IntervalTickSource,
+  RateTickSource,
+  type ITickSource,
+} from "./timer.js";
 export { ArrayMap, IterableArrayMap } from "./util/array_map.js";
 export { Bitset } from "./util/bitset.js";
 export { Events, type EventListener, type EventNames } from "./util/events.js";

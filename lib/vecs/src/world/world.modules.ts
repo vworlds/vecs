@@ -10,6 +10,17 @@ type ModuleArgs<T extends Module<any>> =
     : [config: ModuleConfig<T>, eid?: EID];
 
 export class Modules extends Components {
+  /** @internal Constructor-installed core modules predate scoped ChildOf support. */
+  protected _initializingModules = false;
+
+  /**
+   * Install a module once and run its synchronous init inside its entity scope.
+   * Constructor-installed core modules are unscoped; later modules parent all
+   * newly created entities, including nested modules. Existing entities stay put.
+   * Subsequent calls return the existing instance; passing config again throws.
+   * New installations throw while deferred; call outside progress() and defer.
+   * Existing-instance lookups remain available while deferred.
+   */
   public module<T extends Module<any>>(
     this: World,
     ModuleClass: EntityClass<T>,
@@ -18,6 +29,9 @@ export class Modules extends Components {
     const { config, eid } = resolveModuleArgs(args as [eid?: EID] | [config: object, eid?: EID]);
     const ComponentClass = ModuleClass as unknown as ComponentClass;
     const isNew = !this._classRegistry.has(ComponentClass);
+    if (isNew && this.deferred) {
+      throw new Error("Call world.module() outside progress() and defer to install a new module");
+    }
     const mod = this._component<T>(ModuleClass, ComponentClass, eid, this._modulePool);
     if (!isNew && config !== undefined) {
       throw new Error(
@@ -25,7 +39,11 @@ export class Modules extends Components {
       );
     }
     if (isNew) {
-      mod.init(config as ModuleConfig<T>);
+      if (this._initializingModules) {
+        mod.init(config as ModuleConfig<T>);
+      } else {
+        this.scope(mod, () => mod.init(config as ModuleConfig<T>));
+      }
     }
     return mod;
   }

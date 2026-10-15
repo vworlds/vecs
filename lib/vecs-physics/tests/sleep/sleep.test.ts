@@ -129,7 +129,7 @@ describe("WASM sleep configuration", () => {
       stepsToSleep += 1;
     } while (stepsToSleep < 120 && isAwake(world, body.eid));
 
-    // Baseline recorded against box2d3-wasm 5.2.0.
+    // Baseline validated unchanged against @vworlds/box2d3-wasm@6.0.1.
     expect(stepsToSleep).toBe(30);
     expect(isAwake(world, body.eid)).toBe(false);
   });

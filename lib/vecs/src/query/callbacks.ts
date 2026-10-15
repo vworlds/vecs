@@ -10,11 +10,13 @@ import {
   replayInjectedSnapshot,
   replayInjectedSnapshotWithSrc,
   snapshotInjected,
+  specializeClockInject,
   wantsIter,
   type InjectElement,
   type InjectedValue,
   type InjectSnapshot,
   type InjectTuple,
+  type InjectClock,
 } from "../inject.js";
 import type { InjectCallbackOptions, OrderByOptions, UpdateCallbackOptions } from "./options.js";
 import { OrderedSet } from "../util/ordered_set.js";
@@ -40,7 +42,8 @@ type SortCallback = (
 export function makeEnterExitCallback(
   world: World,
   arg0: InjectTuple | InjectCallbackOptions<InjectTuple> | ((e: Entity) => void),
-  arg1?: Function
+  arg1?: Function,
+  clock?: InjectClock
 ): { callback: EntityCallback; snapshotter: InjectSnapshotter | undefined } {
   if (typeof arg0 === "function") {
     // Wrap so the drain's extra snapshot argument never leaks to a plain
@@ -48,8 +51,18 @@ export function makeEnterExitCallback(
     const fn = arg0 as (e: Entity) => void;
     return { callback: (e: Entity) => fn(e), snapshotter: undefined };
   }
-  const { components, useIter } = normalizeInjectCallbackArgs(arg0);
-  const cb = arg1 as (eOrIt: CursorCallbackArg, injected: InjectedValues) => void;
+  const normalized = normalizeInjectCallbackArgs(arg0);
+  const { useIter } = normalized;
+  const specialized = specializeClockInject(
+    world,
+    normalized.components,
+    useIter,
+    arg1!,
+    clock,
+    "snapshot"
+  );
+  const components = specialized.components as InjectTuple;
+  const cb = specialized.callback as (eOrIt: CursorCallbackArg, injected: InjectedValues) => void;
   const inject = mapInject(world, components);
   const arity = injectArity(inject);
   const snapshotter = (e: Entity) => snapshotInjected(e, inject, arity);
@@ -116,7 +129,8 @@ export function makeSortedEntitySet(
 export function makeUpdateRegistration<C extends ComponentType>(
   world: World,
   arg0: C | UpdateCallbackOptions<C, InjectTuple>,
-  arg1: (...args: any[]) => void
+  arg1: (...args: any[]) => void,
+  clock?: InjectClock
 ): { componentEid: EID; callback: ComponentCallback; onEnter: boolean } {
   const normalized = normalizeUpdateCallbackArgs(arg0);
   const { ComponentClass, components, onEnter, useIter } = normalized;
@@ -136,8 +150,9 @@ export function makeUpdateRegistration<C extends ComponentType>(
     }
     return { componentEid, onEnter, callback: arg1 as ComponentCallback };
   }
-  const callback = arg1 as (...args: any[]) => void;
-  const inject = mapInject(world, components);
+  const specialized = specializeClockInject(world, components, useIter, arg1, clock, "update");
+  const callback = specialized.callback as (...args: any[]) => void;
+  const inject = mapInject(world, specialized.components);
   const arity = injectArity(inject);
   const injected = new Array(arity);
   if (useIter) {

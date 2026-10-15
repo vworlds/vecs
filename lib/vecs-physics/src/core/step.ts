@@ -21,7 +21,7 @@ export class PhysicsStepModule extends Module {
               `physics expects a fixed delta.`
           );
         }
-        engine.box2d.b2World_Step(engine.worldId, engine.fixedTimeStep, engine.subSteps);
+        engine.box2d._b2x_World_Step(engine.world, engine.fixedTimeStep, engine.subSteps);
       })
       .add(PhysicsSystemTag);
   }

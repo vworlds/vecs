@@ -4,6 +4,7 @@ import {
   ON_UPDATE,
   Phase,
   Singleton,
+  type Vec2,
   type Entity,
   type World,
 } from "@vworlds/vecs";
@@ -15,12 +16,12 @@ import {
   type ResolvedPhysicsOptions,
 } from "../adapter/engine.js";
 import { withAllocated } from "../adapter/disposal.js";
-import { getBox2D } from "../adapter/runtime.js";
+import { getBox2D, getFastPath } from "../adapter/runtime.js";
 
 /** Options for {@link import("../module.js").PhysicsModule}. Every field is optional;
  * omitted fields fall back to Box2D-aligned defaults. */
 export type PhysicsOptions = {
-  gravity?: { x: number; y: number }; // default { x: 0, y: -10 }
+  gravity?: Vec2; // default { x: 0, y: -10 }
   fixedTimeStep?: number; // seconds, default 1/60
   subSteps?: number; // default 4
   debug?: boolean; // default false
@@ -57,7 +58,7 @@ export class PhysicsCoreModule extends Module<PhysicsOptions | undefined> {
       throw new Error("PhysicsModule has already been registered on this world");
     }
 
-    world.component(PhysicsEngine);
+    world.component(PhysicsEngine).on("remove", (_entity, engine) => engine.dispose());
     world.component(PhysicsSystemTag);
 
     const phases = {
@@ -76,8 +77,15 @@ export class PhysicsCoreModule extends Module<PhysicsOptions | undefined> {
 
     const box2d = getBox2D();
     const resolved = resolveOptions(opts);
-    const engine = new PhysicsEngine(box2d, resolved, phases, opts.debugSink);
-    engine.worldId = createWorldId(engine, resolved);
+    const fast = getFastPath();
+    const engine = new PhysicsEngine(box2d, resolved, phases, fast, opts.debugSink);
+    try {
+      engine.worldId = createWorldId(engine, resolved);
+      engine.world = fast.world(engine.worldId);
+    } catch (error) {
+      engine.dispose();
+      throw error;
+    }
     world.component(PhysicsEngine).add(Singleton);
     world.component(PhysicsEngine).attach(PhysicsEngine, engine);
   }
@@ -99,6 +107,9 @@ function createWorldId(
     def.enableSleep = options.enableSleep;
     def.enableContinuous = options.enableContinuous;
     const worldId = box2d.b2CreateWorld(def);
+    if (worldId.index1 === 0) {
+      throw new Error("Box2D could not create the world: limit of 128 live worlds per process");
+    }
     box2d.b2World_SetContactTuning(
       worldId,
       options.contactHertz,

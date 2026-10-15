@@ -8,6 +8,21 @@ import { PhaserRenderModule } from "../src/index.js";
 import { createMockScene } from "./mock_phaser.js";
 
 describe("PhaserRenderModule lifecycle", () => {
+  it("releases GameObjects once before destroying render infrastructure", () => {
+    const world = new ClientWorld({ networkComponents: phaserNetworkComponents });
+    const scene = createMockScene();
+    const module = world.module(PhaserRenderModule, { scene });
+    world.entity().set(Arc, { radius: 0.5 });
+    world.progress(0, 0);
+    const object = scene.created[0]!;
+    world.dispose();
+    world.dispose();
+    expect(object.isDestroyed).toBe(true);
+    expect(object.calls.filter((call) => call.method === "destroy")).toHaveLength(1);
+    expect(module.destroyed).toBe(true);
+    expect(world.entities.values()).toEqual([]);
+  });
+
   it("registers internal Phaser aliases and creates render systems through world.module", () => {
     const world = new ClientWorld({ networkComponents: phaserNetworkComponents });
     const scene = createMockScene(1000, 800);

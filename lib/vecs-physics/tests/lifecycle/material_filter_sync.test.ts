@@ -156,7 +156,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     world.progress(16, 16);
 
     expect(engine.dirtyMassBodies.size).toBe(0);
-    // box2d3-wasm@5.2.0 baseline: default Box area is 1, so mass = density 5.
+    // @vworlds/box2d3-wasm@6.0.1 baseline: default Box area is 1, so mass = density 5.
     expect(getBodyMass(body.eid)).toBeCloseTo(5, 6);
   });
 
@@ -172,7 +172,7 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     });
     world.progress(0, 16);
 
-    // box2d3-wasm@5.2.0 baseline: mass = density * pi * r^2.
+    // @vworlds/box2d3-wasm@6.0.1 baseline: mass = density * pi * r^2.
     const massAfterFrame1 = getBodyMass(body.eid);
     expect(massAfterFrame1).toBeCloseTo(PI, 6);
 
@@ -217,9 +217,9 @@ describe("PhysicsMaterialFilterSync.update(Material)", () => {
     });
     world.progress(16, 16);
 
-    // b2Shape_SetDensity(..., true) auto-recomputes mass in box2d3-wasm@5.2.0.
+    // b2Shape_SetDensity(..., true) auto-recomputes mass in @vworlds/box2d3-wasm@6.0.1.
     expect(engine.dirtyMassBodies.size).toBe(0);
-    // Tight numeric baseline recorded from box2d3-wasm@5.2.0.
+    // Tight numeric baseline validated unchanged with @vworlds/box2d3-wasm@6.0.1.
     expect(getBodyMass(body.eid)).toBeCloseTo(15.707963943481445, 6);
   });
 

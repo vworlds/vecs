@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-phaser-server",
-  "version": "1.0.52",
+  "version": "1.0.55",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -21,13 +21,14 @@
     "build": "rimraf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "test:stress": "vitest run --config vitest.stress.config.ts --passWithNoTests"
   },
   "dependencies": {
-    "@vworlds/vecs-phaser": "1.0.52",
-    "@vworlds/vecs-physics": "1.0.52",
-    "@vworlds/vecs-protocol": "1.0.52",
-    "@vworlds/vecs-server": "1.0.52"
+    "@vworlds/vecs-phaser": "1.0.55",
+    "@vworlds/vecs-physics": "1.0.55",
+    "@vworlds/vecs-protocol": "1.0.55",
+    "@vworlds/vecs-server": "1.0.55"
   },
   "peerDependencies": {
     "express": "^5.2.1"

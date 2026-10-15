@@ -4,7 +4,7 @@ import {
   forEachInjected,
   Iter,
   type FanInjectCallbackArg,
-  type FanInjectTuple,
+  type ComponentFanInjectTuple,
   type InjectedCallback,
   type MaybeResolvedInjectTuple,
 } from "../inject.js";
@@ -30,15 +30,16 @@ export class Group<K = unknown, R extends ComponentType[] = []> {
   }
 
   public forEach(callback: (e: Entity) => void): this;
-  public forEach<const J extends FanInjectTuple>(
+  /** Iterate with component/relationship injects; processing-clock tokens require a system callback. */
+  public forEach<const J extends ComponentFanInjectTuple>(
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
-  public forEach<const J extends FanInjectTuple>(
+  public forEach<const J extends ComponentFanInjectTuple>(
     options: EntityCursorOption & FanInjectCallbackOptions<J>,
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
-  public forEach<const J extends FanInjectTuple>(
+  public forEach<const J extends ComponentFanInjectTuple>(
     options: IterCursorOption & FanInjectCallbackOptions<J>,
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;

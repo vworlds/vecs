@@ -186,8 +186,8 @@ runtime-created component types work without declaring a class.
 ## Disposing a world
 
 When you are finished with a world — a scene or route change, a hot reload — call
-`world.dispose()` and drop the reference. It destroys every entity the application and its modules
-created, so the `remove` hook of each component they carry runs and releases what the component
+`world.dispose()` and drop the reference. It destroys application entities, then the world's
+infrastructure, so the `remove` hook of each component they carry runs and releases what the component
 owns: a render object, a handle, a timer.
 
 ```ts
@@ -206,13 +206,13 @@ world.dispose();
 handle.released; // true
 ```
 
-Each entity goes through the ordinary destroy path. Every `remove` hook fires once,
-[cleanup policies and cascades](./relationships.md#cleanup-when-a-target-dies) run as for any
-`destroy()`, and an entity that a `ChildOf` or `OwnedTarget` cascade, or a hook, has already
-destroyed is skipped instead of destroyed twice.
+Disposal uses two passes through the existing entity destroy path. Every `remove` hook fires once;
+entities already destroyed by a hook or cascade are skipped. In **pass 1**, every application entity
+uses ordinary [cleanup policies and cascades](./relationships.md#cleanup-when-a-target-dies).
+This includes plain entities created inside module scopes, even though their parent is infrastructure.
+Application hook-generated commands settle before pass 2 starts.
 
-`dispose()` leaves the world's infrastructure in place, because the world needs it to stay
-coherent. It recognizes it as follows (`lib/vecs/src/world/world.disposal.ts`):
+**Pass 2** destroys remaining infrastructure (`lib/vecs/src/world/world.disposal.ts`):
 
 | Infrastructure                | Recognized by                                                 |
 | ----------------------------- | ------------------------------------------------------------- |
@@ -220,26 +220,37 @@ coherent. It recognizes it as follows (`lib/vecs/src/world/world.disposal.ts`):
 | Query and system entities     | They carry the `Query` component.                             |
 | Phase entities                | They carry the `Phase` component.                             |
 
-What those entities hold stays with them: data stored on a component entity (a singleton set with
-`world.set`) and any entity they still carry as a [component key](#entities-as-component-keys),
-which cannot be destroyed while it is in use. Release those yourself; their `remove` hooks do not
-run. `clearAllEntities()` is the full wipe that takes the infrastructure too.
+Data stored on component entities (including singletons set with `world.set`) is removed once,
+after queued application cleanup. Bind module-owned resources to that data with `remove` hooks;
+you do not need a separate disposal callback.
+
+During pass 2 only, cleanup policies are suspended. `ChildOf`/`OwnedTarget` do not cascade;
+children are destroyed explicitly in the pass. A component still carried by another entity is removed
+from each carrier through the ordinary remove path, firing its public `remove` hooks, instead of
+throwing or deleting the carriers. Irrevocable relationship-trait guards are bypassed, extending the
+existing destroy-time exemption. This suspension also covers the pass's hook-generated commands and
+is reset in `finally`. Successful disposal leaves nothing, including component-carrier cycles.
 
 - **Order.** Among unrelated entities the order is unspecified, so do not make a hook depend on it.
-  An entity used as a component key is destroyed after every entity that carries it, because
-  destroying it first would throw under the default cleanup policy.
-- **Pending commands.** `dispose()` neither flushes the command queue early nor discards it. Commands
-  queued ahead of it run first, in order, and the destruction follows in the same queue, so each
-  hook fires once however the component left. At top level nothing is queued, and `dispose()`
-  returns with the entities gone. Inside a system, a hook or a `defer` block the world is
-  [deferred](./execution-model.md#deferred-mutation-and-flush-boundaries), so `dispose()` queues the
-  destruction as `destroy()` does, and it completes when the queue next drains. An entity whose
-  creation is still queued is created, then destroyed.
+  Pass 2 processes systems and queries first, then modules in reverse registration order, then the
+  rest. Beyond those priorities the order is unspecified; it is not a resource dependency contract.
+  There is no infrastructure carriers-first sort or dependency-survivor error. If an internal bug
+  prevents a full teardown pass from destroying anything, an invariant error names the remaining
+  registered entities instead of looping forever. `clearAllEntities()` retains its
+  ordinary cleanup policies and throwing behavior; it orders both carriers before component keys
+  and children before parents, and throws if those dependencies cannot be ordered. The suspension
+  belongs only to `dispose()`.
+- **Call site.** Call at top level: not inside `progress()`, `defer`, a command drain or an
+  entity's destroy. A forbidden call throws before disposal changes anything, leaving the world
+  usable; finish the enclosing operation and dispose afterwards. Ordinary synchronous top-level
+  `add`, `set` and `remove` hooks may call it. Teardown is synchronous: application hook-generated
+  commands settle before infrastructure teardown, and `dispose()` returns with the entities gone.
+  The final pass drains its own hook-generated commands and repeats while it can destroy more entities.
 - **After disposal.** A disposed world must not be used again. Nothing enforces it — no other method
-  checks, so `entity()` and `progress()` keep their cost. Calling `dispose()` again, or from a hook
-  during the teardown, does nothing. An entity that a `remove` hook creates during the teardown is
-  left behind, so do not spawn from teardown hooks. A system's `exit` callback only queues its event,
-  and a disposed world never runs the system again; release resources in `remove` hooks, as
+  mutation checks are added. Calling `dispose()` again at top level does nothing; the call-site
+  rule still applies during teardown. Do not keep spawning from teardown hooks: that prevents
+  the repeated final pass from settling. A system's queued `exit` callback will not run after
+  teardown; release resources in `remove` hooks, as
   [Resources as components](./design-guide.md#resources-as-components-hold-non-ecs-objects)
   recommends.
 

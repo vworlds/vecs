@@ -32,12 +32,20 @@ export class EventOptInModule extends Module {
     world
       .component(ContactEvents)
       .on("add", (entity) => setEventFlag(engine, entity, "contact", true))
-      .on("remove", (entity) => setEventFlag(engine, entity, "contact", false));
+      .on("remove", (entity) => {
+        if (!engine.disposed) {
+          setEventFlag(engine, entity, "contact", false);
+        }
+      });
 
     world
       .component(HitEvents)
       .on("add", (entity) => setEventFlag(engine, entity, "hit", true))
-      .on("remove", (entity) => setEventFlag(engine, entity, "hit", false));
+      .on("remove", (entity) => {
+        if (!engine.disposed) {
+          setEventFlag(engine, entity, "hit", false);
+        }
+      });
 
     // Sensor detection: enable if SensorEvents OR Detectable is present.
     // Query only single b2Shape geometries; chains have no runtime sensor-event
@@ -59,6 +67,10 @@ export class EventOptInModule extends Module {
       .query("PhysicsEventOptInTeardown:Sensor")
       .with({ all: [SingleShape, { any: [SensorEvents, Detectable] }] })
       .exit([SingleShape], (_e, [shape]) => {
+        // Infrastructure may release the engine before this component leaves.
+        if (engine.disposed) {
+          return;
+        }
         const shapeId = shape._shapeId;
         // No stale-id guard needed: this exit runs at the flush, before cleanup
         // can free or recycle the shape's Box2D slot.

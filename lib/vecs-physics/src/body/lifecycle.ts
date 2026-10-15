@@ -34,6 +34,7 @@ export class BodyLifecycleModule extends Module {
         const bodyId = createWasmBodyId(engine, entity, body);
         body._bodyId = bodyId;
         engine.entityByBodyIndex.set(bodyId.index1, entity.eid);
+        engine.bodyEntities[bodyId.index1] = entity;
       })
       .update(Body, (entity, body) => {
         const bodyId = body._bodyId;

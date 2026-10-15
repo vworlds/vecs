@@ -3,10 +3,15 @@ import { type ComponentRef } from "../component.js";
 import { Entity, Identity, type EID, type EntityClass } from "../entity/index.js";
 import { Deferred } from "./world.deferred.js";
 import type { World } from "./world.js";
+import { carriersFirst } from "./destroy-order.js";
+import { ChildOf } from "../modules/relationship_types.js";
 
 const RESERVED_EID = 0;
 
 export class Entities extends Deferred {
+  /** @internal Parent applied only to entities created in the current scope. */
+  protected _scope: Entity | undefined = undefined;
+
   /**
    * Return the entity with id `eid`, creating it if it does not yet exist.
    *
@@ -34,6 +39,10 @@ export class Entities extends Deferred {
         this._enqueue({ kind: CommandKind.CreateEntity, entity: e, onCreate: onCreateCallback });
       } else {
         this._entities.set(eid, e);
+        const parent = this._scope;
+        if (parent !== undefined) {
+          e.childOf(parent);
+        }
         this._notifyEntityCreated(e);
         onCreateCallback?.(e);
       }
@@ -109,25 +118,59 @@ export class Entities extends Deferred {
     throw new Error(`No entity with eid ${ref.eid}`);
   }
 
-  /** Destroy every entity currently tracked by the world. */
+  /**
+   * Destroy every tracked entity, ordering both carriers and ChildOf children
+   * before their keys/parents. Retains ordinary cleanup policies; throws when
+   * dependency cycles prevent safe destruction (unlike dispose's final pass).
+   */
   public clearAllEntities(): void {
     const pending = new Set(this._entities.values());
     while (pending.size > 0) {
       let destroyed = 0;
-      for (const entity of [...pending]) {
-        const instanceCount = entity.instanceCount();
-        if (instanceCount > (entity._get(entity.eid) ? 1 : 0)) {
-          continue;
-        }
+      for (const entity of carriersFirst([...pending], this._classRegistry.get(ChildOf)?.eid)) {
         entity.destroy();
         pending.delete(entity);
         destroyed++;
       }
       if (destroyed === 0) {
-        throw new Error("Cannot clear entities because component eids are still in use");
+        throw new Error(
+          "Cannot clear entities because component or ChildOf dependencies cannot be ordered"
+        );
       }
     }
     this.flush();
+  }
+
+  /**
+   * Parent entities created synchronously in `fn`'s body to `parent` through ChildOf.
+   * Includes components, modules, queries, systems and ordinary entities. Existing
+   * lookups are not reparented; an explicit childOf call replaces the scope parent.
+   * Nested scopes restore their caller in finally, even when fn throws.
+   * Entities created by deferred callbacks inside the body are not parented:
+   * query.forEach, enter backfill during query build, or an explicit world.defer.
+   * These are run-time data; the same callback outside the scope would not parent
+   * them either. For example, health bars created per existing ship by an enter
+   * or forEach callback remain roots, unlike definitions created directly in init.
+   * Throws while deferred: call outside progress() and defer, not during a command
+   * drain. Schedule lazy module loading after progress() returns.
+   * The parent must be a live entity of this world. This is a synchronous scope,
+   * not an async context; it does not change deferral or catch callback errors.
+   */
+  public scope(this: World, parent: Entity, fn: () => void): void {
+    if (this.deferred) {
+      throw new Error("Call world.scope() outside progress() and defer");
+    }
+    this.entity(parent);
+    if (parent.destroyed) {
+      throw new Error("scope parent must be alive");
+    }
+    const previous = this._scope;
+    this._scope = parent;
+    try {
+      fn();
+    } finally {
+      this._scope = previous;
+    }
   }
 
   /** @internal Create an entity with an id from the entity pool. */
@@ -139,6 +182,10 @@ export class Entities extends Deferred {
       this._enqueue({ kind: CommandKind.CreateEntity, entity: e });
     } else {
       this._entities.set(eid, e);
+      const parent = this._scope;
+      if (parent !== undefined) {
+        e.childOf(parent);
+      }
       this._notifyEntityCreated(e);
     }
     return e;
