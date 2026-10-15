@@ -127,6 +127,16 @@ function entityIds(world: ClientWorld): EID[] {
 }
 
 describe("ClientWorld", () => {
+  it("honours moduleIdCount", () => {
+    const client = new ClientWorld({ moduleIdCount: 300 });
+    expect(client.pools.find((pool) => pool.name === "module")).toEqual({
+      name: "module",
+      min: 700,
+      max: 999,
+    });
+    client.dispose();
+  });
+
   it("applies server snapshots into the client world", () => {
     const world = createClientWorld({ serverTickIntervalMs: 10 });
     const socket = new MemorySocket("server");

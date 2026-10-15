@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Module } from "@vworlds/vecs";
 import { cid_pack, NetworkWorld } from "../src/index.js";
 
 class Position {}
@@ -6,6 +7,52 @@ class Velocity {}
 class LocalOnly {}
 
 describe("NetworkWorld", () => {
+  it("reserves the requested number of module ids and defaults to 100", () => {
+    const makeModules = (count: number) =>
+      Array.from({ length: count }, (_, index) => {
+        class TestModule extends Module {
+          public init(): void {}
+        }
+        Object.defineProperty(TestModule, "name", { value: `Module${index}` });
+        return TestModule;
+      });
+
+    const expanded = new NetworkWorld({ moduleIdCount: 300 });
+    const pool = expanded.pools.find((candidate) => candidate.name === "module")!;
+    const alreadyAllocated = expanded.entities
+      .values()
+      .filter((entity) => entity.eid >= pool.min && entity.eid <= pool.max!).length;
+    makeModules(300 - alreadyAllocated).forEach((ModuleClass) => expanded.module(ModuleClass));
+    expect(expanded.pools.find((pool) => pool.name === "module")).toEqual({
+      name: "module",
+      min: 700,
+      max: 999,
+    });
+    expect(() => expanded.module(makeModules(301)[300])).toThrow("Id pool 'module' is exhausted");
+
+    const defaults = new NetworkWorld();
+    const defaultPool = defaults.pools.find((candidate) => candidate.name === "module")!;
+    const defaultAlreadyAllocated = defaults.entities
+      .values()
+      .filter((entity) => entity.eid >= defaultPool.min && entity.eid <= defaultPool.max!).length;
+    makeModules(100 - defaultAlreadyAllocated).forEach((ModuleClass) =>
+      defaults.module(ModuleClass)
+    );
+    expect(() => defaults.module(makeModules(1)[0])).toThrow("Id pool 'module' is exhausted");
+  });
+
+  it.each([0, -1, 1.5])("rejects invalid moduleIdCount %s", (moduleIdCount) => {
+    expect(() => new NetworkWorld({ moduleIdCount })).toThrow(
+      "moduleIdCount must be a positive safe integer"
+    );
+  });
+
+  it("rejects an id layout with no room for component ids", () => {
+    expect(() => new NetworkWorld({ entityIdStart: 300, moduleIdCount: 300 })).toThrow(
+      "entityIdStart and moduleIdCount leave no room for component ids"
+    );
+  });
+
   it("registers network components with wire type ids and auto-allocated eids", () => {
     const world = new NetworkWorld({ networkComponents: [Position] });
 
