@@ -945,7 +945,8 @@ system after whatever produces the entity/companion.
   drifts and streamed while joints, thrust or a tow drive it (a driven body diverges from its
   prediction every step and would cost a baseline of about 27 bytes per step against about 22 for a
   streamed pose update). Toggle it when the state changes, not every frame: each switch costs a
-  baseline one way and a pose update the other, and clients blend the hand-off over `blendMs`. A
+  baseline one way and a pose update the other, and clients blend the hand-off over `blendMs`
+  of render-loop time, even while the replicated-state `renderFrame` holds. A
   render pose or `Motion` created or switched late in a frame, in `PRE_STORE`, `ON_STORE` or an RPC
   handler, is still synced from the physics pose before the frame is recorded (see
   [Switching at runtime](../../vecs-phaser-server/README.md#switching-at-runtime)).

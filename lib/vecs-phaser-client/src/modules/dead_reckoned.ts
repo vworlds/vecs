@@ -23,6 +23,8 @@ export interface DeadReckonedModuleConfig {
    * already been drawn on the old path; its error fades out over this time instead of jumping. The
    * same blend smooths the hand-off when the server switches a body between a streamed pose and
    * dead reckoning, in either direction. `0` turns blending off: every correction snaps.
+   * Measured in render-loop time from `progress(now, delta)`, so blends complete even
+   * while the replicated-state `renderFrame` holds or after the render loop resumes.
    */
   readonly blendMs?: number;
 
@@ -69,7 +71,9 @@ export interface DeadReckonedModuleConfig {
  * - **Dead reckoned to streamed.** On `Motion`'s removal the track stays for the length of the
  *   blend, as a hand-off: the difference between the pose the track would still show and the
  *   freshly streamed one fades out over `blendMs`, added to the interpolated pose, and then the
- *   track is removed. The hand-off writes its own pose instances; replication-owned instances are
+ *   track is removed. Its duration starts at the first rendered sample, which shows the full
+ *   error even when the removal was applied after a render-loop stall. The hand-off writes its
+ *   own pose instances; replication-owned instances are
  *   read-only sources. Its final, unoffset pose stays attached until the network replaces it. A
  *   later `Motion` starts a fresh track from the shown pose.
  *
@@ -95,8 +99,13 @@ export interface DeadReckonedModuleConfig {
  * - A correction the client receives in time, before rendering past its frame, applies at once:
  *   it is the server's pose at the frame being rendered.
  * - A late correction blends: the error between the old and the new path fades out linearly over
- *   `blendMs` of render time. One that moves the body further than `snapDistance` or turns it
+ *   `blendMs` of render-loop time, advanced by `progress(now, delta)` in milliseconds.
+ *   It completes even when `renderFrame` holds during an idle keepalive pause, including
+ *   after a render-loop stall. One that moves the body further than `snapDistance` or turns it
  *   further than `snapAngle` snaps instead.
+ * - After an idle keepalive pause, the first moving baseline can be applied up to one frame
+ *   late and then blends like any late correction. The pre-existing buffer compaction race
+ *   is tracked in https://github.com/vworlds/vecs/issues/271.
  *
  * The world's `MotionClock`, which the server sends once, supplies the step, substeps, gravity and
  * speed cap. Until it arrives nothing is extrapolated.
@@ -122,7 +131,8 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       throw new Error("DeadReckonedModule must be installed on a ClientWorld");
     }
     requireNetworkComponents(world);
-    const blendSeconds = (config?.blendMs ?? 100) / 1000;
+    const blendMs = config?.blendMs ?? 100;
+    let blendClock = 0;
     const snapDistance = config?.snapDistance ?? 1;
     const snapDistanceSquared = snapDistance * snapDistance;
     const snapAngle = config?.snapAngle ?? 0.5;
@@ -174,6 +184,12 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       .system("phaser.extrapolate.motion")
       .with(Motion, MotionTrack, Position, Rotation)
       .phase(POST_LOAD)
+      // The existing system's run callback precedes each and runs even with no
+      // Motion entities, advancing one shared clock for hand-offs too. World
+      // progress and run callbacks receive delta in milliseconds.
+      .run((_now, delta) => {
+        blendClock += delta;
+      })
       .each([Motion, MotionTrack, Position, Rotation], (entity, [motion, track, pos, rot]) => {
         if (clock === undefined) {
           return;
@@ -183,7 +199,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
           rebaseline(entity, track, motion, clock, renderFrame);
         } else {
           extrapolate(track, clock, renderFrame, sample);
-          blend(track, clock, renderFrame, sample);
+          blend(track, sample);
         }
         if (pos.x !== sample.x || pos.y !== sample.y) {
           pos.x = sample.x;
@@ -206,7 +222,13 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       .without(Motion)
       .phase(POST_LOAD)
       .each([MotionTrack, Position, Rotation], (entity, [track, pos, rot]) => {
-        const remaining = clock === undefined ? 0 : remainingBlend(track, clock, world.renderFrame);
+        if (track.handoff) {
+          // The remove hook runs before this tick advances blendClock. Start
+          // the fade when it is first drawn, never during the preceding stall.
+          track.blendFrom = blendClock;
+          track.handoff = false;
+        }
+        const remaining = remainingBlend(track);
         if (pos !== track.position) {
           track.sourceX = pos.x;
           track.sourceY = pos.y;
@@ -282,7 +304,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
         rotation !== undefined
       ) {
         extrapolate(track, clock, renderFrame, sample);
-        blend(track, clock, renderFrame, sample);
+        blend(track, sample);
         const ex = sample.x - position.x;
         const ey = sample.y - position.y;
         const ea = wrapAngle(sample.angle - rotation.angle);
@@ -290,7 +312,6 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
           track.errorX = ex;
           track.errorY = ey;
           track.errorAngle = ea;
-          track.blendFrom = renderFrame;
           track.handoff = true;
           return;
         }
@@ -316,7 +337,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       let oldAngle = 0;
       if (held) {
         extrapolate(track, clock, renderFrame, sample);
-        blend(track, clock, renderFrame, sample);
+        blend(track, sample);
         oldX = sample.x;
         oldY = sample.y;
         oldAngle = sample.angle;
@@ -354,7 +375,7 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
       track.errorX = ex;
       track.errorY = ey;
       track.errorAngle = ea;
-      track.blendFrom = renderFrame;
+      track.blendFrom = blendClock;
       sample.x = oldX;
       sample.y = oldY;
       sample.angle = oldAngle;
@@ -363,32 +384,20 @@ export class DeadReckonedModule extends Module<DeadReckonedModuleConfig | undefi
     // Whether an error is shown at once instead of blended: it is further than the snap limits, or
     // blending is off.
     function snaps(ex: number, ey: number, ea: number): boolean {
-      return (
-        !(blendSeconds > 0) || ex * ex + ey * ey > snapDistanceSquared || Math.abs(ea) > snapAngle
-      );
+      return !(blendMs > 0) || ex * ex + ey * ey > snapDistanceSquared || Math.abs(ea) > snapAngle;
     }
 
-    // The fraction of a blend's error that is left at `renderFrame`: 1 when it starts, 0 after
-    // `blendMs` of render time.
-    function remainingBlend(
-      track: MotionTrack,
-      clock: Readonly<MotionClock>,
-      renderFrame: number
-    ): number {
-      return 1 - ((renderFrame - track.blendFrom) * clock.stepSeconds) / blendSeconds;
+    // The fraction of a blend's error left on the shared render-loop clock.
+    function remainingBlend(track: MotionTrack): number {
+      return 1 - (blendClock - track.blendFrom) / blendMs;
     }
 
     // Add what is left of a late correction's error to the sampled pose.
-    function blend(
-      track: MotionTrack,
-      clock: Readonly<MotionClock>,
-      renderFrame: number,
-      out: MotionPose
-    ): void {
+    function blend(track: MotionTrack, out: MotionPose): void {
       if (track.errorX === 0 && track.errorY === 0 && track.errorAngle === 0) {
         return;
       }
-      const remaining = remainingBlend(track, clock, renderFrame);
+      const remaining = remainingBlend(track);
       if (!(remaining > 0)) {
         track.errorX = 0;
         track.errorY = 0;
@@ -432,7 +441,7 @@ class MotionTrack {
   /** Angle error of a late correction, in radians. */
   public errorAngle = 0;
 
-  /** Render frame the blending correction was taken at. */
+  /** Shared render-loop blend clock, in milliseconds, when the correction was taken. */
   public blendFrom = 0;
 
   /**
@@ -442,8 +451,9 @@ class MotionTrack {
   public shown = false;
 
   /**
-   * `Motion` is gone and the server streams the pose: this track only fades the difference between
-   * the path it was drawn on and the streamed pose, then removes itself.
+   * A hand-off is awaiting its first rendered sample. That sample stamps blendFrom
+   * with the current render-loop clock and clears this flag, so the removal tick's
+   * delta (including a render-loop stall) does not consume the fade before it is drawn.
    */
   public handoff = false;
 
