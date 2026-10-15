@@ -1,1 +1,0 @@
-- [repo]: Port SpaceRocks' adaptive 10-second GraphQL watcher, Done-filtered board reads, per-repository archiving after merges, and opencode 2 HTTP worker launcher with permission/failure events.

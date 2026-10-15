@@ -1,1 +1,0 @@
-- [vecs] [vecs-physics] [vecs-phaser] [vecs-phaser-server]: Export one type-only `Vec2` from `@vworlds/vecs` and reuse it for physics geometry, gravity, Phaser tile points, and validation; physics and geometry-bearing Phaser packages re-export it for convenient imports. No runtime or wire-format changes.

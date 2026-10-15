@@ -1,1 +1,0 @@
-- [repo]: Add a REST-only worker CI wait with green/red/no-verdict exits, bounded Vecs failure digests, portable log reads with explicit request errors, and offline regression tests.

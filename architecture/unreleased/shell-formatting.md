@@ -1,1 +1,0 @@
-- [repo]: Include tracked shell scripts in the root formatting checks and format pass.
