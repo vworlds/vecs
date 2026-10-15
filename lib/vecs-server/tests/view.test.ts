@@ -9,6 +9,7 @@ import {
 import { Decoder, Encoder, wireType } from "@vworlds/vecs-wire";
 import { Exclusive, Relationship, type Entity, type QueryDSL } from "@vworlds/vecs";
 import { NetworkClient, Networked, ServerWorld, View } from "../src/index.js";
+import { TrackerCache } from "../src/view.js";
 import { symmetric } from "./harness/lossy_link.js";
 import { ReplicationSim } from "./harness/replication_sim.js";
 
@@ -37,6 +38,47 @@ class CellB {}
 class CellC {}
 
 describe("View", () => {
+  it("shares gate trackers and releases them across swaps, swap-back and teardown", () => {
+    const world = new ServerWorld({ networkComponents: [Position, Health] });
+    world.component(CellA);
+    world.component(CellB);
+    world.component(CellC);
+    const cache = new TrackerCache(world);
+    const trackers = (cache as unknown as { _trackers: Map<number, unknown> })._trackers;
+    const a = world.entity().add(Networked).add(CellA).add(CellC);
+    world.entity().add(Networked).add(CellB);
+    // Non-networked matching entities never hold a session's render clock open.
+    world.entity().add(CellA).add(CellC);
+    const views = [new View(), new View()];
+    views.forEach((view) => {
+      view.dsl = CellA;
+      view._refreshTracker(cache, CellC);
+    });
+    world.progress(0, 0);
+    expect(trackers.size).toBe(2);
+    expect(views.map((view) => view.gateCount)).toEqual([1, 1]);
+    const first = views[0]!;
+    first.dsl = CellB;
+    first._refreshTracker(cache, CellC);
+    world.progress(0, 0);
+    expect(first.gateCount).toBe(0);
+    expect(trackers.size).toBe(4);
+    // Return to the original DSL before the send releases the old pair.
+    first.dsl = CellA;
+    first._refreshTracker(cache, CellC);
+    first._releaseOldTracker(cache);
+    expect(first.gateCount).toBe(1);
+    expect(trackers.size).toBe(2);
+    a.remove(CellC);
+    expect(views.map((view) => view.gateCount)).toEqual([0, 0]);
+    first.dsl = CellB;
+    first._refreshTracker(cache, CellC);
+    first._releaseTrackers(cache);
+    expect(trackers.size).toBe(2);
+    views[1]!._releaseTrackers(cache);
+    expect(trackers.size).toBe(0);
+    world.dispose();
+  });
   function setup(): { view: View; entity: Entity } {
     const world = new ServerWorld({ networkComponents: [Position, Health] });
     return { view: new View(), entity: world.entity().add(Networked) };

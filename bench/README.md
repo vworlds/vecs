@@ -29,6 +29,18 @@ Set `BENCH_PACKET_PREFIX` to capture mapped, length-delimited packets as `<prefi
 
 ## Sector tick
 
+For real dead-reckoned bodies and the enabled keepalive gate cost, run after building:
+
+```bash
+node --import ./bench/register-dist.mjs bench/dead-reckoned-keepalive.ts
+BENCH_IDLE_KEEPALIVE=1 node --import ./bench/register-dist.mjs bench/dead-reckoned-keepalive.ts
+```
+
+The gate defaults off in this separate benchmark. It reports mean tick time and tracker
+count for 200 moving bodies, eight clients sharing four view DSLs, with view-region
+mutations included. `BENCH_DR_BODIES` and `BENCH_TICKS` override the workload.
+The sector benchmark's default workload and fingerprints are unaffected.
+
 `sector-tick.ts` prices the per-tick bookkeeping of a game server that hosts several worlds, modelled
 on a Space Rocks sector lattice: one `ServerWorld` per sector, all advanced in lockstep at 30 Hz.
 Each sector runs the system mix of the real server, with a plain-JavaScript stand-in for Box2D:

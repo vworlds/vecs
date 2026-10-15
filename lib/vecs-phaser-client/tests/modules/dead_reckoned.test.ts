@@ -31,6 +31,31 @@ import {
 } from "./parenting_fixtures.js";
 
 describe("DeadReckonedModule (client)", () => {
+  it("finishes a long late-correction blend on loop time while renderFrame holds", () => {
+    const client = new Client({ blendMs: 300 });
+    const body = client.world.entity().set(Motion, { frame: 1, x: 0, rest: true });
+    client.render(10);
+    body.set(Motion, { frame: 8, x: 0.3, rest: true });
+    client.render(10, 1500);
+    expect(body.get(Position)!.x).toBe(0);
+    client.render(10, 150);
+    expect(body.get(Position)!.x).toBeCloseTo(0.15, 6);
+    client.render(10, 150);
+    expect(body.get(Position)!.x).toBe(0.3);
+  });
+
+  it("finishes a first-baseline blend while renderFrame holds", () => {
+    const client = new Client({ blendMs: 300 });
+    const body = client.world.entity().set(Position, { x: 0 }).set(Rotation, { angle: 0 });
+    client.render(10);
+    body.set(Motion, { frame: 10, x: 0.3, rest: true });
+    client.render(10, 1500);
+    expect(body.get(Position)!.x).toBe(0);
+    client.render(10, 150);
+    expect(body.get(Position)!.x).toBeCloseTo(0.15, 6);
+    client.render(10, 150);
+    expect(body.get(Position)!.x).toBe(0.3);
+  });
   it("gives a body that arrives with only a baseline a render pose, extrapolated at renderFrame", () => {
     const client = new Client();
     const body = client.world.entity().set(Motion, DRIFT).set(MotionParams, DAMPING);
@@ -276,7 +301,7 @@ describe("DeadReckonedModule (client)", () => {
     expectPose(bodies[0]!, pathAt(corrections[0]!, 20.5));
     expectPose(bodies[1]!, pathAt(corrections[1]!, 20.5));
     expectPose(bodies[2]!, pathAt(DRIFT, 20.5));
-    tolerant.render(25); // 150 ms of 200: a quarter of the error left
+    tolerant.render(25, 150); // 150 ms of 200: a quarter of the error left
     expect(bodies[2]!.get(Position)!.x).toBeCloseTo(pathAt(corrections[2]!, 25).x - 0.25 * 1.5, 2);
   });
 

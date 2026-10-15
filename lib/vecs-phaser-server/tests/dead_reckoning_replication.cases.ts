@@ -132,7 +132,10 @@ export function deadReckoningReplicationCases(stress: boolean): void {
         if (options.withoutKeepAlive === true) {
           Object.defineProperty(server, "keepAliveFrames", { value: 1 });
         }
-        server.module(DeadReckonedModule, options.options ?? {});
+        server.module(DeadReckonedModule, {
+          ...options.options,
+          ...(options.withoutKeepAlive === true ? { idleKeepAlive: false } : {}),
+        });
         server.component(Motion).on("set", (entity, motion) => {
           const frames = this.baselines.get(entity.eid) ?? [];
           frames.push(motion.frame);

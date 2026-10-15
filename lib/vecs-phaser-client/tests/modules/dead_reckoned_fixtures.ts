@@ -130,10 +130,13 @@ export class Client {
     );
   }
 
-  /** Render one frame at `renderFrame`. */
-  public render(renderFrame: number): void {
+  /** Render at `renderFrame`; unless supplied, advance loop time alongside the sampled frame. */
+  public render(
+    renderFrame: number,
+    deltaMs = Math.max(0, renderFrame - this.frame) * (1000 / 30)
+  ): void {
     this.frame = renderFrame;
-    this.world.progress(this._now, 16);
+    this.world.progress(this._now, deltaMs);
     this._now += 16;
   }
 }

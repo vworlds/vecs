@@ -246,16 +246,22 @@ renderers, `DrawBy` children and game systems use them as they use an interpolat
   server decides it; the client never works it out from the velocities or the gravity. A baseline
   at rest bypasses the integrator: the track holds exactly the baseline's `x`, `y` and `angle`.
 - **Corrections.** A baseline received in time, before the client renders past its frame, applies
-  at once. A late one blends its error out linearly over `blendMs` (default 100 ms) of render time;
+  at once. A late one blends its error out linearly over `blendMs` (default 100 ms) of render-loop time;
   one that moves the body further than `snapDistance` (default 1 m) or turns it further than
   `snapAngle` (default 0.5 rad) snaps. `blendMs: 0` turns blending off: every correction snaps.
+  Longer blends are supported. The module advances one shared blend clock from
+  `progress(now, delta)` in milliseconds, so corrections, first-baseline blends and
+  hand-off fades finish while `renderFrame` holds, including after a backgrounded tab
+  resumes with no further replicated frame arriving.
 - **The clock.** The integrator needs the server's `MotionClock`; until it arrives nothing is
   extrapolated.
 - **Frames must keep arriving.** `renderFrame` advances only as `ClientWorld` applies frames, and
   holds at the newest one while none arrives, so the extrapolator can only keep a body moving in an
   idle scene if the server keeps sending frames. The server's `DeadReckonedModule` therefore
   requires `keepAliveFrames` on its `ServerWorld` (use `1`), and sends a header-only frame to a
-  session that would otherwise get none. A server that does not, such as a custom one, freezes every
+  session that would otherwise get none while a moving body is visible or the last content send is unacknowledged.
+  Once idle it pauses by default; `renderFrame` holds. Use render loop time for local effects.
+  A server that sends no keepalives while bodies move, such as a custom one, freezes every
   dead-reckoned body at the pose of the last frame, then jumps it when the next frame arrives. See
   [Set `keepAliveFrames: 1`](../vecs-phaser-server/README.md#set-keepaliveframes-1).
 
@@ -280,7 +286,9 @@ showed and the one the new source gives fades out instead of jumping.
   sample can sit up to about a server frame ahead of the pose just shown. A body that enters the
   view with only a baseline has no pose to start from and never blends.
 - **Dead reckoned to streamed.** When `Motion` goes, the track stays for `blendMs` as a hand-off: it
-  adds the difference between the pose the track would still show and the freshly streamed one on
+  starts fading at its first rendered sample, preserving the full error on that frame even after a
+  render-loop stall, and runs for the full configured duration.
+  It adds the difference between the pose the track would still show and the freshly streamed one on
   top of the interpolated `Position` and `Rotation`, fading it linearly to nothing, and then drops
   itself. The track allocates its own output `Position` and `Rotation` once per hand-off and treats
   replication-owned instances as read-only sources, so fading offsets cannot enter interpolation
