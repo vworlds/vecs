@@ -108,9 +108,10 @@ export interface DeadReckonedOptions {
  * gravity and speed cap). That entity is `Networked`, and adding `MotionClock` to any other entity
  * throws. Clients need it to extrapolate, so every `View` must include it.
  *
- * One `POST_UPDATE` system, `phaser.sync.motion`, runs after the physics step on every entity with
- * the physics pose, `DeadReckoned` and `Motion`. Each step it advances a server-local prediction by
- * one physics step with the shared integrator, from the baseline exactly as clients decode it, and
+ * The `POST_UPDATE` system `phaser.sync.motion` runs after the physics step on entities with
+ * a moving baseline, a changed physics pose, or an unprimed prediction. Each moving step advances a
+ * server-local prediction by one physics step with the shared integrator, from the baseline exactly
+ * as clients decode it, and
  * compares it with the physics pose. It writes a new baseline when the position strays further than
  * `positionTolerance`, the angle further than `angleTolerance`, the body falls asleep, or a moving
  * baseline outlives `maxBaselineAge`. Collisions, teleports, joints and forces all show up as that
@@ -165,12 +166,13 @@ export interface DeadReckonedOptions {
  * nothing queued costs an empty check. A body whose Box2D body does not exist yet gets a baseline at
  * rest at its physics pose, and its first step corrects it with the real velocities.
  *
- * Per body per step the system steps the integrator once, reads its pose and compares; it allocates
- * nothing and looks up no component. The prediction keeps its own copy of the constants, taken when
- * the baseline is written. It asks Box2D whether the body is awake only when the physics pose did
+ * Per moving body per step the system steps the integrator once, reads its pose and compares; it
+ * allocates nothing. The prediction keeps its own copy of the constants, taken when the baseline is
+ * written. It asks Box2D whether the body is awake only when the physics pose did
  * not change since the previous step, since a sleeping body never moves, and reads the rest of the
- * body's motion only when it writes a baseline. A body whose baseline is at rest costs a comparison
- * of its pose.
+ * body's motion only when it writes a baseline. An unchanged resting baseline is not visited.
+ * The reactive position watcher excludes moving baselines; a rotation set hook covers rotation-only
+ * writes. The eligible query retains the full pose query's membership order for baseline writes.
  *
  * `Motion` and the prediction are world-local: a body restored in another world, by
  * `moveSubtree` or `restoreSubtree`, starts with a fresh prediction and gets a new baseline, at the
@@ -193,6 +195,8 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
 
     world.module(PhaserServerModule);
     world.component(MotionPrediction).snapshotPolicy(DontSnapshot);
+    world.component(MovingBaseline).snapshotPolicy(DontSnapshot);
+    world.component(PendingMotion).snapshotPolicy(DontSnapshot);
 
     // Entities whose first baseline may not be written yet, and entities that left dead reckoning
     // and are due a render pose. `phaser.guard.motion` drains both before the frame is recorded.
@@ -261,14 +265,58 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
     const positionToleranceSquared = positionTolerance * positionTolerance;
     const maxAgeFrames = maxBaselineAge > 0 ? Math.round(maxBaselineAge / clock.stepSeconds) : 0;
     const scratch = new BodyMotion();
+    let nextOrder = 0;
+
+    world
+      .system("phaser.motion.membership")
+      .with(PhysicsPosition, PhysicsRotation, DeadReckoned, Motion, MotionPrediction)
+      .phase(POST_UPDATE)
+      .enter([MotionPrediction], (entity, [prediction]) => {
+        prediction.order = nextOrder++;
+        // The late guard may already have made this prediction eligible. Notify orderBy too.
+        entity.modified(MotionPrediction);
+        entity.add(prediction.primed && !prediction.rest ? MovingBaseline : PendingMotion);
+      })
+      .exit((entity) => {
+        entity.remove(MovingBaseline);
+        entity.remove(PendingMotion);
+      });
+
+    // Moving predictions already need a tick. Excluding them prevents their pose writes from
+    // routing update callbacks; resting entities become eligible only when their pose is written.
+    const pending = (entity: Entity): void => {
+      if (!entity.has(PendingMotion)) {
+        entity.add(PendingMotion);
+      }
+    };
+    // Pose-out can write only Rotation (a body spinning in place), and applications can too.
+    // A hook avoids a second routed watcher; moving bodies pay only a direct tag check here.
+    world.component(PhysicsRotation).on("set", (entity) => {
+      if (!entity.has(MovingBaseline) && entity.has(DeadReckoned)) {
+        pending(entity);
+      }
+    });
+    world
+      .system("phaser.motion.changed")
+      .with(PhysicsPosition, PhysicsRotation, DeadReckoned, Motion, MotionPrediction)
+      .without(MovingBaseline)
+      .phase(POST_UPDATE)
+      .update(PhysicsPosition, pending);
 
     world
       .system("phaser.sync.motion")
       .with(PhysicsPosition, PhysicsRotation, DeadReckoned, Motion, MotionPrediction)
+      .with({ any: [MovingBaseline, PendingMotion] })
+      // Eligibility changes must not reorder baseline writes (and therefore snapshots on the wire).
+      // OrderedSet maintains this order on entry/removal, without sorting every moving tick.
+      .orderBy([MotionPrediction], (_a, [a], _b, [b]) => a.order - b.order)
       .phase(POST_UPDATE)
       .each(
         [PhysicsPosition, PhysicsRotation, Motion, MotionPrediction],
         (entity, [position, rotation, motion, prediction]) => {
+          if (entity.has(PendingMotion)) {
+            entity.remove(PendingMotion);
+          }
           const frame = world.frame;
           const unchanged =
             position.x === prediction.lastX &&
@@ -385,6 +433,11 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
       prediction.frame = frame;
       prediction.rest = motion.rest;
       prediction.primed = true;
+      if (motion.rest) {
+        entity.remove(MovingBaseline);
+      } else {
+        entity.add(MovingBaseline);
+      }
     }
 
     // The pose guard. It runs after every user phase and before the frame is recorded, so a body that
@@ -464,6 +517,9 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
  * subtree snapshot, so a restored body starts unprimed and gets a new baseline.
  */
 class MotionPrediction {
+  /** Membership order in the full pose query, preserving baseline/snapshot order after filtering. */
+  public order = 0;
+
   /**
    * Set once the first baseline is written. An unprimed prediction gets one on the next step of
    * `phaser.sync.motion`, or from the pose guard at the end of the frame, whichever comes first.
@@ -498,6 +554,12 @@ class MotionPrediction {
   /** Predicted pose at `frame`. */
   public readonly pose = new MotionPose();
 }
+
+/** Local eligibility for predictions that require a comparison every tick, including sleep checks. */
+class MovingBaseline {}
+
+/** Local eligibility consumed by the next motion comparison after entry or a resting pose write. */
+class PendingMotion {}
 
 const TWO_PI = 2 * Math.PI;
 

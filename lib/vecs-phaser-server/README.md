@@ -163,9 +163,18 @@ A baseline at rest bypasses the integrator on both ends: the server's prediction
 hold exactly the baseline's `x`, `y` and `angle`, with no center-of-mass round trip and no `atan2`,
 so an off-center body is held where the physics pose put it.
 
-Per body per step the system steps the integrator once and compares, allocating nothing and looking
+Per moving body per step the system steps the integrator once and compares, allocating nothing and looking
 up no component. It asks Box2D whether the body sleeps only when its pose did not change, and reads
-the rest of the body's motion only when it writes a baseline. A body at rest costs one comparison.
+the rest of the body's motion only when it writes a baseline. Unchanged resting baselines are not
+visited. Server-local eligibility tags narrow the sync query to moving baselines, query entrants,
+and resting entities whose physics position or rotation was written. The reactive position watcher
+excludes moving baselines, so moving position writes need only a routing membership check, not a
+watcher callback. A rotation set hook covers application rotation-only writes and bodies spinning in
+place; it checks the moving tag before queuing resting work, without a second routed watcher.
+Moving baselines remain eligible even without a pose write, preserving sleep detection and refresh
+deadlines. Eligibility tags are not captured in subtree snapshots.
+The eligible query retains the full pose query's membership order, so returning resting entities do
+not reorder baseline writes or replicated snapshots.
 
 ### Body constants
 

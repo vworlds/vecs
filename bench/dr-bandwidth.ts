@@ -1,4 +1,6 @@
 /** Full 200-body, 60-second DR bandwidth scene, using built public package APIs. */
+import { createHash } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { ClientWorld } from "@vworlds/vecs-client";
 import {
@@ -21,12 +23,18 @@ import {
   preloadPhysics,
   Rotation as PhysicsRotation,
 } from "@vworlds/vecs-physics";
-import type { VecsSocket } from "@vworlds/vecs-protocol";
+import {
+  ComponentSnapshot,
+  EncodedSnapshot,
+  Server2Client,
+  type VecsSocket,
+} from "@vworlds/vecs-protocol";
 import { NetworkClient, Networked, ServerWorld, View } from "@vworlds/vecs-server";
+import { Decoder, Encoder } from "@vworlds/vecs-wire";
 
 const modes = ["streamed", "deadReckoned", "noRefresh"] as const;
 
-function measure(mode: (typeof modes)[number]): { bytes: number; bytesPerSecond: number } {
+function measure(mode: (typeof modes)[number]): object {
   const components = [...phaserNetworkComponents, ...phaserMotionComponents];
   const dr = mode !== "streamed";
   const server = new ServerWorld({
@@ -41,6 +49,11 @@ function measure(mode: (typeof modes)[number]): { bytes: number; bytesPerSecond:
   });
   let now = 0;
   let bytes = 0;
+  const hash = createHash("sha256");
+  const mappedHash = createHash("sha256");
+  const ids = new Map<number, number>();
+  const capture: Uint8Array[] = [];
+  let packets = 0;
   const previousNow = Object.getOwnPropertyDescriptor(performance, "now");
   Object.defineProperty(performance, "now", { configurable: true, value: () => now });
   const serverSocket = new Socket("server");
@@ -48,6 +61,17 @@ function measure(mode: (typeof modes)[number]): { bytes: number; bytesPerSecond:
   serverSocket.deliver = (data) => {
     if (now > 1000) {
       bytes += data.length;
+      hash.update(data);
+      const canonical = mapPacket(data, ids);
+      // Preserve packet boundaries and order in the hash, not just concatenated payload bytes.
+      const length = Buffer.alloc(4);
+      length.writeUInt32LE(canonical.length);
+      mappedHash.update(length);
+      mappedHash.update(canonical);
+      if (process.env.BENCH_PACKET_PREFIX) {
+        capture.push(length, canonical);
+      }
+      packets++;
     }
     clientSocket.receive(data);
   };
@@ -60,6 +84,14 @@ function measure(mode: (typeof modes)[number]): { bytes: number; bytesPerSecond:
     } else {
       server.module(PhaserServerModule);
     }
+    // Logical ids follow Networked creation order: clock (DR only), then the scene's bodies.
+    // No component in this scene carries an entity reference inside its payload.
+    for (const entity of server.entities.values()) {
+      if (entity.has(Networked)) {
+        ids.set(entity.eid, ids.size + 1);
+      }
+    }
+    server.component(Networked).on("add", (entity) => ids.set(entity.eid, ids.size + 1));
     server._attach({
       on(_event, handler) {
         handler(serverSocket);
@@ -110,7 +142,16 @@ function measure(mode: (typeof modes)[number]): { bytes: number; bytesPerSecond:
       client.progress(now, dt / 2);
       client.send();
     }
-    return { bytes, bytesPerSecond: bytes / 60 };
+    if (process.env.BENCH_PACKET_PREFIX) {
+      writeFileSync(`${process.env.BENCH_PACKET_PREFIX}-${mode}.bin`, Buffer.concat(capture));
+    }
+    return {
+      bytes,
+      bytesPerSecond: bytes / 60,
+      packets,
+      sha256: hash.digest("hex"),
+      mappedPacketSha256: mappedHash.digest("hex"),
+    };
   } finally {
     client.dispose();
     server.dispose();
@@ -120,6 +161,33 @@ function measure(mode: (typeof modes)[number]): { bytes: number; bytesPerSecond:
       Reflect.deleteProperty(performance, "now");
     }
   }
+}
+
+/** Re-encode only protocol entity ids; leave component payloads and list/packet order untouched. */
+function mapPacket(data: Uint8Array, ids: ReadonlyMap<number, number>): Uint8Array {
+  const mappedId = (eid: number): number => {
+    const id = ids.get(eid);
+    if (id === undefined) {
+      throw new Error(`unmapped network entity ${eid}`);
+    }
+    return id;
+  };
+  const message = new Decoder(data).read(Server2Client);
+  const diff = message.diff;
+  if (diff) {
+    diff.snapshots = diff.snapshots.map(({ bytes }) => {
+      const snapshot = new Decoder(bytes).read(ComponentSnapshot);
+      snapshot.eid = mappedId(snapshot.eid);
+      const encoder = new Encoder(new Uint8Array(bytes.length + 16));
+      encoder.write(snapshot);
+      return new EncodedSnapshot(encoder.getBuffer());
+    });
+    diff.removed = diff.removed.map(([eid, wireType]) => [mappedId(eid), wireType]);
+    diff.resets = diff.resets?.map(([eid, frame]) => [mappedId(eid), frame]);
+  }
+  const encoder = new Encoder(new Uint8Array(data.length + 16));
+  encoder.write(message);
+  return encoder.getBuffer();
 }
 
 class Socket implements VecsSocket {
