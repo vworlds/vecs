@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-physics",
-  "version": "1.0.56",
+  "version": "1.0.57",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "@vworlds/box2d3-wasm": "6.0.1",
-    "@vworlds/vecs": "1.0.56"
+    "@vworlds/vecs": "1.0.57"
   },
   "license": "MIT",
   "repository": {
