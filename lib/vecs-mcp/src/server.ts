@@ -8,19 +8,21 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import type { World } from "@vworlds/vecs";
 import { Router } from "./bridge/router.js";
+import { Link } from "./links/link.js";
+import { listenLinks } from "./links/listener.js";
 
 /** Node-level MCP configuration. Listening is always explicitly opt-in. */
 export interface VecsMcpServerOptions {
   /** Target path prefix; defaults to hostname-pid. Must be one nonempty path segment. */
   name?: string;
-  /** Require Authorization: Bearer on every HTTP request when supplied. */
+  /** Require Authorization: Bearer on MCP requests and the same token in link hello. */
   token?: string;
   /** Reject mutation batches and system enable/disable requests. Defaults to false. */
   readOnly?: boolean;
 }
 
 /**
- * Pull-only MCP access to explicitly registered local worlds over Streamable HTTP.
+ * Pull-only MCP access to local and linked worlds over Streamable HTTP.
  * The informational package version is resolved lazily, falling back to "unknown"
  * if bundling or unavailable metadata prevents discovery.
  */
@@ -30,6 +32,8 @@ export class VecsMcpServer {
   private _http: Server | undefined;
   private _version: string | undefined;
   private readonly _active = new Set<McpServer>();
+  private readonly _links = new Set<Link>();
+  private _closeLinks?: () => void;
 
   /** Capture best-effort process and git metadata once; no world hooks are installed. */
   public constructor(options: VecsMcpServerOptions = {}) {
@@ -51,10 +55,16 @@ export class VecsMcpServer {
     );
   }
 
-  /** Stop accepting HTTP requests and close active MCP transports. Safe to call repeatedly. */
+  /** Stop HTTP, MCP and all links, including connector retries. Safe to call repeatedly. */
   public async close(): Promise<void> {
     const http = this._http;
     this._http = undefined;
+    for (const link of this._links) {
+      link.close();
+    }
+    this._links.clear();
+    this._closeLinks?.();
+    this._closeLinks = undefined;
     await Promise.all([...this._active].map((server) => server.close()));
     this._active.clear();
     if (http) {
@@ -66,7 +76,7 @@ export class VecsMcpServer {
     }
   }
 
-  /** Listen at /mcp, binding loopback by default. Returns the bound port (use 0 for an ephemeral port). */
+  /** Listen at /mcp and /link, binding loopback by default. Returns the bound port (0 is ephemeral). */
   public async listen(port: number, host = "127.0.0.1"): Promise<number> {
     if (this._http) {
       throw new Error("VecsMcpServer is already listening");
@@ -75,6 +85,7 @@ export class VecsMcpServer {
       void this._handle(req, res);
     });
     this._http = http;
+    this._closeLinks = listenLinks(http, this._router, this._token);
     try {
       await new Promise<void>((resolve, reject) => {
         http.once("error", reject);
@@ -84,6 +95,8 @@ export class VecsMcpServer {
         });
       });
     } catch (error) {
+      this._closeLinks?.();
+      this._closeLinks = undefined;
       this._http = undefined;
       throw error;
     }
@@ -94,6 +107,20 @@ export class VecsMcpServer {
   public registerWorld(world: World, name?: string): void {
     const worldName = "name" in world && typeof world.name === "string" ? world.name : "world";
     this._router.register(world, name ?? worldName);
+  }
+
+  /** Expose this node to a hub at a ws(s) /link URL; failures retry until close(). */
+  public join(url: string): Link {
+    const link = new Link(this._router, this._token, { url, role: "join" });
+    this._links.add(link);
+    return link;
+  }
+
+  /** Mount a remote node at a ws(s) /link URL; failures retry until close(). */
+  public mount(url: string): Link {
+    const link = new Link(this._router, this._token, { url, role: "mount" });
+    this._links.add(link);
+    return link;
   }
 
   private async _handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -202,7 +229,7 @@ const entity = z.union([z.number().int().positive(), z.string()]);
 const tools = {
   vecs_targets: {
     description:
-      "List this node's process/git metadata and world targets with entity, component and system counts. No parameters.",
+      "List the cached aggregate of local and linked targets with originating process/git metadata, via node IDs and world counts. No parameters; no remote requests.",
     schema: {},
   },
   vecs_components: {

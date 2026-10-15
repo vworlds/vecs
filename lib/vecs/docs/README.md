@@ -72,3 +72,4 @@ sessions, and the client world) lives in the `@vworlds/vecs-wire`, `@vworlds/vec
   query membership, acknowledged content, and the replicated-state render clock.
 - [Client world](../../vecs-client/docs/client-world.md) — replication, render time,
   `invoke`/`listen`, and disposal.
+- [MCP nodes and links](../../vecs-mcp/docs/topology.md) — join worlds to a hub or mount remote nodes.
