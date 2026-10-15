@@ -1,11 +1,58 @@
 import { describe, expect, it } from "vitest";
+import { Module } from "@vworlds/vecs";
 import { cid_pack, NetworkWorld } from "../src/index.js";
 
 class Position {}
 class Velocity {}
 class LocalOnly {}
 
+function makeModule(index: number) {
+  class TestModule extends Module {
+    public init(): void {}
+  }
+  Object.defineProperty(TestModule, "name", { value: `Module${index}` });
+  return TestModule;
+}
+
+function fillModulePool(world: NetworkWorld): void {
+  const pool = world.pools.find((candidate) => candidate.name === "module")!;
+  const allocated = world.entities
+    .values()
+    .filter((entity) => entity.eid >= pool.min && entity.eid <= pool.max!).length;
+  const capacity = pool.max! - pool.min + 1;
+  for (let index = allocated; index < capacity; index++) {
+    world.module(makeModule(index));
+  }
+}
+
 describe("NetworkWorld", () => {
+  it("reserves the requested number of module ids and defaults to 100", () => {
+    const expanded = new NetworkWorld({ moduleIdCount: 300 });
+    fillModulePool(expanded);
+    expect(expanded.pools.find((pool) => pool.name === "module")).toEqual({
+      name: "module",
+      min: 700,
+      max: 999,
+    });
+    expect(() => expanded.module(makeModule(300))).toThrow("Id pool 'module' is exhausted");
+
+    const defaults = new NetworkWorld();
+    fillModulePool(defaults);
+    expect(() => defaults.module(makeModule(100))).toThrow("Id pool 'module' is exhausted");
+  });
+
+  it.each([0, -1, 1.5])("rejects invalid moduleIdCount %s", (moduleIdCount) => {
+    expect(() => new NetworkWorld({ moduleIdCount })).toThrow(
+      "moduleIdCount must be a positive safe integer"
+    );
+  });
+
+  it("rejects an id layout with no room for component ids", () => {
+    expect(() => new NetworkWorld({ entityIdStart: 300, moduleIdCount: 300 })).toThrow(
+      "entityIdStart and moduleIdCount leave no room for component ids"
+    );
+  });
+
   it("registers network components with wire type ids and auto-allocated eids", () => {
     const world = new NetworkWorld({ networkComponents: [Position] });
 

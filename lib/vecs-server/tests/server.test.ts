@@ -381,6 +381,15 @@ describe("ServerWorld timing", () => {
 });
 
 describe("ServerWorld", () => {
+  it("honours moduleIdCount", () => {
+    const world = new ServerWorld({ moduleIdCount: 300 });
+    expect(world.pools.find((pool) => pool.name === "module")).toEqual({
+      name: "module",
+      min: 700,
+      max: 999,
+    });
+  });
+
   it("rejects the client-only localEntityIdStart option before constructing the world", () => {
     expect(() => new ServerWorld({ localEntityIdStart: 10_000 })).toThrow(
       "localEntityIdStart applies to ClientWorld only; ServerWorld allocates every id from its entity pool"

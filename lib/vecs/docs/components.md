@@ -92,6 +92,8 @@ an entity and snapshots a new one under the same id is read in a fixed order, wh
 tells the two apart (see [State diffs](../../vecs-protocol/docs/state-diffs.md)). A recycled id is
 why a stored id is not a safe link between entities
 (see [Link with edges, not stored ids](./relationships.md#link-with-edges-not-stored-ids)).
+`NetworkWorld` uses the same component → module → entity layout, with `moduleIdCount` controlling
+the size of its module range (100 by default); see [Network world id layout](../../vecs-protocol/docs/network-world.md).
 `world.peekNextEid(poolName)` returns the next id a pool would allocate without reserving it. Id 0
 is reserved.
 

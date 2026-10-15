@@ -8,7 +8,7 @@ import {
 import { cid_pack, setLocalComponentMin } from "./cid.js";
 
 const DEFAULT_ENTITY_ID_START = 1000;
-const MODULE_ID_RANGE_SIZE = 100;
+const DEFAULT_MODULE_ID_COUNT = 100;
 let configuredLocalComponentMin: number | undefined;
 
 export interface RegisteredNetworkComponent {
@@ -20,6 +20,15 @@ export interface RegisteredNetworkComponent {
 export interface NetworkWorldOptions extends Omit<WorldOptions, "idPools"> {
   networkComponents?: readonly ComponentClass[];
   entityIdStart?: EID;
+  /**
+   * Number of ids reserved for modules. Defaults to 100. The id layout is
+   * components, then modules, then entities, so increasing this moves the
+   * component pool's upper bound down while leaving entity ids unchanged.
+   * Module and component eids are process-local: snapshots identify network
+   * components by `wireType` and replicated entities by entity eid, so peers
+   * may use different values for this option.
+   */
+  moduleIdCount?: number;
   /**
    * Start of the client-local entity id range. This splits a `ClientWorld`'s
    * entity ids from replicated ids; `ServerWorld` rejects this option because
@@ -94,10 +103,12 @@ function configureLocalComponentMin(localComponentMin: number): void {
 
 function buildNetworkIdPools(options: NetworkWorldOptions): IdPoolConfig[] {
   const entityIdStart = options.entityIdStart ?? DEFAULT_ENTITY_ID_START;
-  validateEntityStart("entityIdStart", entityIdStart);
-  const moduleIdStart = entityIdStart - MODULE_ID_RANGE_SIZE;
+  validatePositiveInteger("entityIdStart", entityIdStart);
+  const moduleIdCount = options.moduleIdCount ?? DEFAULT_MODULE_ID_COUNT;
+  validatePositiveInteger("moduleIdCount", moduleIdCount);
+  const moduleIdStart = entityIdStart - moduleIdCount;
   if (moduleIdStart <= 0) {
-    throw new Error("entityIdStart must leave room for module ids");
+    throw new Error("entityIdStart and moduleIdCount leave no room for component ids");
   }
 
   const pools: IdPoolConfig[] = [
@@ -116,7 +127,7 @@ function buildNetworkIdPools(options: NetworkWorldOptions): IdPoolConfig[] {
   }
 
   const localEntityIdStart = options.localEntityIdStart;
-  validateEntityStart("localEntityIdStart", localEntityIdStart);
+  validatePositiveInteger("localEntityIdStart", localEntityIdStart);
   if (localEntityIdStart <= entityIdStart) {
     throw new Error("localEntityIdStart must be greater than entityIdStart");
   }
@@ -150,7 +161,7 @@ function nextPowerOfTwo(value: number): number {
   return power;
 }
 
-function validateEntityStart(name: string, value: EID): void {
+function validatePositiveInteger(name: string, value: number): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive safe integer`);
   }
