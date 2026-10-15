@@ -327,25 +327,36 @@ mv "$TEST_DIR/moved.json" "$TEST_DIR/board.json"
 watch_board >> "$TEST_DIR/events"
 check grep -q 'BOARD #12 (ISSUE): new card → In review' "$TEST_DIR/events"
 
-# Archive collection and mutation are mocked; only old, closed, local cards qualify.
+# Done keeps the six newest closed cards across repositories; only our older cards are archived.
 jq -nc '{data:{node:{items:{pageInfo:{hasNextPage:false},nodes:[
-  {id:"PVTI_old",content:{closedAt:"2020-01-01T00:00:00Z",repository:{nameWithOwner:"vworlds/vecs"}}},
-  {id:"PVTI_foreign",content:{closedAt:"2020-01-01T00:00:00Z",repository:{nameWithOwner:"vworlds/spacerocks"}}},
-  {id:"PVTI_open",content:{closedAt:null,repository:{nameWithOwner:"vworlds/vecs"}}},
-  {id:"PVTI_recent",content:{closedAt:(now|strftime("%Y-%m-%dT%H:%M:%SZ")),repository:{nameWithOwner:"vworlds/vecs"}}},
-  {id:"PVTI_draft",content:{}}
+  {id:"ours-8",content:{closedAt:"2026-01-01T00:00:00Z",repository:{nameWithOwner:"vworlds/vecs"}}},
+  {id:"other-2",content:{closedAt:"2026-02-01T00:00:00Z",repository:{nameWithOwner:"vworlds/spacerocks"}}},
+  {id:"ours-5",content:{closedAt:"2026-04-01T00:00:00Z",repository:{nameWithOwner:"vworlds/vecs"}}},
+  {id:"ours-1",content:{closedAt:"2026-08-01T00:00:00Z",repository:{nameWithOwner:"vworlds/vecs"}}},
+  {id:"other-1",content:{closedAt:"2026-09-01T00:00:00Z",repository:{nameWithOwner:"vworlds/spacerocks"}}},
+  {id:"ours-7",content:{closedAt:"2026-02-15T00:00:00Z",repository:{nameWithOwner:"vworlds/vecs"}}},
+  {id:"ours-3",content:{closedAt:"2026-06-01T00:00:00Z",repository:{nameWithOwner:"vworlds/vecs"}}},
+  {id:"ours-2",content:{closedAt:"2026-07-01T00:00:00Z",repository:{nameWithOwner:"vworlds/vecs"}}},
+  {id:"ours-4",content:{closedAt:"2026-05-01T00:00:00Z",repository:{nameWithOwner:"vworlds/vecs"}}},
+  {id:"ours-6",content:{closedAt:"2026-03-01T00:00:00Z",repository:{nameWithOwner:"vworlds/vecs"}}},
+  {id:"open",content:{closedAt:null,repository:{nameWithOwner:"vworlds/vecs"}}},
+  {id:"draft",content:{}}
 ]}}}}' > "$TEST_DIR/archive.json"
 _board_gql() {
   printf '%s\n' "$*" >> "$TEST_DIR/archive-calls"
-  if [[ "$*" == *archiveProjectV2Item* ]]; then printf '{}\n'; else cat "$TEST_DIR/archive.json"; fi
+  if [[ "$*" == *archiveProjectV2Item* ]]; then
+    for arg in "$@"; do case "$arg" in i=*) printf '%s\n' "${arg#i=}" >> "$TEST_DIR/archived" ;; esac done
+    printf '{}\n'
+  else cat "$TEST_DIR/archive.json"; fi
 }
-touch "$BOARD_STATE/PVTI_old" "$BOARD_STATE/PVTI_old.who"
-board_archive_done 2 2> "$TEST_DIR/archive-log"
-check test "$(grep -c archiveProjectV2Item "$TEST_DIR/archive-calls")" = 1
-check grep -q 'i=PVTI_old' "$TEST_DIR/archive-calls"
-check test ! -e "$BOARD_STATE/PVTI_old"
-check test ! -e "$BOARD_STATE/PVTI_old.who"
-check grep -q 'archived 1 Done' "$TEST_DIR/archive-log"
+touch "$BOARD_STATE/ours-7" "$BOARD_STATE/ours-7.who"
+board_archive_done 6 2> "$TEST_DIR/archive-log"
+check test "$(grep -c archiveProjectV2Item "$TEST_DIR/archive-calls")" = 3
+check test "$(sort "$TEST_DIR/archived" | tr '\n' ' ')" = 'ours-6 ours-7 ours-8 '
+check test ! -e "$BOARD_STATE/ours-7"
+check test ! -e "$BOARD_STATE/ours-7.who"
+check grep -q 'archived 3 Done' "$TEST_DIR/archive-log"
+check test "$(grep -c 'query(\$p: ID!, \$after: String)' "$TEST_DIR/archive-calls")" = 1
 
 # Worker status stub lives entirely in the fixture root. No real worker is started or changed.
 ROOT="$TEST_DIR/repo"
