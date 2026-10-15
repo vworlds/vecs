@@ -95,7 +95,7 @@ if [ "$base" = dev ]; then
   done
 fi
 fetch_refs "+$base:refs/remotes/origin/$base" || die "fetch failed"
-if $merge_commit && [[ "$branch" == pack/* ]] && ! $delete_branch; then
+if [[ "$branch" == pack/* ]] && ! $delete_branch; then
   log "kept integration branch $branch"
 else
   gh api -X DELETE "repos/$REPO_SLUG/git/refs/heads/$branch" > /dev/null 2>&1 && log "deleted branch $branch" || true
