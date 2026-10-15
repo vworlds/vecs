@@ -51,14 +51,25 @@ export class BodyPoseOutModule extends Module {
         const bodyEntities = engine.bodyEntities;
         const changes = engine.poseChanges;
         const pending = engine.pendingPoseChanges;
+        const count = exporter.exportMoves(engine.world, flags);
+        const required = pending.length + count;
+        let eids = changes.eids;
+        if (required > eids.length) {
+          let capacity = eids.length;
+          while (capacity < required) {
+            capacity *= 2;
+          }
+          eids = changes.eids = new Int32Array(capacity);
+        }
         let changedCount = 0;
+        // Application writes are rare. Revalidate here: an intervening system may have removed
+        // Body or destroyed the entity since pose-in admitted it. No filter is added per move.
         for (const entity of pending) {
           if (!entity.destroyed && entity.has(ids.body)) {
-            changes[changedCount++] = entity;
+            eids[changedCount++] = entity.eid;
           }
         }
         pending.length = 0;
-        const count = exporter.exportMoves(engine.world, flags);
         const i32 = fast.i32;
         const f32 = fast.f32;
         const stride = exporter.stride;
@@ -74,10 +85,10 @@ export class BodyPoseOutModule extends Module {
           if (body?.type !== BodyType.Dynamic) {
             continue;
           }
-          changes[changedCount++] = entity;
+          eids[changedCount++] = entity.eid;
           writePose(entity, f32, base, offsets, ids);
         }
-        changes.length = changedCount;
+        changes.count = changedCount;
       })
       .add(PhysicsSystemTag);
   }

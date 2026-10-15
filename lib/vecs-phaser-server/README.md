@@ -168,8 +168,8 @@ It asks Box2D whether the body sleeps only when its pose did not change, and rea
 body's motion only when it writes a baseline. Unchanged sleeping Dynamic bodies are not visited.
 Server-local eligibility tags narrow the sync query to moving baselines, query entrants, and bodies
 in physics' reused [pose-change view](../vecs-physics/docs/queries.md#pose-changes). DR installs no
-watcher or set hook on the physics pose. A moved body already eligible costs only a query membership
-probe when gathering changes, not another baseline comparison or a tag transition.
+watcher or set hook on the physics pose. A moved body already eligible costs only an eid-indexed
+flag read when gathering changes, not an entity lookup, Set probe, baseline comparison or tag transition.
 
 Bodyless entities and non-Dynamic or disabled bodies stay in an **always-eligible compatibility
 lane**: game-written poses still work without an explicit signal or new application API. Their

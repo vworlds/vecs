@@ -274,6 +274,31 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
     const maxAgeFrames = maxBaselineAge > 0 ? Math.round(maxBaselineAge / clock.stepSeconds) : 0;
     const scratch = new BodyMotion();
     let nextOrder = 0;
+    // Mirror only eligibility tags, not poses. Hooks run at committed add/remove boundaries,
+    // including destruction, so overlapping lanes and eid reuse cannot leave a stale skip bit.
+    let eligible = new Uint8Array(1024);
+    for (const [tag, bit] of [
+      [MovingBaseline, 1],
+      [PendingMotion, 2],
+      [ApplicationBaseline, 4],
+    ] as const) {
+      world.component(tag).on("add", (entity) => {
+        const eid = entity.eid;
+        if (eid >= eligible.length) {
+          let capacity = eligible.length;
+          while (capacity <= eid) {
+            capacity *= 2;
+          }
+          const grown = new Uint8Array(capacity);
+          grown.set(eligible);
+          eligible = grown;
+        }
+        eligible[eid] = eligible[eid]! | bit;
+      });
+      world.component(tag).on("remove", (entity) => {
+        eligible[entity.eid] = eligible[entity.eid]! & ~bit;
+      });
+    }
 
     const members = world
       .system("phaser.motion.membership")
@@ -318,15 +343,21 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
       .system("phaser.motion.changed")
       .phase(POST_UPDATE)
       .run(() => {
-        for (const entity of queries.poseChanges()) {
-          // The usual case is already eligible: no component lookup or queued command.
-          if (!sync.has(entity) && members.has(entity)) {
+        const { eids, count } = queries.poseChanges();
+        for (let i = 0; i < count; i++) {
+          const eid = eids[i]!;
+          // Moving bodies need only a typed-array read: no entity resolution or Set probe.
+          if (eligible[eid]) {
+            continue;
+          }
+          const entity = world.getEntity(eid);
+          if (entity !== undefined && members.has(entity)) {
             entity.add(PendingMotion);
           }
         }
       });
 
-    const sync = world
+    world
       .system("phaser.sync.motion")
       .with(PhysicsPosition, PhysicsRotation, DeadReckoned, Motion, MotionPrediction)
       .with({ any: [MovingBaseline, PendingMotion, ApplicationBaseline] })

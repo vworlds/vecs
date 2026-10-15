@@ -58,7 +58,9 @@ if (physics(world).bodyMotion(rock, motion) && motion.awake) {
 
 Consume `physics(world).poseChanges()` after the physics post-step phase (for example, in
 `POST_UPDATE`) to inspect bodies whose pose may need downstream work without watching every
-physics component write. It returns the same **read-only, reused array**, not a new snapshot.
+physics component write. It returns the same **read-only, reused view**, not a new snapshot:
+`{ eids: Int32Array, count: number }`. Only `eids[0..count)` is valid; capacity beyond that prefix
+may contain stale ids. Resolve an id with `world.getEntity(eid)` only if you need the entity.
 
 - Pose-out publishes admitted application position/rotation writes first, then Dynamic move events
   in Box2D order, including final sleep events whose pose did not change. Application entries may
@@ -66,9 +68,11 @@ physics component write. It returns the same **read-only, reused array**, not a 
 - Destroyed/absent body entities are skipped at publication, and non-Dynamic **move events** are
   skipped. An entity can still be destroyed after publication; downstream queries should validate
   current membership. Inclusion is an eligibility hint, not proof the component values differ.
-- The array is empty before the first pose-out, overwritten by the next pose-out, and cleared on
-  world disposal. Do not mutate it. Copy with `[...physics(world).poseChanges()]` if retaining a
-  snapshot. Keeping the read-only view itself does not preserve prior entries.
+- The count is zero before the first pose-out and after world disposal. Pose-out overwrites the
+  view; its typed buffer grows by doubling only when needed, avoiding per-move object-reference
+  stores. Re-read `view.eids` after every pose-out because growth replaces it. Do not mutate either
+  field. Copy with `view.eids.slice(0, view.count)` if retaining a snapshot; keeping the view or its
+  buffer does not preserve prior entries.
 - Only the existing physics pose-in systems collect application writes. A write after they drain
   appears on the next tick; this is not a synchronous notification of arbitrary ECS pose writes.
   No extra component watcher or set hook is installed for the view.

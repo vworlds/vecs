@@ -525,9 +525,10 @@ Each `set` is conditional. Box2D reports every awake body on every step and retu
 
 The fast path is the only hot read path: no embind fallback, private pointers, feature detection or initialization layout self-check. Offsets and strides come from the package's generated layout. The typed-array loop creates no per-body handles, marshalling objects or views. Angle conversion uses `b2Rot_GetAngle` inside WASM, preserving `b2Atan2` bits rather than using `Math.atan2`. Velocities are exported for all moved bodies but written only when the optional component exists. Server dead reckoning uses the separate `BodyMotion` query, which now reads a composite fast-path result into shared scratch.
 
-Pose-out also publishes the engine-owned, reused body-entity view described in
+Pose-out also publishes the engine-owned, reused typed eid/count view described in
 [pose changes](../docs/queries.md#pose-changes). Existing pose-in callbacks buffer application
-teleports; pose-out copies those valid entries before the filtered move events. Consumers do not
+teleports; pose-out copies their valid ids before the filtered move events. Capacity grows by doubling;
+the count-prefix is overwritten each step without per-move object-reference stores. Consumers do not
 install additional pose watchers, and the engine clears both buffers on disposal.
 
 `exportMoves()` refreshes memory views after any step or buffer growth. Event publication fetches contact and sensor spans into adjacent reusable headers, then calls `fast.sync()` once before reading. Per-body out-parameter reads also sync before reading scratch. Never retain typed-array views across a step or any call that can grow memory, and never retain event spans across a step/world mutation. Body/shape/joint creation and other rare paths still use owned embind values with `withAllocated`/`finally` release discipline. The forced-growth regression verifies exact pose/velocity after an actual heap-buffer replacement.

@@ -8,6 +8,7 @@ import {
   Circle,
   LinearVelocity,
   PhysicsModule,
+  type PoseChanges,
   Position,
   Rotation,
   Sleep,
@@ -15,6 +16,10 @@ import {
 } from "../../src/index.js";
 
 const dt = 1000 / 30;
+
+function ids(view: PoseChanges): number[] {
+  return Array.from(view.eids.subarray(0, view.count));
+}
 
 function body(world: World, type = BodyType.Dynamic, awake = true): Entity {
   const entity = world
@@ -28,27 +33,56 @@ function body(world: World, type = BodyType.Dynamic, awake = true): Entity {
 }
 
 describe("physics poseChanges", () => {
+  it("doubles eid capacity without losing teleports and exposes only the valid prefix", () => {
+    const world = new World();
+    world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
+    try {
+      const view = physics(world).poseChanges();
+      const initial = view.eids;
+      const entities = Array.from({ length: 130 }, () => body(world, BodyType.Static));
+      world.progress(0, dt);
+      expect(physics(world).poseChanges()).toBe(view);
+      expect(view.eids).not.toBe(initial);
+      expect(view.eids.length).toBeGreaterThanOrEqual(view.count);
+      expect(Math.log2(view.eids.length) % 1).toBe(0);
+      expect(new Set(ids(view))).toEqual(new Set(entities.map((entity) => entity.eid)));
+      const grown = view.eids;
+      world.progress(dt, dt);
+      expect(view.eids).toBe(grown);
+      expect(view.count).toBe(0);
+      entities[0]!.set(Position, { x: 10, y: 0 });
+      world.progress(dt * 2, dt);
+      expect(view.eids).toBe(grown);
+      expect(ids(view)).toEqual([entities[0]!.eid]);
+    } finally {
+      world.dispose();
+    }
+  });
+
   it("reuses a post-step view, expires its entries on the next pose-out and clears it on disposal", () => {
     const world = new World();
     world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
     const queries = physics(world);
     const view = queries.poseChanges();
-    expect(view).toEqual([]);
+    expect(view.count).toBe(0);
+    expect(view.eids).toBeInstanceOf(Int32Array);
     const entity = body(world).set(LinearVelocity, { x: 1, y: 0 });
     world.progress(0, dt);
     expect(queries.poseChanges()).toBe(view);
-    expect(view).toContain(entity);
-    const saved = [...view];
+    expect(ids(view)).toContain(entity.eid);
+    const saved = ids(view);
+    const buffer = view.eids;
     entity.destroy();
     world.progress(dt, dt);
-    expect(view).toEqual([]);
-    expect(saved).toContain(entity);
+    expect(view.count).toBe(0);
+    expect(view.eids).toBe(buffer);
+    expect(saved).toContain(entity.eid);
     const next = body(world);
     world.progress(dt * 2, dt);
-    expect(view).toContain(next);
+    expect(ids(view)).toContain(next.eid);
     world.dispose();
     expect(queries.poseChanges()).toBe(view);
-    expect(view).toEqual([]);
+    expect(view.count).toBe(0);
   });
 
   it("filters non-Dynamic move events and publishes rotation-only Dynamic moves", () => {
@@ -63,9 +97,9 @@ describe("physics poseChanges", () => {
       world.progress(0, dt);
       const before = { ...spinning.get(Position)! };
       world.progress(dt, dt);
-      expect(physics(world).poseChanges()).toEqual([spinning]);
-      expect(physics(world).poseChanges()).not.toContain(fixed);
-      expect(physics(world).poseChanges()).not.toContain(kinematic);
+      expect(ids(physics(world).poseChanges())).toEqual([spinning.eid]);
+      expect(ids(physics(world).poseChanges())).not.toContain(fixed.eid);
+      expect(ids(physics(world).poseChanges())).not.toContain(kinematic.eid);
       expect(spinning.get(Position)).toEqual(before);
       expect(spinning.get(Rotation)!.angle).not.toBe(0);
     } finally {
@@ -86,9 +120,9 @@ describe("physics poseChanges", () => {
       }
       expect(physics(world).isAwake(entity)).toBe(false);
       expect(entity.get(Position)).toEqual(pose);
-      expect(physics(world).poseChanges()).toContain(entity);
+      expect(ids(physics(world).poseChanges())).toContain(entity.eid);
       world.progress(frame * dt, dt);
-      expect(physics(world).poseChanges()).not.toContain(entity);
+      expect(ids(physics(world).poseChanges())).not.toContain(entity.eid);
     } finally {
       world.dispose();
     }
@@ -103,41 +137,49 @@ describe("physics poseChanges", () => {
       world.progress(0, dt);
       world.progress(dt, dt);
       const view = physics(world).poseChanges();
-      expect(view).toEqual([]);
+      expect(view.count).toBe(0);
       sleeping.set(Position, { x: 10, y: 0 });
       fixed.set(Rotation, { angle: 1 });
-      expect(view).toEqual([]);
+      expect(view.count).toBe(0);
       world.progress(dt * 2, dt);
-      expect(view).toContain(sleeping);
-      expect(view).toContain(fixed);
+      expect(ids(view)).toContain(sleeping.eid);
+      expect(ids(view)).toContain(fixed.eid);
       world.progress(dt * 3, dt);
-      expect(view).not.toContain(fixed);
+      expect(ids(view)).not.toContain(fixed.eid);
     } finally {
       world.dispose();
     }
   });
 
-  it("does not publish a move for an entity destroyed after stepping but before pose-out", () => {
-    const world = new World();
-    let entity: Entity;
-    let destroy = false;
-    world
-      .system("destroy before export")
-      .phase(world.entity("physics-post").add(Phase))
-      .run(() => {
-        if (destroy) {
-          entity.destroy();
-        }
-      });
-    world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
-    try {
-      entity = body(world).set(LinearVelocity, { x: 1, y: 0 });
-      world.progress(0, dt);
-      destroy = true;
-      world.progress(dt, dt);
-      expect(physics(world).poseChanges()).toEqual([]);
-    } finally {
-      world.dispose();
+  it.each(["destroy", "remove Body"])(
+    "filters pending teleports and moves after %s before pose-out",
+    (operation) => {
+      const world = new World();
+      let entity: Entity;
+      let destroy = false;
+      world
+        .system("destroy before export")
+        .phase(world.entity("physics-post").add(Phase))
+        .run(() => {
+          if (destroy) {
+            if (operation === "destroy") {
+              entity.destroy();
+            } else {
+              entity.remove(Body);
+            }
+          }
+        });
+      world.module(PhysicsModule, { gravity: { x: 0, y: 0 } });
+      try {
+        entity = body(world).set(LinearVelocity, { x: 1, y: 0 });
+        world.progress(0, dt);
+        entity.set(Position, { x: 10, y: 0 });
+        destroy = true;
+        world.progress(dt, dt);
+        expect(physics(world).poseChanges().count).toBe(0);
+      } finally {
+        world.dispose();
+      }
     }
-  });
+  );
 });

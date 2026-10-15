@@ -38,6 +38,8 @@ import {
 export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 
 type RunCallback = (now: number, delta: number) => void;
+/** A callback kind supported by a system. */
+export type SystemCallbackKind = "each" | "run" | "enter" | "update" | "exit";
 /** Discriminator for {@link _SystemInboxEvent}. */
 const enum InboxCommand {
   Enter,
@@ -150,6 +152,41 @@ export class System<R extends ComponentType[] = []>
    */
   public get cadence(): ITickSource {
     return this._tickSource;
+  }
+
+  /**
+   * Callback kinds registered on this system. The returned list is a frozen
+   * snapshot and reflects registrations immediately, before or after build.
+   */
+  public get callbacks(): readonly SystemCallbackKind[] {
+    const callbacks: SystemCallbackKind[] = [];
+    if (this._eachCallback !== undefined) {
+      callbacks.push("each");
+    }
+    if (this._runCallback !== undefined) {
+      callbacks.push("run");
+    }
+    if (this._enterCallback !== undefined) {
+      callbacks.push("enter");
+    }
+    if (this._componentUpdateCallbacks.size > 0) {
+      callbacks.push("update");
+    }
+    if (this._exitCallback !== undefined) {
+      callbacks.push("exit");
+    }
+    return Object.freeze(callbacks);
+  }
+
+  /** Component classes watched by registered `update` callbacks. */
+  public get watched(): readonly ComponentType[] {
+    const watched: ComponentType[] = [];
+    this._watchlistBitmask.forEach((eid) => {
+      if (this._componentUpdateCallbacks.get(eid) !== undefined) {
+        watched.push(this.world.entity(eid).meta.Class as ComponentType);
+      }
+    });
+    return Object.freeze(watched);
   }
 
   /** @internal Reject non-reactive source/children terms before registering this system. */

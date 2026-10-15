@@ -51,6 +51,39 @@ function scene(maxBaselineAge = 30, beforeMotion?: (world: ServerWorld) => void)
 }
 
 describe("dead-reckoning eligibility", () => {
+  it("grows eligibility flags and clears overlapping lanes across transitions and re-entry", () => {
+    const { world, step, moving } = scene();
+    try {
+      for (let i = 0; i < 1100; i++) {
+        world.entity();
+      }
+      const original = moving();
+      const eid = original.eid;
+      expect(eid).toBeGreaterThan(1024);
+      step(2);
+      expect(original.get(Motion)!.rest).toBe(false);
+      original.set(Body, { enabled: false });
+      step();
+      original.set(Body, { enabled: true }).set(Sleep, { enabled: true, awake: false });
+      step(2);
+      original.set(Position, { x: 10, y: 0 });
+      step();
+      expect(original.get(Motion)).toMatchObject({ x: 10, rest: true, frame: world.frame - 1 });
+      original.remove(DeadReckoned);
+      step();
+      const replacement = original.add(DeadReckoned);
+      step(2);
+      replacement.set(Position, { x: 20, y: 0 });
+      step();
+      expect(replacement.get(Motion)).toMatchObject({ x: 20, rest: true, frame: world.frame - 1 });
+      replacement.destroy();
+      step();
+      expect(world.getEntity(eid)).toBeUndefined();
+    } finally {
+      world.dispose();
+    }
+  });
+
   it.each([
     { type: BodyType.Static, enabled: true },
     { type: BodyType.Kinematic, enabled: true },
@@ -111,7 +144,8 @@ describe("dead-reckoning eligibility", () => {
         edit = true;
         step();
         expect(target.get(Position)).toEqual({ x: 10, y: 0 });
-        expect(physics(world).poseChanges().includes(target)).toBe(awake);
+        const changes = physics(world).poseChanges();
+        expect(changes.eids.subarray(0, changes.count).includes(target.eid)).toBe(awake);
         if (awake) {
           expect(target.get(Motion)).toMatchObject({ x: 10, rest: true, frame: world.frame - 1 });
         } else {

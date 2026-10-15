@@ -138,6 +138,14 @@ export interface ShapeCastHit {
   fraction: number;
 }
 
+/** Reused post-step body ids. Only the count-prefix is valid; neither field may be mutated. */
+export interface PoseChanges {
+  /** Reused eid buffer, replaced when capacity grows. Re-read from the view after each pose-out. */
+  readonly eids: Readonly<Int32Array>;
+  /** Number of valid entries; zero before the first pose-out and after disposal. */
+  readonly count: number;
+}
+
 /**
  * Stable, world-scoped facade for synchronous read-only physics queries: ray
  * casts, shape casts, spatial overlaps and the post-step pose-change view. Obtained via {@link physics}.
@@ -157,15 +165,17 @@ export interface PhysicsQueries {
   settings(): PhysicsSettings;
 
   /**
-   * Reused read-only entity view published by the most recent pose-out. Contains live Dynamic
+   * Reused read-only eid view published by the most recent pose-out. Contains live Dynamic
    * move events (including unchanged final sleep events), preceded by application pose writes
    * admitted by the existing pose-in systems, including static/disabled bodies. Entries may repeat.
-   * Empty before the first pose-out and cleared on disposal. The same array is overwritten by the
-   * next pose-out: consume it after physics, do not mutate it, and copy it if retaining a snapshot.
+   * Only eids[0..count) is valid; the remaining capacity may contain stale ids. Count is zero before
+   * the first pose-out and on disposal. The same view is overwritten by the next pose-out; its
+   * Int32Array grows by doubling when needed. Read eids afresh each time, do not mutate it, and
+   * copy the valid prefix if retaining a snapshot. Resolve current entities via world.getEntity(eid).
    * No Box2D handles or per-call allocations. Application writes made after pose-in drains appear
    * on the following tick; this is not a synchronous ECS pose-write notification.
    */
-  poseChanges(): readonly Entity[];
+  poseChanges(): PoseChanges;
 
   /**
    * Returns whether `entity`'s body is awake: `false` for an entity without a live body. It
@@ -282,7 +292,7 @@ class PhysicsQueriesImpl implements PhysicsQueries {
     );
   }
 
-  public poseChanges(): readonly Entity[] {
+  public poseChanges(): PoseChanges {
     return this.engine.poseChanges;
   }
 

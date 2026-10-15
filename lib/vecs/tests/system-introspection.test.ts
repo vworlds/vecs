@@ -25,6 +25,53 @@ describe("System introspection", () => {
       readonly rate: number;
       readonly source: ITickSource | undefined;
     }>();
+    expectTypeOf<System["callbacks"]>().toEqualTypeOf<
+      readonly ("each" | "run" | "enter" | "update" | "exit")[]
+    >();
+  });
+
+  it("reports registered callbacks and update watches before and after build", () => {
+    class A {}
+    class B {}
+    const world = new World();
+    world.component(A);
+    world.component(B);
+    const each = world.system("each").each([], () => {});
+    const run = world.system("run").run(() => {});
+    const reactive = world
+      .system("reactive")
+      .enter(() => {})
+      .exit(() => {});
+    const oneWatch = world.system("one watch").update(A, () => {});
+    const twoWatches = world
+      .system("two watches")
+      .update(A, () => {})
+      .update(B, () => {});
+    const mixed = world
+      .system("mixed")
+      .each([], () => {})
+      .run(() => {})
+      .enter(() => {})
+      .update(B, () => {})
+      .exit(() => {});
+
+    expect(each.callbacks).toEqual(["each"]);
+    expect(run.callbacks).toEqual(["run"]);
+    expect(reactive.callbacks).toEqual(["enter", "exit"]);
+    expect(oneWatch.callbacks).toEqual(["update"]);
+    expect(oneWatch.watched).toEqual([A]);
+    expect(twoWatches.callbacks).toEqual(["update"]);
+    expect(twoWatches.watched).toEqual([A, B]);
+    expect(mixed.callbacks).toEqual(["each", "run", "enter", "update", "exit"]);
+    expect(mixed.watched).toEqual([B]);
+    expect(Object.isFrozen(mixed.callbacks)).toBe(true);
+    expect(Object.isFrozen(mixed.watched)).toBe(true);
+
+    const beforeBuild = [each.callbacks, run.callbacks, reactive.callbacks, oneWatch.watched];
+    world.pipeline;
+    expect([each.callbacks, run.callbacks, reactive.callbacks, oneWatch.watched]).toEqual(
+      beforeBuild
+    );
   });
 
   it("lists a fresh world's systems in phase order without executing them", () => {
