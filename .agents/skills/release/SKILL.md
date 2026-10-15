@@ -7,7 +7,8 @@ description: Cut a vecs release by merging dev into master, pushing, and waiting
 
 Cut a vecs release. This merges `dev` into `master`, pushes `master`, waits for
 the `Publish to npm` GitHub Actions workflow to bump versions and tag, then
-fast-forwards `dev` onto the new `master`.
+fast-forwards `dev` onto the new `master`, then waits for publication and npm
+registry propagation.
 
 ## When to use
 
@@ -46,6 +47,14 @@ the pre-push checks and refuses to destroy data:
 8. **Pull master** — fast-forwards local `master` to `origin/master`.
 9. **Reset dev to master** — fast-forwards `dev` onto `master` and pushes
    `dev`. Never force-updates or rewrites `dev`.
+10. **Verify publication** — only after the git updates, find `publish.yml` for
+    the originally pushed master commit and wait for success (20 minutes by
+    default, override with `PUBLISH_MAX_WAIT_SEC`). Then poll `npm view` with
+    `--prefer-online` until every non-private `@vworlds/*` workspace's `latest`
+    equals the new version (10 minutes, override with `REGISTRY_MAX_WAIT_SEC`).
+    Log the package count, each verified version, and a final count/time summary.
+    `POLL_INTERVAL_SEC` sets the poll interval (default 15 seconds); `MAX_WAIT_SEC`
+    sets the earlier tag wait (default 20 minutes). Use positive integer seconds.
 
 ## How CI bumps the version
 
@@ -69,7 +78,29 @@ be `v1.0.36`.
    triggers a public npm publish.
 4. Run the script and stream its output. Report the new version tag when it
    completes.
-5. If the script fails, do NOT attempt to fix git state by hand. Surface the
+5. **Verification is automatic:** the script waits for the publish run and the
+   registry. A failed publish reports its run URL: inspect that run and ask how
+   to proceed; do not rerun the release. A publish timeout means the run is still
+   pending or could not be found/read: inspect Actions before retrying verification.
+   A registry timeout names the packages still behind (including unavailable npm
+   responses). Git is already complete; nothing needs repairing in git. Wait and
+   retry verification only, not the release. To rerun just verification from the
+   repo root, supply the **original push SHA** (not the bump SHA) and version:
+
+   ```bash
+   (
+     set -euo pipefail
+     log() { printf '[release] %s\n' "$*"; }
+     err() { printf '[release][error] %s\n' "$*" >&2; }
+     . scripts/lib/release-publish.sh
+     wait_release_publish ORIGINAL_PUSH_SHA X.Y.Z
+   )
+   ```
+
+   The helper uses Node's workspace glob discovery and the system `timeout`
+   command to bound `gh`/`npm` requests by the remaining deadline.
+
+6. If the script fails earlier, do NOT attempt to fix git state by hand. Surface the
    error and the script's suggested remediation, and ask the user how to
    proceed.
 

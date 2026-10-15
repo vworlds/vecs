@@ -40,6 +40,9 @@ jobs:
       - name: Run tests
         run: npm run test
 
+      - name: Release publication verification tests (offline)
+        run: bash scripts/tests/release-publish.test.sh
+
       - name: Build
         run: npm run build
 

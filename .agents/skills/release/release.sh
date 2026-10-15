@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # vecs release script: merge dev into master, push, wait for CI to bump+tag,
-# then fast-forward dev onto the new master.
+# then fast-forward dev onto the new master and verify npm publication.
 #
 # Safety properties:
 #   - Never resets/deletes a branch with uncommitted or unpushed work.
@@ -14,8 +14,8 @@ set -euo pipefail
 DEV_BRANCH="dev"
 MASTER_BRANCH="master"
 REMOTE="origin"
-POLL_INTERVAL_SEC=15
-MAX_WAIT_SEC=$((60 * 20)) # 20 minutes hard cap
+POLL_INTERVAL_SEC="${POLL_INTERVAL_SEC:-15}"
+MAX_WAIT_SEC="${MAX_WAIT_SEC:-1200}" # 20 minutes hard cap
 
 log() { printf '[release] %s\n' "$*"; }
 err() { printf '[release][error] %s\n' "$*" >&2; }
@@ -270,7 +270,7 @@ while [ "$ELAPSED" -lt "$MAX_WAIT_SEC" ]; do
   fi
 
   if [ -n "$BUMP_COMMIT" ] && [ -n "$NEW_TAG" ]; then
-    log "CI complete: bump commit $BUMP_COMMIT, tag $NEW_TAG."
+    log "CI tag detected: bump commit $BUMP_COMMIT, tag $NEW_TAG."
     break
   fi
 done
@@ -320,6 +320,12 @@ if [ "$LOCAL_DEV_TIP" != "$REMOTE_DEV_TIP" ]; then
     exit 1
   fi
 fi
+
+# ---------------------------------------------------------------------------
+# 9. Git is complete; wait for the original push's publish run and npm latest.
+# ---------------------------------------------------------------------------
+. scripts/lib/release-publish.sh
+wait_release_publish "$NEW_MASTER_SHA" "${NEW_TAG#v}"
 
 log ""
 log "Release complete."
