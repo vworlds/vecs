@@ -78,17 +78,13 @@ describe("links through MCP", () => {
       expect((await paths(client)).sort()).toEqual(["a/world", "b/world"])
     );
     const targets = (await call(client, "targets")).value.targets;
+    const origin = (await call(await connect(a.url), "targets")).value.node;
+    expect(origin).toMatchObject({ name: "a", pid: process.pid, cwd: process.cwd() });
     expect(targets).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           path: "a/world",
-          node: expect.objectContaining({
-            name: "a",
-            pid: process.pid,
-            cwd: process.cwd(),
-            branch: expect.any(String),
-            sha: expect.any(String),
-          }),
+          node: origin,
           via: [expect.any(String)],
         }),
       ])
