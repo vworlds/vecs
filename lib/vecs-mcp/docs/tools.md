@@ -17,6 +17,11 @@ names are identity, and module provenance is already reported by `module`.
 | `vecs_mutate`     | `target?`, `ops`                                                                                             | `{ applied, error?: { index, message } }`; each completed op returns `{ eid }`                           |
 | `vecs_systems`    | `target?`, `enable?`, `disable?` (system names)                                                              | Pipeline-order array of `{ name, phase, enabled, callbacks, watched, timing }`                           |
 | `vecs_stats`      | `target?`                                                                                                    | `{ systems, operations }`; system identities are names, not live instances                               |
+| `vecs_watch`      | `target?`, `where`, `include?`, `maxEvents?` (1000)                                                          | `{ watch, members }`; no backfill events                                                                 |
+| `vecs_events`     | `target?`, `watch`, `since?` (0), `limit?` (100)                                                             | `{ events, latest, dropped }`                                                                            |
+| `vecs_unwatch`    | `target?`, `watch`                                                                                           | `{ watch }`; releases query, hooks and log                                                               |
+
+See [watches](./watches.md) for event shape, lifetime, costs and resource subscriptions.
 
 Component `kind` is `module` for module definitions, `relationship` for relationship
 types, `trait` for other types attached to component definitions, and `component`

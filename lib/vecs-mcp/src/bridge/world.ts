@@ -11,16 +11,29 @@ import {
 import { componentSchema } from "../schema/index.js";
 import { componentValue } from "./serialize.js";
 import { mutate } from "./mutate.js";
+import { WatchSet } from "./watch.js";
 
 /** @internal Local-world command executor, shared by transports. */
 export class LocalWorld {
+  /** Live, session-owned watches; inert until explicitly created. */
+  public readonly watches: WatchSet;
+
   public constructor(
     public readonly world: World,
     private readonly readOnly = false
-  ) {}
+  ) {
+    this.watches = new WatchSet(world);
+  }
 
+  /** Execute a world tool; watch tools require the bridge-injected session owner. */
   public command(command: string, params: Record<string, unknown>): unknown {
     switch (command) {
+      case "vecs_watch":
+        return this.watches.create(params, this.registry());
+      case "vecs_events":
+        return this.watches.read(params);
+      case "vecs_unwatch":
+        return this.watches.remove(params);
       case "vecs_components":
         return this._components(params.filter as string | undefined);
       case "vecs_find":
@@ -227,7 +240,8 @@ export function resolveEntity(world: World, ref: unknown): Entity {
   return entity;
 }
 
-function query(value: unknown, registry: Map<string, Component>): QueryDSL {
+/** @internal Translate the shared JSON query language for finds and watches. */
+export function query(value: unknown, registry: Map<string, Component>): QueryDSL {
   const component = (name: unknown): Component => {
     if (typeof name !== "string" || !registry.has(name)) {
       throw new Error(`Unknown component ${String(name)}`);

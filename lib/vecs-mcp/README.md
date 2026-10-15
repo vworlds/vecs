@@ -17,9 +17,10 @@ await mcp.listen(3210); // http://127.0.0.1:3210/mcp
 // Later: await mcp.close();
 ```
 
-Nothing runs per tick: tools perform pull-only reads or synchronous writes between
-ticks. This release supports local worlds only; links, browser tunnels and watches
-are separate work.
+Nothing runs per tick: tools perform reads or synchronous writes between ticks.
+[Watches](./docs/watches.md) add session-owned reactive logs and subscribable local
+resources. Without watches, no watch queries or component hooks are registered.
+Links and browser tunnels are separate work.
 
 Start with the [documentation map](./docs/README.md).
 

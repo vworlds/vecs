@@ -9,3 +9,4 @@ Read in this order:
 3. [Schema decorators](./schema.md): describe and validate component fields.
 4. [Execution semantics](./execution.md): validation, inline writes and failures.
 5. [Security](./security.md): bind addresses, tokens and read-only access.
+6. [Watches](./watches.md): reactive event logs, session lifetime and resource subscriptions.
