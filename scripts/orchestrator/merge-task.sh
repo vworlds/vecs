@@ -1,21 +1,29 @@
 #!/usr/bin/env bash
 # Merge an approved task PR, mechanically and idempotently:
-#   1. mark the PR ready and squash-merge exactly its head, retrying transient GitHub errors;
+#   1. mark the PR ready and merge exactly its head, retrying transient GitHub errors;
 #   2. close the issues the PR says it closes, if GitHub hasn't already;
 #   3. delete the branch, and fast-forward the main checkout if it is clean and on dev;
 #   4. move the PR's card to Done on the board.
 # Re-running after a partial failure continues where it stopped. Stop the PR's worker BEFORE
 # running this.
-# Usage: scripts/orchestrator/merge-task.sh <pr> [--subject text] [--body-file f]
+# Usage: scripts/orchestrator/merge-task.sh <pr> [--merge-commit] [--delete-branch] [--subject text] [--body-file f]
 set -euo pipefail
 . "$(dirname "$0")/../lib/common.sh"
 . "$(dirname "$0")/../lib/board.sh"
 pr="${1:?usage: merge-task.sh <pr> [--subject s] [--body-file f]}"
 board_require_ours "$pr"
 shift
-subject="" body_file=""
+subject="" body_file="" merge_commit=false delete_branch=false
 while [ $# -gt 0 ]; do
   case "$1" in
+    --merge-commit)
+      merge_commit=true
+      shift
+      ;;
+    --delete-branch)
+      delete_branch=true
+      shift
+      ;;
     --subject)
       subject="$2"
       shift 2
@@ -57,7 +65,9 @@ if [ "$state" = OPEN ]; then
   merged=false
   board_hold_startable
   for attempt in 1 2 3 4; do
-    if gh pr merge "$pr" -R "$REPO_SLUG" --squash --match-head-commit "$head" --subject "$subject" --body-file "$bf"; then
+    strategy=--squash
+    $merge_commit && strategy=--merge
+    if gh pr merge "$pr" -R "$REPO_SLUG" "$strategy" --match-head-commit "$head" --subject "$subject" --body-file "$bf"; then
       merged=true
       break
     fi
@@ -95,7 +105,11 @@ if [ "$base" = dev ]; then
   [ -z "$revise" ] || log "revise estimates (their blocker closed): $revise"
 fi
 fetch_refs "+$base:refs/remotes/origin/$base" || die "fetch failed"
-gh api -X DELETE "repos/$REPO_SLUG/git/refs/heads/$branch" > /dev/null 2>&1 && log "deleted branch $branch" || true
+if $merge_commit && [[ "$branch" == pack/* ]] && ! $delete_branch; then
+  log "kept integration branch $branch"
+else
+  gh api -X DELETE "repos/$REPO_SLUG/git/refs/heads/$branch" > /dev/null 2>&1 && log "deleted branch $branch" || true
+fi
 git update-ref -d "refs/remotes/origin/$branch" 2> /dev/null || true
 if [ "$base" = dev ] && [ "$(git rev-parse --abbrev-ref HEAD)" = dev ] && [ -z "$(git status --porcelain --untracked-files=no)" ]; then
   old_head="$(git rev-parse HEAD)"
