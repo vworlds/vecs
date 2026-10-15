@@ -25,6 +25,7 @@ of retyping commands.
 ## While working
 
 - Stay in scope. Report unrelated problems instead of fixing them.
+- Validate every Markdown body before posting it to GitHub.
 - Record your change in `architecture/unreleased/<pr>.md`, never edit
   `architecture/CHANGELOG.md`. Use the bullet format in
   [`architecture/unreleased/README.md`](../../architecture/unreleased/README.md);

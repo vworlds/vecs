@@ -122,6 +122,7 @@ if ! $direct && $approved_only && board_enabled; then
   [ "$column" = Approved ] || die "issue #$issue is in ${column:-no column}, not Approved (--unapproved overrides)"
 fi
 if [ -n "$spec" ]; then
+  "$(dirname "$0")/../agent/check-markdown.sh" "$spec"
   retry 3 gh api -X PATCH "repos/$REPO_SLUG/issues/$issue" -F body=@"$spec" > /dev/null || die "could not update the body of #$issue"
   log "issue #$issue now carries the agreed text"
 fi
@@ -153,6 +154,7 @@ trap 'rm -f "$body"' EXIT
   fi
   cat "$task"
 } > "$body"
+"$(dirname "$0")/../agent/check-markdown.sh" "$body"
 
 fetch_refs "+dev:refs/remotes/origin/dev" || die "fetch failed"
 if ! git ls-remote --exit-code --heads "https://github.com/$REPO_SLUG.git" "$branch" > /dev/null 2>&1; then

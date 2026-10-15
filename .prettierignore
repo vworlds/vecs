@@ -3,3 +3,4 @@
 lib/vecs-physics/box2d/
 lib/vecs-physics/box2d3-wasm/
 apps/server/assets/
+tests/fixtures/markdown/unclosed-fence.md

@@ -13,6 +13,7 @@ pr_field "$pr" .body > "$tmp/body"
 title="$(pr_field "$pr" .title)"
 sed -i '/^> ⛔ \*\*ON HOLD/,/^$/d' "$tmp/body"
 new_title="${title#\[HOLD: owner review\] }"
+"$(dirname "$0")/../agent/check-markdown.sh" "$tmp/body"
 retry 3 gh api -X PATCH "repos/$REPO_SLUG/pulls/$pr" -F "body=@$tmp/body" -f "title=$new_title" > /dev/null
 if ! pr_field "$pr" '.comments' | grep -q '\[orchestrator\] GO'; then
   {
@@ -22,6 +23,7 @@ if ! pr_field "$pr" '.comments' | grep -q '\[orchestrator\] GO'; then
       cat "$note"
     }
   } > "$tmp/go"
+  "$(dirname "$0")/../agent/check-markdown.sh" "$tmp/go"
   retry 3 gh pr comment "$pr" -R "$REPO_SLUG" --body-file "$tmp/go" > /dev/null
 fi
 board_move "$pr" "In progress" || true

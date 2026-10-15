@@ -2,7 +2,7 @@
 //
 // The ONE narrow imperative entry point vecs-physics exposes: world-scoped,
 // read-only queries against the live Box2D world. Results are always Vecs
-// entities (shape entities) and plain data — never Box2D handles.
+// entities (shapes for spatial hits, bodies for pose changes) and plain data — never Box2D handles.
 //
 // box2d3-wasm imports are confined to `src/adapter/`; this file is part of
 // that boundary. Scratch allocations (b2Vec2, b2QueryFilter, b2AABB,
@@ -138,9 +138,17 @@ export interface ShapeCastHit {
   fraction: number;
 }
 
+/** Reused post-step body ids. Only the count-prefix is valid; neither field may be mutated. */
+export interface PoseChanges {
+  /** Reused eid buffer, replaced when capacity grows. Re-read from the view after each pose-out. */
+  readonly eids: Readonly<Int32Array>;
+  /** Number of valid entries; zero before the first pose-out and after disposal. */
+  readonly count: number;
+}
+
 /**
  * Stable, world-scoped facade for synchronous read-only physics queries: ray
- * casts, shape casts, and spatial overlaps. Obtained via {@link physics}.
+ * casts, shape casts, spatial overlaps and the post-step pose-change view. Obtained via {@link physics}.
  * Never mutates the world, never creates or destroys entities, and never
  * wakes bodies.
  */
@@ -155,6 +163,19 @@ export interface PhysicsQueries {
 
   /** Returns the settings the Box2D world was built with. The object is shared: do not mutate it. */
   settings(): PhysicsSettings;
+
+  /**
+   * Reused read-only eid view published by the most recent pose-out. Contains live Dynamic
+   * move events (including unchanged final sleep events), preceded by application pose writes
+   * admitted by the existing pose-in systems, including static/disabled bodies. Entries may repeat.
+   * Only eids[0..count) is valid; the remaining capacity may contain stale ids. Count is zero before
+   * the first pose-out and on disposal. The same view is overwritten by the next pose-out; its
+   * Int32Array grows by doubling when needed. Read eids afresh each time, do not mutate it, and
+   * copy the valid prefix if retaining a snapshot. Resolve current entities via world.getEntity(eid).
+   * No Box2D handles or per-call allocations. Application writes made after pose-in drains appear
+   * on the following tick; this is not a synchronous ECS pose-write notification.
+   */
+  poseChanges(): PoseChanges;
 
   /**
    * Returns whether `entity`'s body is awake: `false` for an entity without a live body. It
@@ -269,6 +290,10 @@ class PhysicsQueriesImpl implements PhysicsQueries {
       bodyId !== undefined &&
       this.engine.fast.module._b2x_Body_IsAwake(bodyId.index1, rev(bodyId)) !== 0
     );
+  }
+
+  public poseChanges(): PoseChanges {
+    return this.engine.poseChanges;
   }
 
   public settings(): PhysicsSettings {
