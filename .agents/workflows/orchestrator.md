@@ -12,7 +12,7 @@ Validate every Markdown body before posting it to GitHub.
 | Start a worker in a task PR's worktree, resume or steer it with a new message, see whether it runs and what it did, stop it.                                                                                                                                                                       | `worker.sh start <worktree> <prompt.md>`, `worker.sh send\|status\|log\|stop\|wait\|permit <session or worktree>`  |
 | Watch task PRs (READY, QUESTION, pick-ups, stale reviews, merges), the board and what is assigned to you.                                                                                                                                                                                          | `watch-prs.sh` (`ONESHOT=1` to return after the first event)                                                       |
 | Test-merge one or more PRs onto `dev`, then run every check; `--packages "<ws> <ws>…"` limits only tests, and `--bench` runs the sector benchmark.                                                                                                                                                 | `verify.sh [--bench] [--packages "<ws> <ws>…"] <pr>…`                                                              |
-| Squash-merge, close the task's issue, delete the branch, fast-forward the main checkout. Idempotent.                                                                                                                                                                                               | `merge-task.sh <pr> [--subject s] [--body-file f]`                                                                 |
+| Squash-merge by default, close the task's issue, delete the branch, fast-forward the main checkout. Idempotent. Use `--merge-commit` for integration packs; `pack/*` heads are kept unless `--delete-branch` is also given.                                                                        | `merge-task.sh <pr> [--merge-commit] [--delete-branch] [--subject s] [--body-file f]`                              |
 | Read the board, move a card, say whose move it is, read or set what blocks an issue, open an issue and add it to Backlog, or archive old Done cards.                                                                                                                                               | `board.sh list\|move\|next\|mine\|turn\|blocked\|block\|unblock\|issue\|remove\|archive`                           |
 | Post a review outcome or a reply on a PR or an issue, move its card and set whose move it is.                                                                                                                                                                                                      | `review.sh <pr or issue> changes\|owner\|approve\|answer\|ask <comment.md>`                                        |
 
@@ -232,6 +232,12 @@ session in that worktree. Follow the owner's model order: `codexbal/gpt-6.1-sol`
 `provider/id` form and reports the HTTP status if the server refuses the switch.
 
 ## Review and merge
+
+### Merging a pack
+
+Merge an approved integration-pack PR with `merge-task.sh <pr> --merge-commit`. This uses a merge
+commit so the pack branch's integration history is preserved. The `pack/*` head branch is kept by
+default; pass `--delete-branch` only when the owner wants it removed.
 
 1. Read the READY report and the diff. Verify the behavior independently: run the code, and use
    your own oracle for any invariant the worker claims. Check per-tick cost against
