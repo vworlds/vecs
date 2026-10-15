@@ -9,6 +9,91 @@ import {
 } from "../../src/schema/index.js";
 
 suite("schema", () => {
+  it("checks only written structural fields but runs untouched validators on the whole draft", () => {
+    const seen: unknown[] = [];
+    class C {
+      @field({ min: 0, max: 10 }) outOfRange = 100;
+      mixed = [1, "game-written string"];
+      nested = { outOfRange: 100, label: "old" };
+      @field({
+        validate: (_value, draft) => {
+          seen.push(draft);
+        },
+      })
+      untouched = 0;
+      label = "old";
+    }
+    field({
+      type: "object",
+      fields: { outOfRange: { type: "number", max: 10 }, label: { type: "string" } },
+    })(C.prototype, "nested");
+    const draft = { ...new C(), label: "new", nested: { outOfRange: 100, label: "new" } };
+    validateSet(C, draft, { label: "new", nested: { label: "new" } });
+    expect(seen).toEqual([draft]);
+    expect(() => validateSet(C, draft, { outOfRange: 100 })).toThrow("maximum 10");
+    expect(() => validateSet(C, draft, { mixed: draft.mixed })).toThrow("mixed[1]");
+  });
+
+  it("caches schemas and invalidates descendants after field and description registration", () => {
+    let constructions = 0;
+    class Base {
+      x = 0;
+      constructor() {
+        constructions++;
+      }
+    }
+    class Derived extends Base {}
+    const first = componentSchema(Derived);
+    expect(componentSchema(Derived)).toBe(first);
+    expect(constructions).toBe(1);
+    field({ min: 2 })(Base.prototype, "x");
+    const second = componentSchema(Derived);
+    expect(second).not.toBe(first);
+    expect(second.fields.x.min).toBe(2);
+    expect(componentSchema(Derived)).toBe(second);
+    describe("late description")(Base);
+    expect(componentSchema(Derived).description).toBe("late description");
+    expect(constructions).toBe(3);
+  });
+
+  it("registers each standard decorator once per class, preserving derived overrides", () => {
+    const baseInitializers: ((this: object) => void)[] = [];
+    const derivedInitializers: ((this: object) => void)[] = [];
+    const context = (initializers: ((this: object) => void)[]) => ({
+      kind: "field",
+      name: "x",
+      static: false,
+      private: false,
+      addInitializer: (fn: (this: object) => void) => initializers.push(fn),
+    });
+    (field({ min: 1 }) as Function)(undefined, context(baseInitializers));
+    (field({ min: 2 }) as Function)(undefined, context(derivedInitializers));
+    class Base {
+      x = 2;
+      constructor() {
+        baseInitializers.forEach((fn) => fn.call(this));
+      }
+    }
+    class Derived extends Base {
+      constructor() {
+        super();
+        derivedInitializers.forEach((fn) => fn.call(this));
+      }
+    }
+    const base = componentSchema(Base);
+    const derived = componentSchema(Derived);
+    // Registering Derived invalidates the earlier Base cache once.
+    const refreshedBase = componentSchema(Base);
+    expect(refreshedBase.fields.x.min).toBe(1);
+    expect(derived.fields.x.min).toBe(2);
+    new Base();
+    new Derived();
+    new Derived();
+    expect(componentSchema(Base)).toBe(refreshedBase);
+    expect(componentSchema(Derived)).toBe(derived);
+    expect(base.fields.x.min).toBe(1);
+  });
+
   it("merges inference, wire and explicit metadata with inheritance", () => {
     @describe("Base description")
     class Base {

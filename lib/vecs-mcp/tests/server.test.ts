@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { World } from "@vworlds/vecs";
+import { createRequire } from "node:module";
 import { VecsMcpServer } from "../src/index.js";
 
 const servers: VecsMcpServer[] = [];
@@ -47,6 +48,10 @@ describe("Streamable HTTP MCP", () => {
   it("lists exactly seven tools and invokes every tool through the SDK client", async () => {
     const { url } = await start();
     const client = await connect(url);
+    expect(client.getServerVersion()).toEqual({
+      name: "test",
+      version: createRequire(import.meta.url)("../package.json").version,
+    });
     const listing = await client.listTools();
     expect(listing.tools.map((tool) => tool.name).sort()).toEqual([
       "vecs_components",

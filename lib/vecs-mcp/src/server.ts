@@ -2,11 +2,14 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { hostname } from "node:os";
 import { execFileSync } from "node:child_process";
 import { timingSafeEqual } from "node:crypto";
+import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import type { World } from "@vworlds/vecs";
 import { Router } from "./bridge/router.js";
+
+const version = packageVersion();
 
 /** Node-level MCP configuration. Listening is always explicitly opt-in. */
 export interface VecsMcpServerOptions {
@@ -126,7 +129,7 @@ export class VecsMcpServer {
   }
 
   private _adapter(): McpServer {
-    const server = new McpServer({ name: "vecs", version: "1.0.57" });
+    const server = new McpServer({ name: this._router.name, version });
     for (const [name, tool] of Object.entries(tools)) {
       server.registerTool(
         name,
@@ -165,6 +168,23 @@ function git(...args: string[]): string | null {
   } catch {
     return null;
   }
+}
+
+function packageVersion(): string {
+  const require = createRequire(import.meta.url);
+  // Published entrypoints sit beside package.json; workspace src/dist sit below
+  // it. The bundled demo copies our manifest beside its relocated entrypoint.
+  for (const path of ["./package.json", "../package.json", "./vecs-mcp.package.json"]) {
+    try {
+      const pkg = require(path) as { name?: string; version?: string };
+      if (pkg.name === "@vworlds/vecs-mcp" && typeof pkg.version === "string") {
+        return pkg.version;
+      }
+    } catch {
+      /* Try the next supported package layout. */
+    }
+  }
+  throw new Error("Cannot locate @vworlds/vecs-mcp package version");
 }
 
 const target = z

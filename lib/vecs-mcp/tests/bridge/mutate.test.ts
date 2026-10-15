@@ -4,6 +4,34 @@ import { field } from "../../src/schema/index.js";
 import { LocalWorld } from "../../src/bridge/world.js";
 
 describe("mutation boundaries", () => {
+  it("accepts unrelated writes with invalid current structure but still enforces untouched validators", () => {
+    class C {
+      @field({ max: 10 }) existing = 100;
+      mixed = [1, "game state"];
+      label = "old";
+      @field({
+        validate: (_value, draft) => (draft.label === "blocked" ? "whole-draft rule" : undefined),
+      })
+      rule = 0;
+    }
+    const world = new World();
+    world.component(C);
+    const entity = world.entity().add(C);
+    const local = new LocalWorld(world);
+    expect(
+      local.command("vecs_mutate", {
+        ops: [{ set: true, entity: entity.eid, component: "C", value: { label: "new" } }],
+      })
+    ).toEqual({ applied: [{ eid: entity.eid }] });
+    expect(entity.get(C)?.label).toBe("new");
+    expect(() =>
+      local.command("vecs_mutate", {
+        ops: [{ set: true, entity: entity.eid, component: "C", value: { label: "blocked" } }],
+      })
+    ).toThrow("whole-draft rule");
+    expect(entity.get(C)?.label).toBe("new");
+  });
+
   it("resolves entity-typed eids to Entity instances without walking them", () => {
     class Target {
       @field({ type: "entity", optional: true }) target: Entity | undefined = undefined;

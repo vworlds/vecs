@@ -5,7 +5,8 @@ Describe component data for agents without changing game-time behavior.
 Import from `@vworlds/vecs-mcp/schema` in shared code. Both legacy TypeScript and
 standard field decorators are supported. Metadata is recorded in a WeakMap;
 validators are not called by game systems. Standard decorator initializers
-register metadata when an instance is constructed, just like vecs-wire.
+register metadata on the first instance of each concrete class; subsequent
+instances skip registration without rewriting the metadata map.
 
 ```ts
 import { describe, field } from "@vworlds/vecs-mcp/schema";
@@ -24,8 +25,10 @@ class Thruster {
 }
 ```
 
-`componentSchema(C)` returns `{ schema, fields, description? }`. It constructs
-`new C()` for initializer inference (failed constructors yield no inferred
+`componentSchema(C)` returns `{ schema, fields, description? }`, cached per class.
+Treat the returned objects as read-only. A new `field` or `describe` registration
+invalidates the cache, including inherited descriptions and fields. On a cache
+miss it constructs `new C()` for initializer inference (failed constructors yield no inferred
 fields), overlays `wireFields(C)` metadata, then overlays inherited `@field`
 metadata base-first. Each supplied spec key overrides the lower-priority value.
 Descriptions inherit unless overridden. Inference recurses through plain objects
@@ -45,8 +48,12 @@ optionality.
 | `readOnly`               | Reject writes even when the value is unchanged                                       |
 | `validate(value, draft)` | Return an error string or nothing; draft is the merged whole component               |
 
-`validateSet(C, draft, patch)` checks the whole merged draft, rejects unknown
-patch fields and written read-only fields (nested too), then runs validators.
+`validateSet(C, draft, patch)` checks types, ranges, enum values and unknown keys
+only for written patch fields, recursively, and rejects written read-only fields
+(nested too). Existing game state need not satisfy structural constraints on
+untouched fields: a mixed array inferred from its first element or an existing
+out-of-range value does not prevent an unrelated write. Validators still run
+over the whole merged draft, including untouched fields.
 The bridge calls it only for `set`, during static validation and again at the
 write boundary to account for hook-induced changes. Validators should therefore
 be pure. Type failures prevent validators from running. No runtime function

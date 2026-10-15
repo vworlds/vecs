@@ -5,6 +5,8 @@ Discover and address entities, components, relationships and systems by public n
 Every world tool accepts `target?`, the full `<node>/<world>` path. Components use
 class names; duplicate class names are exposed as `Name@eid` and the ambiguous
 bare name is rejected. Entities use a positive eid or an `Identity` name.
+Component trait lists and trait classification exclude `Identity` and `ChildOf`:
+names are identity, and module provenance is already reported by `module`.
 
 | Tool              | Parameters                                                                                                   | Result                                                                                                   |
 | ----------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
@@ -60,6 +62,7 @@ referencing the nth create in this batch (zero-based, preceding creates only).
 
 Create an entity with components by following `create` with `add` or `set` ops
 using `$0`. A `set` creates a component with defaults if absent. It shallow-merges
-`value` through `entity.set`; replacing a nested object must supply all its
-required fields. An `entity`-typed field accepts an existing eid, converted to the
+`value` through `entity.set`; a nested object replaces the previous object rather
+than deep-merging it. Structural checks apply to written keys recursively; whole-draft
+validators may enforce completeness or cross-field rules. An `entity`-typed field accepts an existing eid, converted to the
 world's Entity instance on write. See [execution](./execution.md) before batching.

@@ -1,4 +1,13 @@
-import { Component, Module, DependsOn, Entity, type World, type QueryDSL } from "@vworlds/vecs";
+import {
+  Component,
+  Module,
+  DependsOn,
+  Entity,
+  ChildOf,
+  Identity,
+  type World,
+  type QueryDSL,
+} from "@vworlds/vecs";
 import { componentSchema } from "../schema/index.js";
 import { componentValue } from "./serialize.js";
 import { mutate } from "./mutate.js";
@@ -23,6 +32,7 @@ export class LocalWorld {
       case "vecs_systems":
         return this._systems(params);
       case "vecs_stats": {
+        // Refresh pending pipeline definitions so newly configured systems are listed before a tick.
         void this.world.pipeline;
         return {
           systems: this.world.stats
@@ -63,6 +73,10 @@ export class LocalWorld {
   private _components(filter?: string): unknown[] {
     const registry = this.registry();
     const names = new Map([...registry].map(([name, c]) => [c.eid, name]));
+    const provenance = new Set([
+      this.world.getEntity(ChildOf)?.eid,
+      this.world.getEntity(Identity)?.eid,
+    ]);
     return [...registry]
       .filter(([name]) => filter === undefined || name.includes(filter))
       .map(([name, component]) => {
@@ -73,7 +87,8 @@ export class LocalWorld {
           visited.add(parent.eid);
           parent = parent.parent;
         }
-        const trait = [...registry.values()].some((c) => c.has(component));
+        const trait =
+          !provenance.has(component.eid) && [...registry.values()].some((c) => c.has(component));
         return {
           name,
           eid: component.eid,
@@ -87,7 +102,9 @@ export class LocalWorld {
                   : "component",
           ...(parent instanceof Module ? { module: parent.meta.Class.name } : {}),
           carriers: component.instanceCount(),
-          traits: [...component.components.entries()].map(([eid]) => names.get(eid) ?? String(eid)),
+          traits: [...component.components.entries()]
+            .filter(([eid]) => !provenance.has(eid))
+            .map(([eid]) => names.get(eid) ?? String(eid)),
           schema,
           ...(description === undefined ? {} : { description }),
         };
@@ -153,6 +170,7 @@ export class LocalWorld {
   }
 
   private _systems(params: Record<string, unknown>): unknown {
+    // Force the public pipeline rebuild before reading timings for newly configured systems.
     void this.world.pipeline;
     if (params.enable !== undefined || params.disable !== undefined) {
       if (this.readOnly) {

@@ -48,6 +48,8 @@ interface StandardContext {
 
 const metadata = new WeakMap<Function, Map<string, FieldSpec>>();
 const descriptions = new WeakMap<Function, string>();
+const schemas = new WeakMap<Function, { generation: number; value: ComponentSchema }>();
+let generation = 0;
 
 /** Record a field description in legacy or standard decorator mode. No game hooks are installed. */
 export function field(spec: FieldSpec): PropertyDecorator {
@@ -63,7 +65,14 @@ export function field(spec: FieldSpec): PropertyDecorator {
         throw new TypeError("field supports public, non-static string fields only");
       }
       const name = context.name;
+      // Each decorator registers once per concrete class. Separate sets preserve
+      // base/derived overrides of the same key without replaying them per instance.
+      const registered = new WeakSet<Function>();
       context.addInitializer(function () {
+        if (registered.has(this.constructor)) {
+          return;
+        }
+        registered.add(this.constructor);
         register(this.constructor, name, spec);
       });
     } else {
@@ -79,12 +88,21 @@ export function field(spec: FieldSpec): PropertyDecorator {
 export function describe(text: string): <T extends Function>(C: T) => T {
   return (C) => {
     descriptions.set(C, text);
+    generation++;
     return C;
   };
 }
 
-/** Construct an example and merge inference, wire metadata, and inherited field declarations. */
+/**
+ * Merge inference, wire metadata, and inherited declarations. Cached per class
+ * until a field or description registers; cache misses construct one example.
+ * Treat the returned schema and metadata as read-only.
+ */
 export function componentSchema(C: abstract new () => unknown): ComponentSchema {
+  const cached = schemas.get(C);
+  if (cached?.generation === generation) {
+    return cached.value;
+  }
   let example: object = {};
   try {
     example = new (C as WireConstructor)() as object;
@@ -116,7 +134,7 @@ export function componentSchema(C: abstract new () => unknown): ComponentSchema 
     }
   }
   const schema = objectSchema(fields);
-  return {
+  const value: ComponentSchema = {
     fields,
     description,
     schema: {
@@ -125,11 +143,15 @@ export function componentSchema(C: abstract new () => unknown): ComponentSchema 
       ...(description === undefined ? {} : { description }),
     },
   };
+  // Constructing the example can register standard decorators and advance generation.
+  schemas.set(C, { generation, value });
+  return value;
 }
 
 /**
- * Validate a whole merged draft and reject read-only keys present in patch.
- * Throws TypeError with field paths; validators run after all structural checks.
+ * Check structural constraints only for patch keys, recursively, and reject
+ * written read-only fields. Then run validators over the whole merged draft,
+ * including untouched fields. Throws TypeError with field paths.
  * The caller owns merging patch over the current instance before calling.
  */
 export function validateSet(
@@ -144,11 +166,15 @@ export function validateSet(
 
 function register(C: Function, key: string, spec: FieldSpec): void {
   let fields = metadata.get(C);
+  if (fields?.get(key) === spec) {
+    return;
+  }
   if (!fields) {
     fields = new Map();
     metadata.set(C, fields);
   }
   fields.set(key, spec);
+  generation++;
 }
 
 function infer(value: unknown, seen: Set<object>): FieldSpec {
@@ -267,13 +293,11 @@ function checkObject(
     if (!Object.prototype.hasOwnProperty.call(fields, key)) {
       throw new TypeError(`${path}${key}: unknown field`);
     }
-  }
-  for (const [key, spec] of Object.entries(fields)) {
-    const written = Object.prototype.hasOwnProperty.call(patch, key);
-    if (written && containsReadOnly(spec)) {
+    const spec = fields[key];
+    if (containsReadOnly(spec)) {
       throw new TypeError(`${path}${key}: readOnly`);
     }
-    checkValue(spec, value[key], written ? patch[key] : undefined, `${path}${key}`);
+    checkValue(spec, value[key], patch[key], `${path}${key}`);
   }
 }
 
