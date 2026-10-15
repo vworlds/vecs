@@ -54,14 +54,9 @@ jobs:
 
       - name: Prepare publish packages
         run: |
-          node scripts/prepare-vecs-publish-package.mjs lib/vecs-client
-          node scripts/prepare-vecs-publish-package.mjs lib/vecs-server
-          node scripts/prepare-vecs-publish-package.mjs lib/vecs-protocol
-          node scripts/prepare-vecs-publish-package.mjs lib/vecs-physics
-          node scripts/prepare-vecs-publish-package.mjs lib/vecs-wire
-          node scripts/prepare-vecs-publish-package.mjs lib/vecs-phaser
-          node scripts/prepare-vecs-publish-package.mjs lib/vecs-phaser-server
-          node scripts/prepare-vecs-publish-package.mjs lib/vecs-phaser-client
+          while IFS= read -r package; do
+            [ "$package" = lib/vecs ] || node scripts/prepare-vecs-publish-package.mjs "$package"
+          done < scripts/published-packages.txt
 
       - name: Push version bump
         run: |
@@ -71,48 +66,12 @@ jobs:
           git tag "v${{ steps.bump.outputs.version }}"
           git push origin HEAD:master "v${{ steps.bump.outputs.version }}"
 
-      - name: Publish vecs
-        run: npm publish ./lib/vecs --access public
-        env:
-          NODE_AUTH_TOKEN: ""
-
-      - name: Publish wire
-        run: npm publish ./lib/vecs-wire/dist --access public
-        env:
-          NODE_AUTH_TOKEN: ""
-
-      - name: Publish protocol
-        run: npm publish ./lib/vecs-protocol/dist --access public
-        env:
-          NODE_AUTH_TOKEN: ""
-
-      - name: Publish client
-        run: npm publish ./lib/vecs-client/dist --access public
-        env:
-          NODE_AUTH_TOKEN: ""
-
-      - name: Publish server
-        run: npm publish ./lib/vecs-server/dist --access public
-        env:
-          NODE_AUTH_TOKEN: ""
-
-      - name: Publish physics
-        run: npm publish ./lib/vecs-physics/dist --access public
-        env:
-          NODE_AUTH_TOKEN: ""
-
-      - name: Publish phaser
-        run: npm publish ./lib/vecs-phaser/dist --access public
-        env:
-          NODE_AUTH_TOKEN: ""
-
-      - name: Publish phaser-server
-        run: npm publish ./lib/vecs-phaser-server/dist --access public
-        env:
-          NODE_AUTH_TOKEN: ""
-
-      - name: Publish phaser-client
-        run: npm publish ./lib/vecs-phaser-client/dist --access public
+      - name: Publish packages
+        run: |
+          while IFS= read -r package; do
+            if [ "$package" = lib/vecs ]; then target="./$package"; else target="./$package/dist"; fi
+            npm publish "$target" --access public
+          done < scripts/published-packages.txt
         env:
           NODE_AUTH_TOKEN: ""
 
@@ -171,9 +130,9 @@ jobs:
 
       - name: Prepare publish packages
         run: |
-          for package in vecs-client vecs-server vecs-protocol vecs-physics vecs-wire vecs-phaser vecs-phaser-server vecs-phaser-client; do
-            node scripts/prepare-vecs-publish-package.mjs "lib/$package"
-          done
+          while IFS= read -r package; do
+            [ "$package" = lib/vecs ] || node scripts/prepare-vecs-publish-package.mjs "$package"
+          done < scripts/published-packages.txt
 
       - name: Publish beta packages (never latest)
         env:
@@ -182,8 +141,8 @@ jobs:
           NODE_AUTH_TOKEN: ""
         run: |
           test -n "$SLUG" && test "$SLUG" != latest
-          npm publish ./lib/vecs --access public --tag "$SLUG"
-          for package in vecs-wire vecs-protocol vecs-client vecs-server vecs-physics vecs-phaser vecs-phaser-server vecs-phaser-client; do
-            npm publish "./lib/$package/dist" --access public --tag "$SLUG"
-          done
+          while IFS= read -r package; do
+            if [ "$package" = lib/vecs ]; then target="./$package"; else target="./$package/dist"; fi
+            npm publish "$target" --access public --tag "$SLUG"
+          done < scripts/published-packages.txt
           echo "Beta: $VERSION; install: npm i @vworlds/vecs@$VERSION (or @vworlds/vecs@$SLUG)" >> "$GITHUB_STEP_SUMMARY"
