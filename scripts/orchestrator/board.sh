@@ -2,7 +2,7 @@
 # Read and update the owner's kanban board (.agents/workflows/orchestrator.md, "The board").
 # Usage: scripts/orchestrator/board.sh <command>
 #   list [column] [--all] [--tsv]     cards top to bottom, by column (Done only with --all or by name),
-#                                     with assignees; Ready cards also show what blocks them
+#                                     with assignees, points and model; Ready also shows blockers
 #   move <ref> <column> [--top|--bottom]   put a card in a column; adds the issue or PR if missing
 #   next                              the first Space Rocks card of Ready that nothing blocks: the
 #                                     next thing to start (blocked cards stay in Ready)
@@ -81,10 +81,12 @@ case "$cmd" in
         continue
       }
       printf '== %s (%s)\n' "$([ "$column" = "-" ] && echo "No status" || echo "$column")" "$(wc -l <<< "$rows")"
-      while IFS=$'\t' read -r _ _ kind repo number _ title who; do
+      while IFS=$'\t' read -r _ _ kind repo number _ title who estimate model extra; do
         if [ "$number" = "-" ]; then ref="(draft)"; elif [ "$repo" = "$REPO_SLUG" ]; then ref="#$number"; else ref="${repo#*/}#$number"; fi
         note=""
         [ "$who" = "-" ] || note=" [@${who//,/ @}]"
+        [ "$estimate" = "-" ] || note="$note (${estimate} pt)"
+        [ "$model" = "-" ] || note="$note <$model>"
         if [ "$repo" = "$REPO_SLUG" ] && [ -n "${BOARD_TRACK[$number]:-}" ]; then note="$note {track:${BOARD_TRACK[$number]}}"; fi
         if [ "$column" = Ready ] && [ "$repo" = "$REPO_SLUG" ] && [ "$kind" = ISSUE ]; then
           note="$note$(blockers_of "$number")"
@@ -101,7 +103,7 @@ case "$cmd" in
     ;;
   next)
     board_load_tracks "$WATCH_STATE/tracks" || die "could not read tracks"
-    while IFS=$'\t' read -r _ column kind repo number _ title _; do
+    while IFS=$'\t' read -r _ column kind repo number _ title _ _ _ extra; do
       [ "$column" = Ready ] && [ "$repo" = "$REPO_SLUG" ] || continue
       board_ours "$number" || continue
       if [ "$kind" = ISSUE ]; then

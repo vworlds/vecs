@@ -13,6 +13,7 @@
 #     closes;
 #   - ASSIGNED #n: an open issue or PR newly assigned to me, which means I must act on it;
 #   - OWNER DONE #n: the owner took themselves off a card that was waiting for them;
+#   - GRADE #n: an in-track vecs issue has no estimate and has never been graded;
 #   - STALE: my latest [orchestrator] review has had no reply or commit for 30+ minutes;
 #   - PR #n is now MERGED/CLOSED: a missing task PR confirmed closed over REST. An owner's
 #     merge runs merge-task.sh to finish follow-up; failures keep the open marker for retry.
@@ -149,7 +150,7 @@ revive() { watch_progress "$1" state=working if="${PROGRESS_STUCK// /,}" 2> /dev
 READY_ROWS="" APPROVED_ROWS="" OTHER_ROWS="" INPROGRESS_PRS=""
 watch_board() {
   board_enabled || return 0
-  local items first=false item column kind repo number title who old was mark line
+  local items first=false item column kind repo number title who estimate model extra old was mark line
   # Without the Done column: it only grows, and nothing there needs anyone.
   items="$(board_items "-status:Done" 2> /dev/null)" || return 0
   mkdir -p "$BOARD_STATE"
@@ -157,7 +158,7 @@ watch_board() {
     touch "$BOARD_STATE/.seen"
     first=true
   }
-  while IFS=$'\t' read -r item column kind repo number _ title who; do
+  while IFS=$'\t' read -r item column kind repo number _ title who estimate model extra; do
     [ -n "${item:-}" ] || continue
     if [ "$repo" = "$REPO_SLUG" ] && [[ "$number" =~ ^[0-9]+$ ]] && ! board_ours "$number"; then continue; fi
     [ "$column" != Done ] || continue
@@ -176,6 +177,11 @@ watch_board() {
           emit "OWNER DONE #$number ($kind, $column): $title"
         fi
       fi
+    fi
+    # Reuse the existing board snapshot: no per-card GraphQL read or write for grading.
+    if [ "$repo" = "$REPO_SLUG" ] && [ "$kind" = ISSUE ] && [ "${estimate:--}" = - ] \
+      && [ ! -e "$BOARD_STATE/graded-$number" ]; then
+      once "grade-$number" && emit "GRADE #$number: no estimate yet: $title"
     fi
     old="$(cat "$BOARD_STATE/$item" 2> /dev/null || true)"
     [ "$old" = "$column" ] && continue
@@ -290,7 +296,7 @@ watch_comments() {
 # A worker that waits for a permission, or whose turn failed, says nothing on its PR. Ask the
 # worker server about the task PRs that are In progress. <lines> are the PR query's lines.
 watch_workers() {
-  [ -n "${OPENCODE_SERVER_PASSWORD:-}" ] || return 0
+  # Claude workers need no opencode login; worker.sh rejects unavailable opencode sessions itself.
   local what num branch dir line
   while IFS=$'\t' read -r what num branch _; do
     [ "${what:-}" = O ] || continue

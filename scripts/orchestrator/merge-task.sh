@@ -93,6 +93,16 @@ if [ "$base" = dev ]; then
     board_turn "$n" nobody || true
     board_progress_clear "$n" || true
   done
+  revise=""
+  for n in $closes; do
+    blocked="$(board_blocking "$n")" || {
+      log "warning: cannot read estimates to revise after #$n"
+      continue
+    }
+    revise+=" $(tr '\n' ' ' <<< "$blocked")"
+  done
+  revise="$(tr ' ' '\n' <<< "$revise" | sort -un | sed '/^$/d; s/^/#/' | paste -sd' ' -)"
+  [ -z "$revise" ] || log "revise estimates (their blocker closed): $revise"
 fi
 fetch_refs "+$base:refs/remotes/origin/$base" || die "fetch failed"
 if [[ "$branch" == pack/* ]] && ! $delete_branch; then
