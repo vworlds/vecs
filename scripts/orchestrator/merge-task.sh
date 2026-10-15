@@ -30,8 +30,8 @@ done
 main="$(git rev-parse --path-format=absolute --git-common-dir | sed 's|/.git$||')"
 cd "$main"
 
-info="$(retry 3 gh pr view "$pr" -R "$REPO_SLUG" --json state,title,headRefName,isDraft,mergeable --jq '[.state,.headRefName,.isDraft,.mergeable,.title] | @tsv')"
-IFS=$'\t' read -r state branch draft mergeable title <<< "$info"
+info="$(retry 3 gh pr view "$pr" -R "$REPO_SLUG" --json state,title,headRefName,isDraft,mergeable,baseRefName --jq '[.state,.headRefName,.isDraft,.mergeable,.title,.baseRefName] | @tsv')"
+IFS=$'\t' read -r state branch draft mergeable title base <<< "$info"
 [ "$state" = CLOSED ] && die "PR #$pr is closed without merging"
 # Read before merging: the list is what the PR body links with "Closes #n".
 closes="$(retry 3 gh api graphql -f owner="${REPO_SLUG%/*}" -f name="${REPO_SLUG#*/}" -F pr="$pr" -f query='
@@ -40,8 +40,8 @@ closes="$(retry 3 gh api graphql -f owner="${REPO_SLUG%/*}" -f name="${REPO_SLUG
   --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[].number' || true)"
 
 if [ "$state" = OPEN ]; then
-  [ "$mergeable" = CONFLICTING ] && die "PR #$pr conflicts with dev; ask the worker to merge origin/dev"
-  fetch_refs "+dev:refs/remotes/origin/dev" "+refs/heads/$branch:refs/remotes/origin/$branch" || die "fetch failed"
+  [ "$mergeable" = CONFLICTING ] && die "PR #$pr conflicts with $base; ask the worker to merge origin/$base"
+  fetch_refs "+$base:refs/remotes/origin/$base" "+refs/heads/$branch:refs/remotes/origin/$branch" || die "fetch failed"
   head="$(git rev-parse "origin/$branch")"
   [ "$draft" = true ] && retry 3 gh pr ready "$pr" -R "$REPO_SLUG" > /dev/null
   [ -n "$subject" ] || subject="$(printf '%s' "$title" | sed -E 's/^\[HOLD[^]]*\] //; s/ \(agent task\)$//') (#$pr)"
@@ -73,26 +73,28 @@ if [ "$state" = OPEN ]; then
 fi
 
 sha="$(retry 3 gh api "repos/$REPO_SLUG/pulls/$pr" --jq .merge_commit_sha)"
-for n in $closes; do
-  if [ "$(retry 3 gh api "repos/$REPO_SLUG/issues/$n" --jq .state)" = open ]; then
-    retry 3 gh api -X PATCH "repos/$REPO_SLUG/issues/$n" -f state=closed -f state_reason=completed > /dev/null \
-      && log "closed issue #$n"
-  fi
-  board_move "$n" "Done" || true
-  board_turn "$n" nobody || true
-  board_progress_clear "$n" || true
-done
-fetch_refs "+dev:refs/remotes/origin/dev" || die "fetch failed"
+if [ "$base" = dev ]; then
+  for n in $closes; do
+    if [ "$(retry 3 gh api "repos/$REPO_SLUG/issues/$n" --jq .state)" = open ]; then
+      retry 3 gh api -X PATCH "repos/$REPO_SLUG/issues/$n" -f state=closed -f state_reason=completed > /dev/null \
+        && log "closed issue #$n"
+    fi
+    board_move "$n" "Done" || true
+    board_turn "$n" nobody || true
+    board_progress_clear "$n" || true
+  done
+fi
+fetch_refs "+$base:refs/remotes/origin/$base" || die "fetch failed"
 gh api -X DELETE "repos/$REPO_SLUG/git/refs/heads/$branch" > /dev/null 2>&1 && log "deleted branch $branch" || true
 git update-ref -d "refs/remotes/origin/$branch" 2> /dev/null || true
-if [ "$(git rev-parse --abbrev-ref HEAD)" = dev ] && [ -z "$(git status --porcelain --untracked-files=no)" ]; then
+if [ "$base" = dev ] && [ "$(git rev-parse --abbrev-ref HEAD)" = dev ] && [ -z "$(git status --porcelain --untracked-files=no)" ]; then
   old_head="$(git rev-parse HEAD)"
   git merge -q --ff-only origin/dev
   new_head="$(git rev-parse HEAD)"
   log "main checkout fast-forwarded to ${new_head:0:7}"
   "$(dirname "$0")/install-deps-after-fast-forward.sh" "$main" "$old_head" "$new_head"
 else
-  log "main checkout not on a clean dev; left alone"
+  log "main checkout left alone (PR base is $base)"
 fi
 board_move "$pr" "Done" || true
 board_turn "$pr" nobody || true

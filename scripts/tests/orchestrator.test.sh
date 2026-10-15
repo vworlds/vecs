@@ -316,6 +316,55 @@ check grep -q -- '--base integration' "$TEST_DIR/create-args"
 check grep -q 'base `integration`' "$TEST_DIR/create-body"
 check grep -q 'track:mcp' "$TEST_DIR/label-call"
 unset -f gh git
+gh() {
+  case "$*" in
+    *'issues?state=open&per_page=100'*) jq -nc '[{number:360,pull_request:{},labels:[{name:"track:mcp"}]}]' ;;
+    *'pr view 360 '*)
+      if [ "${MERGE_CASE:-merged}" = conflict ]; then
+        printf 'OPEN\t360-track-task\tfalse\tCONFLICTING\tTrack task\tintegration\n'
+      else
+        printf 'MERGED\t360-track-task\tfalse\tMERGEABLE\tTrack task\tintegration\n'
+      fi
+      ;;
+    *'api graphql'*) : ;;
+    *'pulls/360'*) printf '0123456789abcdef0123456789abcdef01234567\n' ;;
+    *'api -X DELETE '*) : ;;
+    *)
+      printf 'unexpected gh request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+git() {
+  case "$*" in
+    'rev-parse --path-format=absolute --git-common-dir') printf '%s/.git\n' "$ROOT" ;;
+    'rev-parse --abbrev-ref HEAD') printf 'dev\n' ;;
+    'status --porcelain --untracked-files=no') : ;;
+    *' fetch -q '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-fetches" ;;
+    *' update-ref '*) : ;;
+    *' merge '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-git-merges" ;;
+    *)
+      printf 'unexpected git request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+export -f gh git
+if VECS_TRACK=mcp VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/merge-conflict-state" MERGE_CASE=conflict \
+  ROOT="$ROOT" GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT" \
+  bash scripts/orchestrator/merge-task.sh 360 > "$TEST_DIR/merge-conflict" 2>&1; then
+  printf 'FAIL: merge-task accepted a conflicting integration-branch PR\n' >&2
+  exit 1
+fi
+check grep -q 'conflicts with integration.*origin/integration' "$TEST_DIR/merge-conflict"
+VECS_TRACK=mcp VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/merge-success-state" ROOT="$ROOT" \
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT" \
+  bash scripts/orchestrator/merge-task.sh 360 > "$TEST_DIR/merge-success" 2>&1
+check grep -q '+integration:refs/remotes/origin/integration' "$TEST_DIR/merge-fetches"
+check test "$(grep -c '+dev:refs/remotes/origin/dev' "$TEST_DIR/merge-fetches" || true)" = 0
+check test ! -s "$TEST_DIR/merge-git-merges"
+check grep -q 'main checkout left alone (PR base is integration)' "$TEST_DIR/merge-success"
+unset -f gh git
 export VECS_TRACK=mcp
 unset -f gh
 VECS_TRACK=
@@ -623,6 +672,10 @@ gh() {
   esac
 }
 check test "$(board_lookup_item vworlds/vecs 909)" = $'PVTI_909\tReady'
+declare -f board_items > "$TEST_DIR/board-items-before-missing.sh"
+board_items() { :; }
+check test "$(board_where 909)" = Ready
+source "$TEST_DIR/board-items-before-missing.sh"
 
 jq -nc '{data:{node:{items:{pageInfo:{hasNextPage:false,endCursor:null},nodes:[
   {id:"PVTI_ready",status:{name:"Ready"},content:{__typename:"PullRequest",number:10,title:"ready",state:"OPEN",repository:{nameWithOwner:"vworlds/vecs"},assignees:{nodes:[]}}},
