@@ -55,6 +55,11 @@ set -uo pipefail
 . "$(dirname "$0")/../lib/board.sh"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/vecs-watch"
 mkdir -p "$STATE"
+exec 9> "$STATE/watcher.lock"
+if ! flock -n 9; then
+  printf 'watch-prs: another watcher is already running for %s\n' "$STATE" >&2
+  exit 4
+fi
 INTERVAL="${INTERVAL:-10}"
 BUDGET_RESERVE="${BUDGET_RESERVE:-500}"
 POLL_COST=2 # GraphQL points a poll costs
@@ -75,6 +80,24 @@ once() {
   touch "$STATE/$1"
 }
 key() { printf '%s' "$1" | md5sum | cut -c1-16; }
+report_graphql_error() {
+  local message="$1"
+  [ -n "$message" ] || message="GitHub returned an unspecified GraphQL error"
+  message="${message//$'\r'/ }"
+  message="${message//$'\n'/ }"
+  message="${message//$'\t'/ }"
+  once "graphql-error-$(key "$message")" && emit "watcher: GraphQL error: $message"
+}
+report_transport_error() {
+  local message="$1"
+  [ "$BLIND" != true ] || return 0
+  [ "$fails" -ge 3 ] || return 0
+  [ -n "$message" ] || message="GitHub request failed without an error message"
+  message="${message//$'\r'/ }"
+  message="${message//$'\n'/ }"
+  message="${message//$'\t'/ }"
+  once "graphql-transport-error-$(key "$message")" && emit "watcher: GraphQL transport failure: $message"
+}
 # needs_me <first line of a comment>: a worker's READY, QUESTION, DESIGN and BLOCKED do; its
 # other notes don't. Anything that is not a [worker] note does.
 needs_me() {
@@ -87,7 +110,10 @@ needs_me() {
 # Watcher-only board writes must not spend the remaining GraphQL reserve when BLIND.
 watch_progress() {
   [ "${BLIND:-false}" != true ] || return 2
-  board_progress "$@"
+  board_progress "$@" || {
+    quiet "watcher: Progress update failed for #$1 ($*)"
+    return 1
+  }
 }
 watch_progress_clear() { watch_progress "$1" state=- round=- ci=ok; }
 watch_progress_move() {
@@ -97,13 +123,13 @@ watch_progress_move() {
 # report_comment <number> <first line> <event line>: wake or stay quiet, and on a worker's READY
 # for an open task PR move its card to In review.
 report_comment() {
-  local number="$1" first="$2" line="$3"
+  local number="$1" first="$2" line="$3" confirmed_open="${4:-false}"
   if needs_me "$first"; then emit "$line"; else quiet "$line"; fi
-  [ -e "$STATE/open-$number" ] || return 0
+  [ -e "$STATE/open-$number" ] || [ "$confirmed_open" = true ] || return 0
   local round
   case "$first" in
     "[worker] READY"*)
-      watch_progress_move "$number" "In review" 2> /dev/null || true
+      watch_progress_move "$number" "In review" 2> /dev/null || quiet "watcher: In review move failed for #$number"
       round="$(grep -o -i -E 'round [0-9]+' <<< "$first" | grep -o -E '[0-9]+' | head -1)"
       watch_progress "$number" state=ready ${round:+round=$round} 2> /dev/null || true
       ;;
@@ -336,7 +362,7 @@ PR_QUERY='
     pullRequests(states: OPEN, first: 50, orderBy: {field: CREATED_AT, direction: DESC}) { nodes {
       number headRefName headRefOid baseRefName mergeable
       comments(last: 40) { nodes { url createdAt body author { login } } }
-      commits(last: 1) { totalCount nodes { commit { committedDate statusCheckRollup { state } } } } } } }'
+      commits(last: 1) { totalCount nodes { commit { committedDate statusCheckRollup { state } } } } } } } }'
 PR_LINES='
   if (.errors // [] | length) > 0 then error("GraphQL errors") else . end
   |
@@ -388,10 +414,26 @@ while :; do
   turn=true
   [ "$(date +%s)" -ge "$GQL_AT" ] || turn=false
   answered=false
+  graphql_failed=false
+  transport_failed=false
+  transport_error=""
   if $turn; then
     gh api graphql -i -f owner="${REPO_SLUG%/*}" -f name="${REPO_SLUG#*/}" -f query="$PR_QUERY" \
-      > "$STATE/.answer" 2> /dev/null && answered=true
+      > "$STATE/.answer" 2> "$STATE/.error" && answered=true
     note_budget "$STATE/.answer" || true
+    graphql_errors="$(sed '1,/^\r\{0,1\}$/d' "$STATE/.answer" | jq -r '.errors[]?.message // empty' 2> /dev/null || true)"
+    if [ -n "$graphql_errors" ]; then
+      while IFS= read -r graphql_error; do
+        [ -n "$graphql_error" ] || continue
+        report_graphql_error "$graphql_error"
+      done <<< "$graphql_errors"
+      answered=false
+      graphql_failed=true
+    elif ! $answered; then
+      transport_error="$(head -1 "$STATE/.error" | tr '\t\r\n' '   ' | cut -c1-300)"
+      graphql_failed=true
+      transport_failed=true
+    fi
   fi
   if ! $turn; then
     :
@@ -406,7 +448,7 @@ while :; do
         O) progress_of_head "$num" "$url" "$first" "$second" ;;
         C)
           once "c-$(key "$url")" || continue
-          report_comment "$num" "$first" "PR #$num ($branch) comment: $first"
+          report_comment "$num" "$first" "PR #$num ($branch) comment: $first" true
           ;;
         S)
           once "s-$(key "$url")" \
@@ -452,7 +494,11 @@ while :; do
   elif ! $BLIND; then
     # GitHub did not answer, or refused: don't hammer it. Back off up to five minutes.
     lines=""
+    if ! $graphql_failed; then
+      report_graphql_error "Invalid GraphQL response or PR_LINES parsing failure"
+    fi
     fails=$((fails + 1))
+    [ "$transport_failed" != true ] || report_transport_error "$transport_error"
     backoff=$((INTERVAL * (1 << (fails < 5 ? fails : 5))))
     [ "$backoff" -le 300 ] || backoff=300
     GQL_AT=$(($(date +%s) + backoff))

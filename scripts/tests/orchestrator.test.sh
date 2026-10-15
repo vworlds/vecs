@@ -29,6 +29,62 @@ polls=0
 NOW="$(date +%s)"
 date() { if [ "${1:-}" = +%s ]; then printf '%s\n' "$NOW"; else command date "$@"; fi; }
 
+# Keep the embedded PR query structurally balanced and prove its response pipeline emits open PRs.
+query_open_braces="$(grep -o '{' <<< "$PR_QUERY" | wc -l | tr -d ' ')"
+query_close_braces="$(grep -o '}' <<< "$PR_QUERY" | wc -l | tr -d ' ')"
+check test "$query_open_braces" = "$query_close_braces"
+python3 - "$ROOT/scripts" << 'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+documents = []
+for path in root.rglob("*.sh"):
+    for match in re.finditer(r"\bquery\s*=\s*(['\"])(.*?)\1", path.read_text(), re.DOTALL):
+        document = match.group(2)
+        if not document.strip().startswith(("query", "mutation")):
+            continue
+        stack = []
+        pairs = {")": "(", "}": "{"}
+        for char in document:
+            if char in "({":
+                stack.append(char)
+            elif char in ")}":
+                if not stack or stack.pop() != pairs[char]:
+                    raise SystemExit(f"unbalanced GraphQL delimiters in {path}: {document}")
+        if stack:
+            raise SystemExit(f"unbalanced GraphQL delimiters in {path}: {document}")
+        documents.append((path, document))
+
+if len(documents) < 10:
+    raise SystemExit(f"expected to check all embedded GraphQL documents, found {len(documents)}")
+print(f"checked balanced GraphQL delimiters in {len(documents)} embedded documents")
+PY
+cat > "$TEST_DIR/pr-query-fixture.json" << 'EOF'
+{"data":{"repository":{"pullRequests":{"nodes":[{"number":42,"headRefName":"42-work","headRefOid":"head-sha","baseRefName":"dev","mergeable":"MERGEABLE","createdAt":"2026-01-01T00:00:00Z","comments":{"nodes":[]},"commits":{"totalCount":1,"nodes":[{"commit":{"committedDate":"2026-01-01T00:00:00Z","statusCheckRollup":{"state":"SUCCESS"}}}]}}]}}}}
+EOF
+query_fixture_lines="$(jq -r "$PR_LINES" "$TEST_DIR/pr-query-fixture.json")"
+check grep -qx $'O\t42\t42-work\thead-sha\tMERGEABLE\tSUCCESS' <<< "$query_fixture_lines"
+: > "$TEST_DIR/graphql-events"
+report_graphql_error 'Expected NAME, actual: (none)' > "$TEST_DIR/graphql-events"
+report_graphql_error 'Expected NAME, actual: (none)' >> "$TEST_DIR/graphql-events" || true
+report_graphql_error 'a different GraphQL error' >> "$TEST_DIR/graphql-events"
+check test "$(grep -c '^watcher: GraphQL error:' "$TEST_DIR/graphql-events" || true)" = 2
+fails=1 BLIND=false
+report_transport_error 'temporary gateway error' > "$TEST_DIR/transport-events" || true
+fails=2
+report_transport_error 'temporary gateway error' >> "$TEST_DIR/transport-events" || true
+check test ! -s "$TEST_DIR/transport-events"
+fails=3
+report_transport_error 'temporary gateway error' >> "$TEST_DIR/transport-events"
+report_transport_error 'temporary gateway error' >> "$TEST_DIR/transport-events" || true
+check test "$(grep -c '^watcher: GraphQL transport failure:' "$TEST_DIR/transport-events")" = 1
+fails=4 BLIND=true
+report_transport_error 'budget 403' >> "$TEST_DIR/transport-events" || true
+check test "$(grep -c '^watcher: GraphQL transport failure:' "$TEST_DIR/transport-events")" = 1
+BLIND=false
+
 # Owner's pacing examples, plus budget exhaustion and recovery.
 pace 4000 "$((NOW + 3600))"
 check test "$GQL_AT:$BLIND" = 0:false
@@ -123,6 +179,46 @@ check grep -q 'state=question' "$TEST_DIR/progress-events"
 check grep -q 'state=design' "$TEST_DIR/progress-events"
 check grep -q 'state=blocked' "$TEST_DIR/progress-events"
 check grep -q 'state=working if=silent,permission,failed,idle,conflict' "$TEST_DIR/progress-events"
+# GraphQL C records come only from open task PRs, so they can update Progress without relying on
+# a marker left by an earlier poll. REST comments still require the marker established by a poll.
+rm -f "$STATE/open-78"
+report_comment 78 '[worker] READY FOR REVIEW (round 4)' 'graphql-ready' true
+check grep -q 'state=ready round=4' "$TEST_DIR/progress-events"
+report_comment 79 '[worker] READY FOR REVIEW (round 5)' 'rest-ready'
+check test "$(grep -c 'state=ready round=5' "$TEST_DIR/progress-events" || true)" = 0
+touch "$STATE/open-79"
+report_comment 79 '[worker] READY FOR REVIEW (round 5)' 'rest-ready'
+check grep -q 'state=ready round=5' "$TEST_DIR/progress-events"
+# Exercise the REST watcher itself: its event claims the shared key and updates the open PR's
+# Progress. If GraphQL claimed the same key first, REST must not duplicate that event.
+board_me() { printf 'tester\n'; }
+gh() {
+  case "$*" in
+    *'/issues/comments?'*)
+      printf '81\tworker\thttps://github.com/vworlds/vecs/pull/81#issuecomment-81\t[worker] READY FOR REVIEW (round 7)\n'
+      ;;
+    *) return 1 ;;
+  esac
+}
+printf '2026-01-01T00:00:00Z\n' > "$STATE/.comments-since"
+touch "$STATE/open-81"
+watch_comments > "$TEST_DIR/rest-first-events"
+check grep -q 'state=ready round=7' "$TEST_DIR/progress-events"
+printf '2026-01-01T00:00:00Z\n' > "$STATE/.comments-since"
+touch "$STATE/open-82"
+once "c-$(key 'https://github.com/vworlds/vecs/pull/81#issuecomment-81')" || true
+watch_comments > "$TEST_DIR/rest-duplicate-events"
+check test ! -s "$TEST_DIR/rest-duplicate-events"
+unset -f board_me
+gh() {
+  printf 'unexpected gh request: %s\n' "$*" >&2
+  return 1
+}
+# The watcher keeps failed Progress writes in its quiet stream instead of discarding them.
+board_progress() { return 1; }
+report_comment 80 '[worker] READY FOR REVIEW (round 6)' 'failed-ready' true
+check grep -q 'Progress update failed for #80' "$QUIET"
+board_progress() { printf '%s\n' "$*" >> "$TEST_DIR/progress-events"; }
 touch "$STATE/conflict-77"
 printf 'old-head\n' > "$STATE/head-77"
 progress_of_head 77 new-head MERGEABLE FAILURE
@@ -132,6 +228,21 @@ check grep -q 'ci=red' "$TEST_DIR/progress-events"
 check test ! -e "$STATE/conflict-77"
 check test "$(cat "$STATE/head-77")" = new-head
 unset -f board_progress board_move
+
+# A competing watcher sharing the state directory exits immediately and distinctly.
+mkdir -p "$TEST_DIR/lock-state/vecs-watch"
+exec {lock_fd}> "$TEST_DIR/lock-state/vecs-watch/watcher.lock"
+flock -n "$lock_fd"
+if XDG_STATE_HOME="$TEST_DIR/lock-state" bash scripts/orchestrator/watch-prs.sh > "$TEST_DIR/lock-output" 2>&1; then
+  printf 'FAIL: second watcher unexpectedly started\n' >&2
+  exit 1
+else
+  lock_status=$?
+fi
+check test "$lock_status" = 4
+check grep -q 'another watcher is already running' "$TEST_DIR/lock-output"
+flock -u "$lock_fd"
+exec {lock_fd}>&-
 
 # One exhausted-budget polling turn: REST keeps running, no board GraphQL call is made.
 # MAX_MINUTES=0 exits after that single turn, so this cannot poll even a mocked API in a loop.
@@ -164,6 +275,7 @@ printf '2026-01-01T00:00:00Z\n' > "$TEST_DIR/blind-state/vecs-watch/.comments-si
 touch "$TEST_DIR/blind-state/vecs-watch/open-42"
 XDG_STATE_HOME="$TEST_DIR/blind-state" MAX_MINUTES=0 bash scripts/orchestrator/watch-prs.sh > "$TEST_DIR/blind-events"
 check grep -q '^BUDGET:' "$TEST_DIR/blind-events"
+check test "$(grep -c 'GraphQL transport failure' "$TEST_DIR/blind-events" || true)" = 0
 check grep -q '/issues/comments?' "$TEST_DIR/blind-calls"
 check grep -q '/issues?state=open&assignee=' "$TEST_DIR/blind-calls"
 check test "$(grep -c 'api graphql' "$TEST_DIR/blind-calls")" = 1
@@ -212,6 +324,11 @@ for scenario in OPEN MERGED CLOSED failure unreadable errors; do
       check grep -qx "PR #42 is now $scenario" "$TEST_DIR/missing-events"
       check test ! -e "$missing_state/open-42"
       check test -e "$missing_state/.recheck-next"
+      ;;
+    errors)
+      check grep -q '^watcher: GraphQL error: partial answer$' "$TEST_DIR/missing-events"
+      check test -e "$missing_state/open-42"
+      check test ! -e "$missing_state/.recheck-next"
       ;;
     *)
       check test ! -s "$TEST_DIR/missing-events"
