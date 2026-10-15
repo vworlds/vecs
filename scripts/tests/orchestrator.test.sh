@@ -407,10 +407,17 @@ gh() {
     *'pr view 360 '*)
       if [ "${MERGE_CASE:-merged}" = conflict ]; then
         printf 'OPEN\t360-track-task\tfalse\tCONFLICTING\tTrack task\tintegration\n'
+      elif [ "${MERGE_CASE:-merged}" = merge-open ]; then
+        printf 'OPEN\tpack/idle-keepalive\tfalse\tMERGEABLE\tPack integration\tdev\n'
+      elif [ "${MERGE_CASE:-merged}" = squash-open ]; then
+        printf 'OPEN\t360-track-task\tfalse\tMERGEABLE\tTrack task\tdev\n'
       else
         printf 'MERGED\t360-track-task\tfalse\tMERGEABLE\tTrack task\tintegration\n'
       fi
       ;;
+    *'pr ready 360 '*) : ;;
+    *'pr merge 360 '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-gh-args" ;;
+    *'api -X DELETE '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-deletes" ;;
     *'api graphql'*) : ;;
     *'pulls/360'*) printf '0123456789abcdef0123456789abcdef01234567\n' ;;
     *'api -X DELETE '*) : ;;
@@ -424,7 +431,8 @@ git() {
   case "$*" in
     'rev-parse --path-format=absolute --git-common-dir') printf '%s/.git\n' "$ROOT" ;;
     'rev-parse --abbrev-ref HEAD') printf 'dev\n' ;;
-    'status --porcelain --untracked-files=no') : ;;
+    rev-parse\ origin/*) printf '0123456789abcdef0123456789abcdef01234567\n' ;;
+    'status --porcelain --untracked-files=no') [[ "${MERGE_CASE:-}" == *-open ]] && printf ' M mocked\n' ;;
     *' fetch -q '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-fetches" ;;
     *' update-ref '*) : ;;
     *' merge '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-git-merges" ;;
@@ -449,6 +457,21 @@ check grep -q '+integration:refs/remotes/origin/integration' "$TEST_DIR/merge-fe
 check test "$(grep -c '+dev:refs/remotes/origin/dev' "$TEST_DIR/merge-fetches" || true)" = 0
 check test ! -s "$TEST_DIR/merge-git-merges"
 check grep -q 'main checkout left alone (PR base is integration)' "$TEST_DIR/merge-success"
+: > "$TEST_DIR/merge-deletes"
+: > "$TEST_DIR/merge-gh-args"
+VECS_TRACK=mcp VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/merge-commit-state" MERGE_CASE=merge-open ROOT="$ROOT" \
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT" \
+  bash scripts/orchestrator/merge-task.sh 360 --merge-commit > "$TEST_DIR/merge-commit" 2>&1
+check grep -q -- '--merge ' "$TEST_DIR/merge-gh-args"
+check grep -q 'kept integration branch pack/idle-keepalive' "$TEST_DIR/merge-commit"
+check test ! -s "$TEST_DIR/merge-deletes"
+: > "$TEST_DIR/merge-gh-args"
+: > "$TEST_DIR/merge-deletes"
+VECS_TRACK=mcp VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/squash-state" MERGE_CASE=squash-open ROOT="$ROOT" \
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT" \
+  bash scripts/orchestrator/merge-task.sh 360 > "$TEST_DIR/squash-default" 2>&1
+check grep -q -- '--squash ' "$TEST_DIR/merge-gh-args"
+check grep -q 'deleted branch 360-track-task' "$TEST_DIR/squash-default"
 unset -f gh git
 export VECS_TRACK=mcp
 unset -f gh
