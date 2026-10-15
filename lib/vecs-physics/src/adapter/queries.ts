@@ -2,22 +2,24 @@
 //
 // The ONE narrow imperative entry point vecs-physics exposes: world-scoped,
 // read-only queries against the live Box2D world. Results are always Vecs
-// entities (shape entities) and plain data — never Box2D handles.
+// entities (shapes for spatial hits, bodies for pose changes) and plain data — never Box2D handles.
 //
 // box2d3-wasm imports are confined to `src/adapter/`; this file is part of
 // that boundary. Scratch allocations (b2Vec2, b2QueryFilter, b2AABB,
 // b2ShapeProxy) reuse global pools allocated at module load. Transient
 // allocations like b2RayResult are freed via explicit `finally { .delete() }`.
 
-import { type EID, type Entity, type World } from "@vworlds/vecs";
+import { type EID, type Entity, type Vec2, type World } from "@vworlds/vecs";
 
 import { Body } from "../body/components.js";
-import { Box, Capsule, Circle, Polygon, Segment, type Vec2 } from "../shapes/components.js";
+import { Box, Capsule, Circle, Polygon, Segment } from "../shapes/components.js";
 import {
   scr_b2AABB,
   scr_b2QueryFilter,
   scr_b2ShapeProxy,
   scr_b2Vec2,
+  rev,
+  scr_fastOut,
   type Box2DModule,
 } from "./runtime.js";
 import {
@@ -136,9 +138,17 @@ export interface ShapeCastHit {
   fraction: number;
 }
 
+/** Reused post-step body ids. Only the count-prefix is valid; neither field may be mutated. */
+export interface PoseChanges {
+  /** Reused eid buffer, replaced when capacity grows. Re-read from the view after each pose-out. */
+  readonly eids: Readonly<Int32Array>;
+  /** Number of valid entries; zero before the first pose-out and after disposal. */
+  readonly count: number;
+}
+
 /**
  * Stable, world-scoped facade for synchronous read-only physics queries: ray
- * casts, shape casts, and spatial overlaps. Obtained via {@link physics}.
+ * casts, shape casts, spatial overlaps and the post-step pose-change view. Obtained via {@link physics}.
  * Never mutates the world, never creates or destroys entities, and never
  * wakes bodies.
  */
@@ -155,16 +165,29 @@ export interface PhysicsQueries {
   settings(): PhysicsSettings;
 
   /**
+   * Reused read-only eid view published by the most recent pose-out. Contains live Dynamic
+   * move events (including unchanged final sleep events), preceded by application pose writes
+   * admitted by the existing pose-in systems, including static/disabled bodies. Entries may repeat.
+   * Only eids[0..count) is valid; the remaining capacity may contain stale ids. Count is zero before
+   * the first pose-out and on disposal. The same view is overwritten by the next pose-out; its
+   * Int32Array grows by doubling when needed. Read eids afresh each time, do not mutate it, and
+   * copy the valid prefix if retaining a snapshot. Resolve current entities via world.getEntity(eid).
+   * No Box2D handles or per-call allocations. Application writes made after pose-in drains appear
+   * on the following tick; this is not a synchronous ECS pose-write notification.
+   */
+  poseChanges(): PoseChanges;
+
+  /**
    * Returns whether `entity`'s body is awake: `false` for an entity without a live body. It
-   * allocates nothing, so it is cheap enough to call per body per step.
+   * Uses a scalar fast-path read and allocates nothing, so it is cheap enough per body per step.
    */
   isAwake(entity: Entity): boolean;
 
   /**
    * Reads `entity`'s body motion into `out`: whether it is awake, its velocities, its damping, its
-   * center of mass and the gravity scale Box2D applies to it. Each call reads Box2D, and the two
-   * vectors cost a short-lived wasm copy each, so call it when the values are needed, not every
-   * step.
+   * center of mass and the gravity scale Box2D applies to it. One composite fast-path call reads
+   * the same Box2D getters into reusable wasm scratch, with refreshed memory views and no
+   * per-call handle or marshalling allocation. The supplied output remains caller-owned.
    *
    * @param entity The body entity.
    * @param out The object to overwrite.
@@ -240,34 +263,37 @@ class PhysicsQueriesImpl implements PhysicsQueries {
     if (body === undefined || bodyId === undefined) {
       return false;
     }
-    const { box2d } = this.engine;
-    out.awake = box2d.b2Body_IsAwake(bodyId);
-    const linear = box2d.b2Body_GetLinearVelocity(bodyId);
-    try {
-      out.vx = linear.x;
-      out.vy = linear.y;
-    } finally {
-      linear.delete();
-    }
-    out.w = box2d.b2Body_GetAngularVelocity(bodyId);
-    out.linearDamping = box2d.b2Body_GetLinearDamping(bodyId);
-    out.angularDamping = box2d.b2Body_GetAngularDamping(bodyId);
-    const center = box2d.b2Body_GetLocalCenterOfMass(bodyId);
-    try {
-      out.localCenterX = center.x;
-      out.localCenterY = center.y;
-    } finally {
-      center.delete();
-    }
+    // The eight getters in one crossing, read in the same order.
+    const fast = this.engine.fast;
+    fast.module._b2x_Body_GetMotion(bodyId.index1, rev(bodyId), scr_fastOut);
+    fast.sync();
+    const m = fast.layout.motion;
+    const f32 = fast.f32;
+    const at = scr_fastOut;
+    out.awake = fast.i32[(at + m.awake) >> 2] !== 0;
+    out.vx = f32[(at + m.vx) >> 2]!;
+    out.vy = f32[(at + m.vy) >> 2]!;
+    out.w = f32[(at + m.w) >> 2]!;
+    out.linearDamping = f32[(at + m.linearDamping) >> 2]!;
+    out.angularDamping = f32[(at + m.angularDamping) >> 2]!;
+    out.localCenterX = f32[(at + m.localCenterX) >> 2]!;
+    out.localCenterY = f32[(at + m.localCenterY) >> 2]!;
     // Box2D applies gravity times the scale only to a body with mass (src/solver.c:99).
-    out.gravityScale = box2d.b2Body_GetMass(bodyId) > 0 ? box2d.b2Body_GetGravityScale(bodyId) : 0;
+    out.gravityScale = f32[(at + m.mass) >> 2]! > 0 ? f32[(at + m.gravityScale) >> 2]! : 0;
     out.allowFastRotation = body.allowFastRotation;
     return true;
   }
 
   public isAwake(entity: Entity): boolean {
     const bodyId = entity.get(Body)?._bodyId;
-    return bodyId !== undefined && this.engine.box2d.b2Body_IsAwake(bodyId);
+    return (
+      bodyId !== undefined &&
+      this.engine.fast.module._b2x_Body_IsAwake(bodyId.index1, rev(bodyId)) !== 0
+    );
+  }
+
+  public poseChanges(): PoseChanges {
+    return this.engine.poseChanges;
   }
 
   public settings(): PhysicsSettings {

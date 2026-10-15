@@ -30,7 +30,7 @@ export class MaterialFilterSyncModule extends Module {
         },
         (it, material, [shape, body]) => {
           if (requiresMaterialRecreate(engine, shape, material)) {
-            // box2d3-wasm@5.2.0 exposes no shape setters for rollingResistance,
+            // Keep the existing shape-recreation contract for rollingResistance,
             // tangentSpeed, or userMaterialId, so those updates recreate the shape.
             recreateSingleShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
             return;

@@ -219,6 +219,26 @@ Common options:
 
 Advanced callers can pass phase names or phase objects to place physics systems inside an existing Vecs pipeline. See [Systems And Phases](./systems-and-phases.md).
 
+## Disposing A Physics World
+
+Call `world.dispose()` when finished, then discard the world and its physics references:
+
+```ts
+world.dispose();
+```
+
+Disposal releases the owned Box2D world, including bodies, shapes, chains and joints,
+and the reusable move-export buffer. Repeated disposal does not release them twice.
+Call only at the allowed synchronous call sites in
+[Disposing a world](../../vecs/docs/entities.md#disposing-a-world), after the tick or other
+enclosing operation finishes. A refused mid-tick call leaves the physics world live and usable.
+
+Box2D permits **128 live worlds per process**. Disposing one frees its slot, so you can
+create and dispose worlds repeatedly without accumulating live worlds. If Box2D refuses
+creation, `world.module(PhysicsModule)` throws an error naming that limit immediately,
+before any step. Dispose existing worlds before creating more; preload's shared WASM
+runtime and scratch buffers remain available to other worlds.
+
 ## Common Mistakes
 
 ### Forgetting To Preload Physics

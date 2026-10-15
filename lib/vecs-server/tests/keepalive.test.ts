@@ -322,27 +322,33 @@ describe("keepAliveWhile", () => {
     expect(() => rig.world.keepAliveWhile(true)).toThrow(/first session/);
   });
 
-  it("awaits the last content send ack, keeps sending through lost acks, and sends none during the handshake", () => {
-    const rig = gated();
-    expect(step(rig)[0].diff).toMatchObject({ fromFrame: 0, toFrame: 1 });
-    expect(steps(rig, 3)).toEqual([]);
-    rig.entity.add(Moving);
-    ack(rig, 1);
-    expect(steps(rig, 6).map(toFrameOf)).toEqual([5, 6, 7, 8, 9, 10]);
-    rig.entity.remove(Moving);
-    expect(steps(rig, 8)).toEqual([]);
-    move(rig.entity, 9);
-    step(rig);
-    const repeats = steps(rig, 3);
-    expect(repeats).toHaveLength(3);
-    expect(repeats.every((frame) => !isEmptyDiff(frame))).toBe(true);
-    // Every resend moves lastContentSendFrame, even though its state is unchanged.
-    ack(rig, repeats[1]!.diff!.toFrame);
-    const last = step(rig)[0];
-    expect(isEmptyDiff(last)).toBe(true);
-    ack(rig, last.diff!.toFrame);
-    expect(steps(rig, 8)).toEqual([]);
-  });
+  it.each([false, true])(
+    "awaits the last content send ack, keeps sending through lost acks, and sends none during the handshake (timing=%s)",
+    (timing) => {
+      const rig = gated();
+      if (timing) {
+        rig.world.stats.enableSystems();
+      }
+      expect(step(rig)[0].diff).toMatchObject({ fromFrame: 0, toFrame: 1 });
+      expect(steps(rig, 3)).toEqual([]);
+      rig.entity.add(Moving);
+      ack(rig, 1);
+      expect(steps(rig, 6).map(toFrameOf)).toEqual([5, 6, 7, 8, 9, 10]);
+      rig.entity.remove(Moving);
+      expect(steps(rig, 8)).toEqual([]);
+      move(rig.entity, 9);
+      step(rig);
+      const repeats = steps(rig, 3);
+      expect(repeats).toHaveLength(3);
+      expect(repeats.every((frame) => !isEmptyDiff(frame))).toBe(true);
+      // Every resend moves lastContentSendFrame, even though its state is unchanged.
+      ack(rig, repeats[1]!.diff!.toFrame);
+      const last = step(rig)[0];
+      expect(isEmptyDiff(last)).toBe(true);
+      ack(rig, last.diff!.toFrame);
+      expect(steps(rig, 8)).toEqual([]);
+    }
+  );
 
   it("resumes for tag addition, view entry, and a view DSL swap", () => {
     const rig = gated();

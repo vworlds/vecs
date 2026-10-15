@@ -1,7 +1,7 @@
 import { Module } from "@vworlds/vecs";
 
 import { AngularImpulse, Impulse } from "./components.js";
-import { scr_b2Vec2 } from "../adapter/runtime.js";
+import { rev } from "../adapter/runtime.js";
 import {
   getPhysicsEngine,
   PhysicsSystemTag,
@@ -68,6 +68,10 @@ export class ImpulseAccumulateModule extends Module {
 }
 
 function drainLinearImpulses(engine: PhysicsEngine): void {
+  // Avoid allocating an iterator for an empty queue.
+  if (engine.pendingLinearImpulse.size === 0) {
+    return;
+  }
   for (const [bodyId, impulse] of engine.pendingLinearImpulse) {
     // Impulses that cancel out are physically a no-op: skip the wasm call and its wake.
     if (impulse.x === 0 && impulse.y === 0) {
@@ -76,14 +80,21 @@ function drainLinearImpulses(engine: PhysicsEngine): void {
     if (!engine.entityByBodyIndex.has(bodyId.index1)) {
       continue;
     }
-    const vec = scr_b2Vec2[0];
-    vec.Set(impulse.x, impulse.y);
-    engine.box2d.b2Body_ApplyLinearImpulseToCenter(bodyId, vec, impulse.wake);
+    engine.fast.module._b2x_Body_ApplyLinearImpulseToCenter(
+      bodyId.index1,
+      rev(bodyId),
+      impulse.x,
+      impulse.y,
+      impulse.wake ? 1 : 0
+    );
   }
   engine.pendingLinearImpulse.clear();
 }
 
 function drainAngularImpulses(engine: PhysicsEngine): void {
+  if (engine.pendingAngularImpulse.size === 0) {
+    return;
+  }
   for (const [bodyId, impulse] of engine.pendingAngularImpulse) {
     if (impulse.value === 0) {
       continue;
@@ -91,7 +102,12 @@ function drainAngularImpulses(engine: PhysicsEngine): void {
     if (!engine.entityByBodyIndex.has(bodyId.index1)) {
       continue;
     }
-    engine.box2d.b2Body_ApplyAngularImpulse(bodyId, impulse.value, impulse.wake);
+    engine.fast.module._b2x_Body_ApplyAngularImpulse(
+      bodyId.index1,
+      rev(bodyId),
+      impulse.value,
+      impulse.wake ? 1 : 0
+    );
   }
   engine.pendingAngularImpulse.clear();
 }

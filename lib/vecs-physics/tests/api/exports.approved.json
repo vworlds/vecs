@@ -114,6 +114,7 @@
     "PhysicsQueries",
     "PhysicsSettings",
     "PhysicsStats",
+    "PoseChanges",
     "QueryFilter",
     "RayHit",
     "SensorEvent",

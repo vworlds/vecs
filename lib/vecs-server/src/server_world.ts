@@ -57,6 +57,8 @@ interface Update {
   component: ComponentInstance | undefined; // undefined => removal
 }
 
+type SocketSend = (world: ServerWorld, socket: VecsSocket, bytes: Uint8Array) => unknown;
+
 /**
  * Identifies the connection that invoked a server RPC handler.
  *
@@ -459,6 +461,7 @@ export class ServerWorld extends NetworkWorld {
   private _frame = 1;
   private _keepAliveGate: QueryDSL | undefined;
   private _sessionCreated = false;
+  private _replicationSendMs = 0;
 
   public constructor(options: ServerWorldOptions = {}) {
     if (options.localEntityIdStart !== undefined) {
@@ -789,9 +792,19 @@ export class ServerWorld extends NetworkWorld {
    *
    * Registered as the world's own `Send` system in a phase after `ON_STORE`, so
    * it normally runs as part of `progress()`; call it directly only to drive a
-   * world that has no tick loop.
+   * world that has no tick loop. With `stats.enableSystems()`, operation rows
+   * break down synchronous replication preparation/encoding and socket sends
+   * per frame. They overlap the Send system row; async delivery is not timed.
    */
   public send(): void {
+    if (this.stats.systemsEnabled) {
+      this._sendInstrumented();
+    } else {
+      this._prepareAndSend(ServerWorld._sendSocketPlain);
+    }
+  }
+
+  private _prepareAndSend(sendSocket: SocketSend): void {
     const toFrame = this._frame++;
     if (this._sessions.size === 0) {
       this._updates.clear();
@@ -806,7 +819,7 @@ export class ServerWorld extends NetworkWorld {
         // Scheduled to close: no further state, but the rejection that explains
         // the close still owes the client a frame — and that frame must be
         // allowed to reach the client before the transport goes down.
-        this._lingerOrClose(session, nowMs);
+        this._lingerOrClose(session, nowMs, sendSocket);
         return;
       }
 
@@ -888,7 +901,8 @@ export class ServerWorld extends NetworkWorld {
           // A delta that starts past the ack presumes the client holds what is in
           // between; the marker tells the client it may not, and must not fail.
           optimistic: diff !== undefined && diff.fromFrame > session.ackFrame,
-        })
+        }),
+        sendSocket
       );
     });
 
@@ -900,6 +914,44 @@ export class ServerWorld extends NetworkWorld {
     });
 
     this._updates.clear();
+  }
+
+  // Keep the plain replication path free of per-connection timing checks.
+  // Preparation/encoding is the frame's synchronous work minus socket sends.
+  private _sendInstrumented(): void {
+    this._replicationSendMs = 0;
+    const start = performance.now();
+    try {
+      this._prepareAndSend(ServerWorld._sendSocketInstrumented);
+    } finally {
+      const elapsed = performance.now() - start;
+      this.stats.recordOperation(
+        "replication:encode",
+        Math.max(0, elapsed - this._replicationSendMs)
+      );
+      this.stats.recordOperation("replication:send", this._replicationSendMs);
+    }
+  }
+
+  private static _sendSocketInstrumented(
+    world: ServerWorld,
+    socket: VecsSocket,
+    bytes: Uint8Array
+  ): unknown {
+    const start = performance.now();
+    try {
+      return socket.send(bytes);
+    } finally {
+      world._replicationSendMs += performance.now() - start;
+    }
+  }
+
+  private static _sendSocketPlain(
+    _world: ServerWorld,
+    socket: VecsSocket,
+    bytes: Uint8Array
+  ): unknown {
+    return socket.send(bytes);
   }
 
   /**
@@ -1205,7 +1257,9 @@ export class ServerWorld extends NetworkWorld {
   }
 
   /**
-   * The only place the server calls `socket.send`. A transport can fail a send
+   * Shared encoding and failure boundary for frame sends. The frame's selected
+   * socket-send primitive is passed through normal and linger traffic without
+   * a per-connection timing check. A transport can fail a send
    * because the peer is already gone, either by throwing or, for an async
    * transport, by returning a promise that rejects. Neither may escape: an
    * unhandled rejection is fatal to the whole process. A failed send is treated
@@ -1213,7 +1267,11 @@ export class ServerWorld extends NetworkWorld {
    * and runs it once however many sends fail. Works with a `send` that returns
    * nothing as well as one that returns a promise.
    */
-  private _sendFrame(session: ServerClientSession, message: Server2Client): void {
+  private _sendFrame(
+    session: ServerClientSession,
+    message: Server2Client,
+    sendSocket: SocketSend
+  ): void {
     if (session.closed || session.sendFailed) {
       return;
     }
@@ -1225,7 +1283,7 @@ export class ServerWorld extends NetworkWorld {
       this._onDisconnect(session.context.connectionId);
     };
     try {
-      const result: unknown = session.socket.send(this._encode(message));
+      const result = sendSocket(this, session.socket, this._encode(message));
       if (typeof (result as PromiseLike<unknown> | undefined)?.then === "function") {
         (result as PromiseLike<unknown>).then(undefined, fail);
       }
@@ -1402,7 +1460,11 @@ export class ServerWorld extends NetworkWorld {
    * @param session - The closing session, visited by {@link ServerWorld.send}.
    * @param nowMs - Wall-clock timestamp (`performance.now()`) of this send.
    */
-  private _lingerOrClose(session: ServerClientSession, nowMs: number): void {
+  private _lingerOrClose(
+    session: ServerClientSession,
+    nowMs: number,
+    sendSocket: SocketSend
+  ): void {
     const flushed = session.closeFlushedFrame;
     if (flushed !== undefined) {
       if (session.ackFrame >= session.closeAckFrame || nowMs >= session.closeDeadlineMs) {
@@ -1415,7 +1477,7 @@ export class ServerWorld extends NetworkWorld {
       if (late.length > 0) {
         flushed.rpc.push(...late);
       }
-      this._sendFrame(session, flushed);
+      this._sendFrame(session, flushed, sendSocket);
       return;
     }
     const rpc = session.rpc.getOutgoing();
@@ -1439,7 +1501,7 @@ export class ServerWorld extends NetworkWorld {
     session.closeFlushedFrame = frame;
     session.closeAckFrame = toFrame;
     session.closeDeadlineMs = nowMs + this._closeLingerMs;
-    this._sendFrame(session, frame);
+    this._sendFrame(session, frame, sendSocket);
   }
 
   /**

@@ -12,6 +12,10 @@ every idiom in the [Design guide](./design-guide.md) is a consequence of taking 
 
 ## The pieces
 
+For packages and applications that exchange 2D points or vectors, import the shared type with
+`import type { Vec2 } from "@vworlds/vecs"`. It is structural (`{ x: number; y: number }`) and has
+no runtime or wire representation.
+
 | Concept                    | What it is                                                                                                   |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | **World**                  | Central container. Owns every entity, registered component, query, system, and the flat system pipeline.     |

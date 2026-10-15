@@ -11,5 +11,7 @@ Always read the relevant files before doing the matching work:
 - `.agents/rules/documentation.md` before adding or changing features, public APIs, or behavior.
 - `.agents/rules/box2d-references.md` before cloning Box2D reference sources for vecs-physics work.
 - `.agents/workflows/pr-workflow.md` before preparing or creating pull requests.
+- `.agents/workflows/task-workflow.md` when working as a task-PR worker.
+- `.agents/workflows/orchestrator.md` when operating the shared project board or coordinating task PRs.
 - `.agents/skills/release/SKILL.md` before cutting a vecs release (merging dev into master to trigger CI version bump).
 - `.agents/README.md` before modifying these instructions, and only when explicitly asked to update repo instructions.

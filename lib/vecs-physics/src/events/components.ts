@@ -25,19 +25,28 @@ export type HitEvent = {
   speed: number;
 };
 
-/** Per-shape contact begin/end buffers. Add to opt a shape into contact events. */
+/**
+ * Per-shape contact begin/end buffers. Add to opt a shape into contact events.
+ * Subtree snapshots preserve the opt-in but restore fresh, empty buffers.
+ */
 export class ContactEvents {
   begin: ContactEvent[] = [];
   end: ContactEvent[] = [];
 }
 
-/** Per-shape sensor overlap begin/end buffers. */
+/**
+ * Per-shape sensor overlap begin/end buffers. Add to opt into sensor events.
+ * Subtree snapshots preserve the opt-in but restore fresh, empty buffers.
+ */
 export class SensorEvents {
   begin: SensorEvent[] = [];
   end: SensorEvent[] = [];
 }
 
-/** Per-shape hit-event buffer (fast/high-speed contacts). */
+/**
+ * Per-shape hit-event buffer (fast/high-speed contacts). Add to opt into hit events.
+ * Subtree snapshots preserve the opt-in but restore a fresh, empty buffer.
+ */
 export class HitEvents {
   hits: HitEvent[] = [];
 }

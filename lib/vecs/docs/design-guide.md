@@ -135,7 +135,8 @@ world.component(Phaser.GameObjects.Arc).on("remove", (_entity, obj) => obj.destr
 
 `onRemove` (below) releases the resource whenever it leaves — whether removed explicitly,
 because the entity was destroyed, or because the world was disposed (`world.dispose()` destroys
-every entity the application created; see [Disposing a world](./entities.md#disposing-a-world)).
+application entities and then infrastructure and singleton data; see
+[Disposing a world](./entities.md#disposing-a-world)).
 When several resource types should share one cleanup hook or be queried together, give them a
 common **interface** with `Implements` (see §7 and the §10 case study). A plain wrapper component
 (`class Handle { obj }`) is still fine when you need extra fields beside the resource.
@@ -373,6 +374,24 @@ Why:
 
 Components listed in the inject tuple but **not** guaranteed by `.with(...)` resolve as
 `T | undefined` (the types reflect this) — guard them; the ones in `.with` are always present.
+
+Inject `Now` or `Delta` when a system entity callback needs time, rather than capturing it in a
+separate `.run` callback. They mix with component and relationship injects in any tuple position:
+
+```ts
+import { Delta } from "@vworlds/vecs";
+
+world
+  .system("Move")
+  .with(Position, Velocity)
+  .each([Position, Delta, Velocity], (entity, [pos, delta, vel]) => {
+    pos.x += (vel.vx * delta) / 1000;
+    entity.modified(Position);
+  });
+```
+
+For processing-time semantics, cadence accumulation, and callback support, see
+[System clock injection](./systems.md#clock-injection).
 
 ### `each` vs reactive — don't scan when you can react
 
@@ -863,9 +882,12 @@ system after whatever produces the entity/companion.
   That guard is legitimate; elsewhere a `destroyed` check usually signals a missing edge (see §8 and
   [Hooks](./components.md#hooks-component-and-relationship-edges)).
 - **Release resources in `remove` hooks, not in a system's `exit` callback.** `world.dispose()`
-  runs the hooks during the call, but a system's `exit` callback only queues its event, and a
-  disposed world never runs the system again (see
+  runs hooks during teardown, but a system's `exit` callback only queues its event and may not
+  run before infrastructure is destroyed (see
   [Disposing a world](./entities.md#disposing-a-world)).
+- **Request shutdown in a system; dispose after the tick.** For allowed call sites and refusal
+  behavior, see [Disposing a world](./entities.md#disposing-a-world). No core tick or mutation
+  boundary performs disposal for you.
 - **Within a phase, order = registration order;** across phases, the spine guarantees order. Don't
   use registration order for cross-module correctness — use phases.
 - **Networked component order = wire protocol.** Reordering breaks the protocol.

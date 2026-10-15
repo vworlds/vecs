@@ -1,5 +1,8 @@
 import { type World } from "./world/index.js";
 
+// Absorb float residue from summed frame deltas; far smaller than a frame.
+const INTERVAL_RELATIVE_TOLERANCE = 1e-9;
+
 /** A clock that the world evaluates once per frame. */
 export interface ITickSource {
   /** True when this source fired during the current frame. */
@@ -54,9 +57,13 @@ abstract class BaseTickSource implements ITickSource {
   }
 }
 
-/** Fires every `intervalSeconds` of accumulated wall-clock time. */
+/**
+ * Fires every `intervalSeconds` of accumulated wall-clock time, allowing a
+ * relative tolerance of 1e-9 to absorb floating-point frame-delta residue.
+ */
 export class IntervalTickSource extends BaseTickSource {
   private readonly _intervalMs: number;
+  private readonly _tickThresholdMs: number;
   private _accumulator = 0;
 
   /**
@@ -65,6 +72,8 @@ export class IntervalTickSource extends BaseTickSource {
    * Intervals are expressed in seconds, unlike `World.progress` and
    * `World.beginFrame`, which receive millisecond deltas. Large deltas produce
    * at most one tick; residual time is preserved by subtracting the interval.
+   * A relative tolerance of 1e-9 avoids a one-frame delay at rounded interval
+   * boundaries; a tolerated negative residue is clamped to zero.
    *
    * @param intervalSeconds - Positive interval duration in seconds.
    * @throws When `intervalSeconds` is less than or equal to zero.
@@ -75,6 +84,12 @@ export class IntervalTickSource extends BaseTickSource {
       throw new Error("interval seconds must be greater than 0");
     }
     this._intervalMs = intervalSeconds * 1000;
+    this._tickThresholdMs = this._intervalMs * (1 - INTERVAL_RELATIVE_TOLERANCE);
+  }
+
+  /** Configured interval duration in seconds (not milliseconds). */
+  public get seconds(): number {
+    return this._intervalMs / 1000;
   }
 
   /** @internal */
@@ -91,8 +106,8 @@ export class IntervalTickSource extends BaseTickSource {
     this._timeSinceLastTick += deltaMs;
     this._accumulator += deltaMs;
     let fired = false;
-    if (this._accumulator >= this._intervalMs) {
-      this._accumulator -= this._intervalMs;
+    if (this._accumulator >= this._tickThresholdMs) {
+      this._accumulator = Math.max(0, this._accumulator - this._intervalMs);
       fired = true;
       this._lastFireDelta = this._timeSinceLastTick;
       this._timeSinceLastTick = 0;
@@ -127,6 +142,16 @@ export class RateTickSource extends BaseTickSource {
     }
     this._rate = rate;
     this._source = source;
+  }
+
+  /** Number of upstream ticks, or world frames, per tick of this source. */
+  public get rate(): number {
+    return this._rate;
+  }
+
+  /** Upstream clock, or `undefined` when this source counts world frames. */
+  public get source(): ITickSource | undefined {
+    return this._source;
   }
 
   /** @internal */
@@ -187,5 +212,5 @@ class _AlwaysTickSource implements ITickSource {
   public _register(_world: World): void {}
 }
 
-/** @internal Shared default clock for unconfigured systems. */
+/** Shared every-frame clock. Compare with `system.cadence` to identify default cadence. */
 export const ALWAYS_TICK_SOURCE: ITickSource = new _AlwaysTickSource();

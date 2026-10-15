@@ -42,7 +42,7 @@ describe("DeferredMassFlagSyncTest (golden from box2d/test/test_world.c)", () =>
     world.progress(16, 16);
     expect(engine.dirtyMassBodies.size).toBe(0);
     const expectedMass = PI * 0.5 * 0.5; // density=1, radius=0.5
-    // box2d3-wasm@5.2.0 baseline.
+    // @vworlds/box2d3-wasm@6.0.1 baseline.
     expect(engine.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(expectedMass, 4);
 
     // Step again — no crash; mass remains recomputed.
@@ -71,7 +71,7 @@ describe("PhysicsMassRecompute", () => {
     world.progress(16, 16);
 
     expect(engine.dirtyMassBodies.size).toBe(0);
-    // Tight numeric baseline recorded from box2d3-wasm@5.2.0.
+    // Tight numeric baseline validated unchanged with @vworlds/box2d3-wasm@6.0.1.
     expect(engine.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(15.707963943481445, 6);
   });
 
@@ -150,7 +150,7 @@ describe("PhysicsMassRecompute", () => {
 
     const bodyId = bodyEnt.get(Body)!._bodyId!;
 
-    // box2d3-wasm@5.2.0 baseline: mass = density·π·r² = 1·π·1 = π.
+    // @vworlds/box2d3-wasm@6.0.1 baseline: mass = density·π·r² = 1·π·1 = π.
     expect(engine.box2d.b2Body_GetMass(bodyId)).toBeCloseTo(PI, 6);
     expect(engine.box2d.b2Body_GetRotationalInertia(bodyId)).toBeGreaterThan(0);
   });

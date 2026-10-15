@@ -5,7 +5,7 @@
 // identical setup and fixed stepping produce byte-equal engine snapshots within
 // one x64 Linux process.
 //
-// Baseline recorded against box2d3-wasm@5.2.0.
+// Baseline validated unchanged against @vworlds/box2d3-wasm@6.0.1.
 // If the upstream box2d3-wasm version bumps, this parity baseline must be
 // re-recorded against the new version.
 

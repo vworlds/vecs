@@ -27,6 +27,154 @@ function setup() {
 }
 
 describe("Timers and tick sources", () => {
+  it.each([
+    [30, 0.5, 15],
+    [30, 1, 30],
+    [30, 0.1, 3],
+    [60, 0.5, 30],
+    [15, 1, 15],
+  ])("interval(%s Hz, %s seconds) fires every %s frames", (hz, seconds, k) => {
+    const { world, tick } = setup();
+    const frames: number[] = [];
+    let frame = 0;
+    world
+      .system("measured")
+      .interval(seconds)
+      .run(() => frames.push(frame));
+    for (frame = 1; frame <= k * 4; frame++) {
+      tick(frame * (1000 / hz), 1000 / hz);
+    }
+    expect(frames).toEqual([k, k * 2, k * 3, k * 4]);
+  });
+
+  describe.each([15, 30, 60])("whole-frame intervals at %s Hz", (hz) => {
+    it.each([1, 3, 15, 30, 45])("fires every %s frames over 100,000 frames", (k) => {
+      const source = new IntervalTickSource(k / hz);
+      const mismatches: number[] = [];
+      let count = 0;
+      for (let frame = 1; frame <= 100_000; frame++) {
+        const fired = source._evalTick(1000 / hz, frame);
+        if (fired) {
+          count++;
+        }
+        if (fired !== (frame % k === 0) && mismatches.length < 10) {
+          mismatches.push(frame);
+        }
+      }
+      expect(mismatches).toEqual([]);
+      expect(count).toBe(Math.floor(100_000 / k));
+    });
+
+    it("preserves the exact rational schedule with jittered fractional deltas", () => {
+      const source = new IntervalTickSource(15 / hz);
+      // Eighths of a frame: each four-frame cycle still totals four frames.
+      const eighths = [6, 10, 9, 7];
+      const mismatches: number[] = [];
+      let elapsedEighths = 0;
+      let count = 0;
+      for (let frame = 1; frame <= 100_000; frame++) {
+        const step = eighths[(frame - 1) % eighths.length];
+        const before = Math.floor(elapsedEighths / (15 * 8));
+        elapsedEighths += step;
+        const expected = Math.floor(elapsedEighths / (15 * 8)) > before;
+        const fired = source._evalTick((1000 / hz) * (step / 8), frame);
+        if (fired) {
+          count++;
+        }
+        if (fired !== expected && mismatches.length < 10) {
+          mismatches.push(frame);
+        }
+      }
+      expect(mismatches).toEqual([]);
+      expect(count).toBe(Math.floor(elapsedEighths / (15 * 8)));
+    });
+  });
+
+  it.each([
+    [16, 100],
+    [8, 100],
+    [20, 105],
+  ])(
+    "preserves non-whole-frame schedules for %s ms frames / %s ms intervals",
+    (delta, interval) => {
+      const source = new IntervalTickSource(interval / 1000);
+      const mismatches: number[] = [];
+      let count = 0;
+      // Integer millisecond arithmetic is exact here and models the old >= rule.
+      for (let frame = 1; frame <= 100_000; frame++) {
+        const expected =
+          Math.floor((frame * delta) / interval) > Math.floor(((frame - 1) * delta) / interval);
+        const fired = source._evalTick(delta, frame);
+        if (fired) {
+          count++;
+        }
+        if (fired !== expected && mismatches.length < 10) {
+          mismatches.push(frame);
+        }
+      }
+      expect(mismatches).toEqual([]);
+      expect(count).toBe(Math.floor((100_000 * delta) / interval));
+    }
+  );
+
+  it.each([
+    {
+      hz: 15,
+      frames: Array.from({ length: 60 }, (_, i) => i + 1).filter(
+        (frame) => ![1, 22, 43].includes(frame)
+      ),
+    },
+    {
+      hz: 30,
+      frames: [
+        3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 45, 47, 49, 51,
+        53, 55, 57, 59,
+      ],
+    },
+    { hz: 60, frames: [5, 9, 13, 17, 21, 26, 30, 34, 38, 42, 47, 51, 55, 59] },
+  ])("matches the recorded old non-whole-frame schedule at $hz Hz", ({ hz, frames }) => {
+    // Recorded using the pre-fix accumulator >= 70 / subtract 70 rule.
+    const source = new IntervalTickSource(0.07);
+    const actual: number[] = [];
+    for (let frame = 1; frame <= 60; frame++) {
+      if (source._evalTick(1000 / hz, frame)) {
+        actual.push(frame);
+      }
+    }
+    expect(actual).toEqual(frames);
+  });
+
+  it("clamps tolerated negative residue instead of accumulating an early-fire debt", () => {
+    const source = new IntervalTickSource(1);
+    let count = 0;
+    for (let frame = 1; frame <= 100_000; frame++) {
+      if (source._evalTick(1000 - 0.0000005, frame)) {
+        count++;
+      }
+    }
+    expect(count).toBe(100_000);
+    expect(source.lastFireDelta).toBe(1000 - 0.0000005);
+  });
+
+  it("does not fire before the relative tolerance window", () => {
+    const source = new IntervalTickSource(1);
+    expect(source._evalTick(1000 - 0.000002, 1)).toBe(false);
+    expect(source._evalTick(0.000002, 2)).toBe(true);
+    expect(source.lastFireDelta).toBe(1000);
+  });
+
+  it("fires only once per frame for large deltas and preserves positive backlog", () => {
+    const source = new IntervalTickSource(1);
+    expect(source._evalTick(3500, 1)).toBe(true);
+    expect(source.lastFireDelta).toBe(3500);
+    expect(source._evalTick(3500, 1)).toBe(true); // Memoized, not another subtraction.
+    expect(source._evalTick(0, 2)).toBe(true);
+    expect(source._evalTick(0, 3)).toBe(true);
+    expect(source._evalTick(0, 4)).toBe(false);
+    expect(source._evalTick(500, 5)).toBe(true);
+    expect(source.lastFireDelta).toBe(500);
+  });
+
   it("system.interval fires on accumulated milliseconds and preserves drift", () => {
     const { world, tick } = setup();
     const cb = vi.fn();

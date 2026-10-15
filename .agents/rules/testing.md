@@ -7,6 +7,34 @@ npm run test
 npm run typecheck
 ```
 
+The root `npm run test` caps each workspace's Vitest pool at two workers by default to
+limit resource use on shared builders. Override it with `VITEST_MAX_WORKERS=4 npm run test`
+(or another worker count). Forks and per-file isolation retain their Vitest defaults.
+Running a single workspace directly, for example `npm run test -w @vworlds/vecs-physics`,
+retains Vitest's default worker count unless you set `VITEST_MAX_WORKERS` yourself.
+
+## Correctness, stress, and measurements
+
+- `npm run test` answers “does it work?” with deterministic behavior assertions. Keep
+  measurements and minute-long simulation horizons out of this tier.
+- Put long correctness scenarios in `*.stress.test.ts`. Every workspace's normal Vitest
+  configuration excludes those files. `npm run test:stress` runs only stress files,
+  using the same root worker cap as `test`; workspaces with stress files expose the
+  same script with a stress configuration that retains their aliases and setup.
+- Use separate entry files and shared case-registration helpers for short and long
+  versions. Do not env-gate or `skipIf` tests in normal files.
+- Before shortening a regression scenario, temporarily mutate its guarded behavior
+  and confirm every shortened case fails. Revert the mutation, confirm the cases pass,
+  and report the mutation/results in review evidence. Without that evidence, keep the
+  original scenario in the normal tier.
+- Keep full measurement scenes in `bench/`. `npm run bench:release-check` compares
+  built HEAD packages against the previous release and warns about regressions without
+  failing the build. See [benchmark commands and comparison policy](../../bench/README.md).
+
+The nightly/manual `stress-and-bench.yml` workflow runs stress correctness and release
+comparison separately from push/PR CI. A stress assertion failure fails the job;
+benchmark warnings become annotations and appear in the job summary.
+
 When fixing a bug, add a regression test that fails before the fix and passes after it. Put the test in the affected workspace's `tests/` directory:
 
 - `lib/vecs/tests/` for ECS internals (world, entity, query, system, dsl, bitset, ordered-set, etc.).

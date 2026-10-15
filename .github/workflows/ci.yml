@@ -6,16 +6,19 @@ on:
       - dev
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
 
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
-          cache: npm
 
       - name: Install dependencies
         run: npm ci
@@ -29,8 +32,26 @@ jobs:
       - name: Format
         run: npm run format:check
 
+      - name: Changelog fragments
+        run: |
+          scripts/agent/check-changelog.sh
+          scripts/tests/changelog.test.sh
+          scripts/tests/markdown.test.sh
+
       - name: Run tests
         run: npm run test
 
+      - name: Release publication verification tests (offline)
+        run: bash scripts/tests/release-publish.test.sh
+
+      - name: Beta publication tests (offline)
+        run: |
+          node --test scripts/tests/beta-versions.test.mjs
+          bash scripts/tests/publish-beta.test.sh
+
       - name: Build
         run: npm run build
+
+      - name: Clean workspace
+        if: always()
+        run: git clean -ffdx

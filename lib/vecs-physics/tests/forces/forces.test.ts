@@ -4,7 +4,7 @@
 // pipeline: PhysicsModule → world.progress.
 //
 // Pattern for "known mass": attach a default 1x1 Box with density 1. On
-// box2d3-wasm@5.2.0 this gives mass = 1 and inertia = 1/6.
+// @vworlds/box2d3-wasm@6.0.1 this gives mass = 1 and inertia = 1/6.
 //
 // Cases covered:
 //   1. Force persistence: Force(10,0) → body accelerates each step (F = m·a).
@@ -211,7 +211,7 @@ describe("PhysicsForceGather — torque persistence", () => {
 
     e.set(Torque, { value: 5 });
     now = step(world, 1, now);
-    // box2d3-wasm@5.2.0: default 1x1 box has inertia 1/6, so invInertia = 6.
+    // @vworlds/box2d3-wasm@6.0.1: default 1x1 box has inertia 1/6, so invInertia = 6.
     expect(e.get(AngularVelocity)!.value).toBeCloseTo(5 * 6 * DT, 5);
 
     now = step(world, 1, now);
@@ -353,7 +353,7 @@ describe("PhysicsImpulseZero — silent zero", () => {
 
     now = step(world, 1, now);
 
-    // box2d3-wasm@5.2.0: default 1x1 box has inertia 1/6, so invInertia = 6.
+    // @vworlds/box2d3-wasm@6.0.1: default 1x1 box has inertia 1/6, so invInertia = 6.
     expect(e.get(AngularVelocity)!.value).toBeCloseTo(42, 5);
 
     // Watcher saw the two user sets, not the silent zero.

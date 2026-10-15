@@ -278,6 +278,20 @@ every pending `invoke` with an `RPCError` carrying `RPC_CLOSED_CODE`. A synchron
 promise from `VecsSocket.send` follows the same path, so a transport that misses or delays its
 `disconnect` event cannot leave an ack rejection or RPC hanging.
 
+If any disconnection happens during `progress()` or `apply()`, only the event waits: it is emitted
+once after the outermost call finishes, including when application code throws. This covers
+protocol errors, server close notices, transport loss, failed sends (including the ack timer),
+and `close()` called from a system or hook. Socket closure and RPC rejection happen at the same
+time as before. Outside those calls, `disconnect` is emitted immediately. A rejected send promise
+normally runs after the synchronous tick stack has returned, so its event is immediate at rejection.
+There is no separate client ack-timeout timer; a server timeout is observed as a notice or transport loss.
+
+You may dispose from a disconnect handler without disposing inside a tick:
+
+```ts
+world.events.on("disconnect", () => world.dispose());
+```
+
 Replies the client has already received are never lost to the disconnect, because a reply settles its
 call the moment it arrives: a call whose reply has arrived has already resolved with its params, or
 rejected with the server's `RPCError`, by the time a later disconnect happens, whether or not
@@ -348,14 +362,16 @@ In order, `dispose`:
 Steps 3 and 6 are what free render resources. A Phaser `GameObject` attached to an entity as a
 component is destroyed by its `remove` hook, so it goes whether the entity is replicated or local,
 and no module-level sweep is needed. Replicated entities go first, then the client-local ones;
-within each group the order is unspecified. The client's own component, query and system entities
-stay, as in any world, and so does data a module stores on a component entity with `world.set`:
-release that yourself. A system's `exit` callback only queues its event, and a disposed world never
-runs the system again, so do the releasing in `remove` hooks.
+within each group the order is unspecified. The client's own infrastructure and module singleton
+data are destroyed last. Use `remove` hooks for their resources too; a system's queued `exit`
+callback need not run before teardown. See the core disposal guide for carrier ordering and
+allowed call sites.
 
-`dispose()` can run while the world is deferred, for example in a `disconnect` handler that
-`apply()` triggers when it closes the client for a protocol error. The destruction is then queued
-like any `destroy()` and completes when the running system finishes.
+`ClientWorld.dispose()` follows the
+[core call-site rule](../../vecs/docs/entities.md#disposing-a-world): not inside `progress()`,
+`defer`, a command drain or an entity's destroy. A refused call changes neither client state nor
+the world; finish the enclosing operation and call it at top level. Disconnect handlers run
+outside the outermost `progress()` / `apply()` call's frame and drain, so they may dispose synchronously.
 
 A call whose reply has already arrived is not rejected: it settled when the reply came in, so
 disposal only rejects the calls still waiting for one.
@@ -368,7 +384,7 @@ After disposal the world is inert, and stays that way:
 
 | Call                           | Result                                                       |
 | ------------------------------ | ------------------------------------------------------------ |
-| `dispose()`                    | No-op. Safe to call from a teardown path that may run twice. |
+| `dispose()` at top level       | No-op. Safe to call from a teardown path that may run twice. |
 | `invoke(...)`                  | Returns a rejected promise with code `RPC_CLOSED_CODE`.      |
 | `attachSocket(socket)`         | Throws `ClientWorld is disposed`.                            |
 | `send()`                       | No-op.                                                       |

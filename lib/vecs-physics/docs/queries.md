@@ -17,7 +17,7 @@ const q = physics(world);
 - `physics(world)` throws if `world.module(PhysicsModule)` has not been called yet. Call it only after installing `PhysicsModule`.
 - The returned `PhysicsQueries` facade is stable: repeated calls for the same `world` return the same instance, so calling `physics(world)` every frame does not allocate.
 - All query methods are synchronous, read-only, and never wake bodies, never create or destroy entities, and never mutate the world. You can call them freely from any system without affecting the simulation.
-- Results are always Vecs **shape entities** (or plain data describing a hit on one), never Box2D handles. To get the owning body, use `entity.parent` (the shape's `ChildOf` parent).
+- Spatial results are Vecs **shape entities** (or plain data describing a hit on one), never Box2D handles. To get the owning body, use `entity.parent` (the shape's `ChildOf` parent). The pose-change view below contains **body entities** instead.
 
 ## Stats
 
@@ -36,11 +36,11 @@ that handles return to baseline after teardown.
 Three reads expose what a peer needs to predict a body, as the dead-reckoning sync in
 `@vworlds/vecs-phaser-server` does:
 
-| Method                    | Returns                                                                                                            | Cost                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
-| `settings()`              | `PhysicsSettings`: the world's `gravity`, `fixedTimeStep`, `subSteps` and `maximumLinearSpeed`, defaults filled in | none; one shared, frozen object                       |
-| `isAwake(entity)`         | whether the entity's body is awake; `false` without a live body                                                    | one Box2D call, no allocation: fine per body per step |
-| `bodyMotion(entity, out)` | fills a `BodyMotion`; `false` without a live body                                                                  | several Box2D calls and two short-lived vector copies |
+| Method                    | Returns                                                                                                            | Cost                                                                        |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `settings()`              | `PhysicsSettings`: the world's `gravity`, `fixedTimeStep`, `subSteps` and `maximumLinearSpeed`, defaults filled in | none; one shared, frozen object                                             |
+| `isAwake(entity)`         | whether the entity's body is awake; `false` without a live body                                                    | one Box2D call, no allocation: fine per body per step                       |
+| `bodyMotion(entity, out)` | fills a `BodyMotion`; `false` without a live body                                                                  | one composite fast-path call, reusable wasm scratch, no per-call allocation |
 
 `BodyMotion` holds `awake`, the velocities `vx`, `vy`, `w`, `linearDamping`, `angularDamping`, the
 center of mass in body coordinates `localCenterX`, `localCenterY`, `allowFastRotation`, and the
@@ -53,6 +53,29 @@ if (physics(world).bodyMotion(rock, motion) && motion.awake) {
   send(motion.vx, motion.vy, motion.w);
 }
 ```
+
+## Pose Changes
+
+Consume `physics(world).poseChanges()` after the physics post-step phase (for example, in
+`POST_UPDATE`) to inspect bodies whose pose may need downstream work without watching every
+physics component write. It returns the same **read-only, reused view**, not a new snapshot:
+`{ eids: Int32Array, count: number }`. Only `eids[0..count)` is valid; capacity beyond that prefix
+may contain stale ids. Resolve an id with `world.getEntity(eid)` only if you need the entity.
+
+- Pose-out publishes admitted application position/rotation writes first, then Dynamic move events
+  in Box2D order, including final sleep events whose pose did not change. Application entries may
+  include static or disabled bodies. The list may contain an entity more than once.
+- Destroyed/absent body entities are skipped at publication, and non-Dynamic **move events** are
+  skipped. An entity can still be destroyed after publication; downstream queries should validate
+  current membership. Inclusion is an eligibility hint, not proof the component values differ.
+- The count is zero before the first pose-out and after world disposal. Pose-out overwrites the
+  view; its typed buffer grows by doubling only when needed, avoiding per-move object-reference
+  stores. Re-read `view.eids` after every pose-out because growth replaces it. Do not mutate either
+  field. Copy with `view.eids.slice(0, view.count)` if retaining a snapshot; keeping the view or its
+  buffer does not preserve prior entries.
+- Only the existing physics pose-in systems collect application writes. A write after they drain
+  appears on the next tick; this is not a synchronous notification of arbitrary ECS pose writes.
+  No extra component watcher or set hook is installed for the view.
 
 ## Ray Casts
 

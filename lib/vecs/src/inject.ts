@@ -11,6 +11,21 @@ import { _resolveRelationship, type MaybeRequired } from "./dsl.js";
 // EID 0 is reserved, keeping target projection arrays numeric and SMI-friendly.
 const TARGET_ENTITY = 0;
 
+/** Inject the processing system tick's absolute timestamp in milliseconds. System callbacks only. */
+export const Now: unique symbol = Symbol("Now");
+/** Inject the system's accumulated tick delta in milliseconds, matching `run`. System callbacks only. */
+export const Delta: unique symbol = Symbol("Delta");
+/** System-only inject tokens; each resolves to a non-optional number. */
+export type ClockInject = typeof Now | typeof Delta;
+/** Component/relationship injects usable outside a system processing tick. */
+export type ComponentInjectElement = ComponentType | TargetInject | TargetsInject;
+export type ComponentInjectTuple = readonly ComponentInjectElement[];
+/** Synchronous inject tuple, including child fan-out but excluding processing clocks. */
+export type ComponentFanInjectTuple = readonly (ComponentInjectElement | DownInject)[];
+
+/** @internal Stable clock fields on every System, written once per processing tick. */
+export type InjectClock = { readonly _injectNow: number; readonly _injectDelta: number };
+
 export type TargetInjectProjection = ComponentType | typeof Entity;
 
 /**
@@ -47,8 +62,10 @@ export type TargetsInject<
 export type DownInject<J extends readonly ComponentType[] = readonly ComponentType[]> = {
   down: readonly [ComponentRef, readonly [...J]];
 };
-export type InjectElement = ComponentType | TargetInject | TargetsInject;
+/** One direct/relationship inject or a system-only clock token. */
+export type InjectElement = ComponentInjectElement | ClockInject;
 export type InjectTuple = readonly InjectElement[];
+/** An inject element with child fan-out support for each/forEach. Clocks require system each. */
 export type FanInjectElement = InjectElement | DownInject;
 export type FanInjectTuple = readonly FanInjectElement[];
 export type ResolvedInjectTerm =
@@ -82,6 +99,7 @@ export type ResolvedTargetsRow<P> = P extends readonly TargetInjectProjection[]
 /** The single array-valued callback slot produced by a {@link TargetsInject}. */
 export type ResolvedTargets<P> = ReadonlyArray<ResolvedTargetsRow<P>>;
 export type InjectedValue =
+  | number
   | ComponentInstance
   | Entity
   | ReadonlyArray<readonly (ComponentInstance | Entity | undefined)[]>
@@ -91,30 +109,36 @@ export type InjectSnapshot = {
   readonly values: readonly InjectedValue[];
   readonly src: readonly InjectSource[];
 };
-type MaybeResolvedInjectElement<T, R extends ComponentType[]> = T extends ComponentType
-  ? [MaybeRequired<T, R>]
-  : T extends TargetInject<infer P>
-    ? OptionalResolvedTargetProjections<P>
-    : T extends TargetsInject<infer P>
-      ? [ResolvedTargets<P>]
-      : T extends DownInject<infer J>
-        ? OptionalResolvedComponentInstances<J>
-        : [];
-type RequiredResolvedInjectElement<T> = T extends ComponentType
-  ? [ResolvedComponentInstance<T>]
-  : T extends TargetInject<infer P>
-    ? OptionalResolvedTargetProjections<P>
-    : T extends TargetsInject<infer P>
-      ? [ResolvedTargets<P>]
-      : T extends DownInject<infer J>
-        ? OptionalResolvedComponentInstances<J>
-        : [];
+type MaybeResolvedInjectElement<T, R extends ComponentType[]> = T extends ClockInject
+  ? [number]
+  : T extends ComponentType
+    ? [MaybeRequired<T, R>]
+    : T extends TargetInject<infer P>
+      ? OptionalResolvedTargetProjections<P>
+      : T extends TargetsInject<infer P>
+        ? [ResolvedTargets<P>]
+        : T extends DownInject<infer J>
+          ? OptionalResolvedComponentInstances<J>
+          : [];
+type RequiredResolvedInjectElement<T> = T extends ClockInject
+  ? [number]
+  : T extends ComponentType
+    ? [ResolvedComponentInstance<T>]
+    : T extends TargetInject<infer P>
+      ? OptionalResolvedTargetProjections<P>
+      : T extends TargetsInject<infer P>
+        ? [ResolvedTargets<P>]
+        : T extends DownInject<infer J>
+          ? OptionalResolvedComponentInstances<J>
+          : [];
+/** Flatten projected slots; components follow query guarantees, clocks are always numbers. */
 export type MaybeResolvedInjectTuple<
   J extends FanInjectTuple,
   R extends ComponentType[],
 > = J extends readonly [infer First, ...infer Rest extends FanInjectTuple]
   ? [...MaybeResolvedInjectElement<First, R>, ...MaybeResolvedInjectTuple<Rest, R>]
   : [];
+/** Entry/exit tuple: require direct components and resolve clocks as non-optional numbers. */
 export type RequiredResolvedInjectTuple<J extends InjectTuple> = J extends readonly [
   infer First,
   ...infer Rest extends InjectTuple,
@@ -158,6 +182,11 @@ function _resolveTargetsProjection(targets: readonly Entity[], projections: read
 
 export function mapInject(world: World, inject: readonly FanInjectElement[]): ResolvedInjectTerm[] {
   return inject.map((term) => {
+    if (term === Now || term === Delta) {
+      throw new Error(
+        "Now and Delta injection is only supported in system each/enter/exit/update callbacks"
+      );
+    }
     if (_isTargetInject(term)) {
       const projection = term.target[1];
       const projections: readonly TargetInjectProjection[] = _isTargetProjectionArray(projection)
@@ -438,8 +467,12 @@ export function makeInjectedInvoker(
   world: World,
   components: readonly FanInjectElement[],
   useIter: boolean,
-  callback: InjectedCallback
+  callback: InjectedCallback,
+  clock?: InjectClock
 ): (e: Entity) => void {
+  const specialized = specializeClockInject(world, components, useIter, callback, clock, "entity");
+  components = specialized.components;
+  callback = specialized.callback as InjectedCallback;
   const inject = mapInject(world, components);
   const arity = injectArity(inject);
   const resolved = new Array(arity);
@@ -483,6 +516,126 @@ export function makeInjectedInvoker(
   return (e: Entity) => {
     getInjected(e, inject, false, resolved);
     callback(e, resolved);
+  };
+}
+
+/**
+ * @internal Strip clocks before any resolver/snapshot/watch-list sees the tuple.
+ * Only clock callbacks copy compact component slots into a full output tuple.
+ * Slot maps and clock indices are computed once; no token lookup occurs at replay.
+ */
+export function specializeClockInject(
+  world: World,
+  components: readonly FanInjectElement[],
+  useIter: boolean,
+  callback: Function,
+  clock: InjectClock | undefined,
+  kind: "entity" | "update" | "snapshot"
+): { components: readonly FanInjectElement[]; callback: Function } {
+  if (!components.some((term) => term === Now || term === Delta)) {
+    return { components, callback };
+  }
+  if (clock === undefined) {
+    throw new Error(
+      "Now and Delta injection is only supported in system each/enter/exit/update callbacks"
+    );
+  }
+  const compact: FanInjectElement[] = [];
+  const slots: number[] = [];
+  const nowSlots: number[] = [];
+  const deltaSlots: number[] = [];
+  let arity = 0;
+  for (const term of components) {
+    if (term === Now) {
+      nowSlots.push(arity++);
+    } else if (term === Delta) {
+      deltaSlots.push(arity++);
+    } else {
+      compact.push(term);
+      const width = injectArity(mapInject(world, [term]));
+      for (let i = 0; i < width; i++) {
+        slots.push(arity++);
+      }
+    }
+  }
+  const fill = (values: readonly InjectedValue[], out: InjectedValue[]) => {
+    for (let i = 0; i < slots.length; i++) {
+      out[slots[i]] = values[i];
+    }
+    for (let i = 0; i < nowSlots.length; i++) {
+      out[nowSlots[i]] = clock._injectNow;
+    }
+    for (let i = 0; i < deltaSlots.length; i++) {
+      out[deltaSlots[i]] = clock._injectDelta;
+    }
+  };
+  const fillCursor = (cursor: Entity | Iter, it: Iter) => {
+    const compactIt = cursor as Iter;
+    it.entity = compactIt.entity;
+    for (let i = 0; i < slots.length; i++) {
+      it.src[slots[i]] = compactIt.src[i];
+    }
+  };
+  // Preserve enter/exit's detached tuple/cursor lifetime. each/update reuse theirs.
+  if (kind === "snapshot") {
+    if (useIter) {
+      return {
+        components: compact,
+        callback: (cursor: Iter, values: readonly InjectedValue[]) => {
+          const out = new Array<InjectedValue>(arity);
+          const it = new Iter(arity);
+          fill(values, out);
+          fillCursor(cursor, it);
+          callback(it, out);
+        },
+      };
+    }
+    return {
+      components: compact,
+      callback: (e: Entity, values: readonly InjectedValue[]) => {
+        const out = new Array<InjectedValue>(arity);
+        fill(values, out);
+        callback(e, out);
+      },
+    };
+  }
+  const out = new Array<InjectedValue>(arity);
+  if (useIter) {
+    const it = new Iter(arity);
+    if (kind === "update") {
+      return {
+        components: compact,
+        callback: (cursor: Iter, c: ComponentInstance, values: readonly InjectedValue[]) => {
+          fill(values, out);
+          fillCursor(cursor, it);
+          callback(it, c, out);
+        },
+      };
+    }
+    return {
+      components: compact,
+      callback: (cursor: Iter, values: readonly InjectedValue[]) => {
+        fill(values, out);
+        fillCursor(cursor, it);
+        callback(it, out);
+      },
+    };
+  }
+  if (kind === "update") {
+    return {
+      components: compact,
+      callback: (e: Entity, c: ComponentInstance, values: readonly InjectedValue[]) => {
+        fill(values, out);
+        callback(e, c, out);
+      },
+    };
+  }
+  return {
+    components: compact,
+    callback: (e: Entity, values: readonly InjectedValue[]) => {
+      fill(values, out);
+      callback(e, out);
+    },
   };
 }
 

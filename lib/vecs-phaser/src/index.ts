@@ -48,6 +48,8 @@ import {
 import { Text } from "./components/text.js";
 import { Motion, MotionClock, MotionParams } from "./components/motion.js";
 
+export type { Vec2 } from "@vworlds/vecs";
+
 /**
  * All components that participate in the network protocol, in registration order.
  * ORDER IS THE PROTOCOL — wire type id = index + 1. Do not reorder without a protocol version bump.

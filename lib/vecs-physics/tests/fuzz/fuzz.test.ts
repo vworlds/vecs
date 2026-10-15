@@ -24,38 +24,46 @@ describe("seeded physics fuzz harness", () => {
         const elapsed = performance.now() - startedAt;
         expect(elapsed).toBeLessThan(MAX_SINGLE_STEP_MS);
 
-        assertFiniteBodies(scene.bodies);
+        assertFiniteBodies(scene.bodies, seed, step);
       }
     });
   }
 });
 
-function assertFiniteBodies(bodies: readonly Entity[]): void {
+function assertFiniteBodies(bodies: readonly Entity[], seed: number, step: number): void {
   for (const body of bodies) {
     const position = body.get(Position);
     if (position !== undefined) {
-      expectFinite(position.x);
-      expectFinite(position.y);
+      assertFinite(position.x, seed, step, body, "Position.x");
+      assertFinite(position.y, seed, step, body, "Position.y");
     }
 
     const rotation = body.get(Rotation);
     if (rotation !== undefined) {
-      expectFinite(rotation.angle);
+      assertFinite(rotation.angle, seed, step, body, "Rotation.angle");
     }
 
     const linearVelocity = body.get(LinearVelocity);
     if (linearVelocity !== undefined) {
-      expectFinite(linearVelocity.x);
-      expectFinite(linearVelocity.y);
+      assertFinite(linearVelocity.x, seed, step, body, "LinearVelocity.x");
+      assertFinite(linearVelocity.y, seed, step, body, "LinearVelocity.y");
     }
 
     const angularVelocity = body.get(AngularVelocity);
     if (angularVelocity !== undefined) {
-      expectFinite(angularVelocity.value);
+      assertFinite(angularVelocity.value, seed, step, body, "AngularVelocity.value");
     }
   }
 }
 
-function expectFinite(value: number): void {
-  expect(Number.isFinite(value)).toBe(true);
+function assertFinite(
+  value: number,
+  seed: number,
+  step: number,
+  body: Entity,
+  field: string
+): void {
+  if (!Number.isFinite(value)) {
+    throw new Error(`seed ${seed}, step ${step}, body ${body.eid}: ${field} is ${value}`);
+  }
 }

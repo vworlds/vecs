@@ -26,7 +26,48 @@ world
 
 Newly created systems enter the pipeline the next time `world.progress` runs. Configuration must
 happen before the system is built (the first `progress`/`flush` after creation); builder calls
-after that throw.
+after that throw. Reading `world.pipeline` between frames also builds pending queries.
+
+## Measuring systems
+
+Enable opt-in synchronous timing for benchmarks, cadence guards, or live diagnostics:
+
+```ts
+world.stats.enableSystems();
+world.progress(1000, 16);
+for (const { system, runs, totalMs, maxMs } of world.stats.systems()) {
+  console.log(system.name, runs, totalMs, maxMs);
+}
+world.stats.resetSystems(); // clear system and extension-operation totals
+world.stats.disableSystems(); // stop measuring; retain results until reset
+```
+
+Timing is off by default. `progress()` chooses the plain or instrumented loop once per tick;
+the plain loop has no per-system timing branch, counter, or clock read. The instrumented loop
+uses one `performance.now()` pair per pipeline entry and reuses first-seen slots.
+
+`systems()` returns independent snapshots in current pipeline order, including systems with zero
+runs. Each row holds the original `System`, not copied identity or cadence metadata. Newly
+registered systems appear after the next pipeline refresh in `progress()`. Removed systems are
+absent. Reading does not reset the totals.
+
+A run means execution admitted by the system's enabled and tick-source gates, not a callback or
+entity count: an idle reactive system or an empty `each` query still counts when due. Disabled
+and cadence-skipped entries contribute neither runs nor time. For an admitted execution, timing
+includes inbox processing, callbacks, and **the flush after that system**, including command
+routing and hooks. Initial frame preparation and final frame closure are not attributed. An
+execution that throws before completing its flush does not contribute a completed run.
+
+Extensions expose breakdown rows through `world.stats.operations()`, under the same switch and
+reset. See [ServerWorld replication timing](../../vecs-server/docs/replication-timing.md).
+Reading either table allocates snapshots; normal measured ticks reuse slots. Reset keeps slots
+and clears totals, including systems temporarily absent from the pipeline.
+
+When implementing a world extension, choose the measured path once per frame with
+`stats.systemsEnabled`, then call `stats.recordOperation(name, elapsedMs)` once per completed
+operation. It aggregates a finite, non-negative duration into a reusable named slot. This method
+does not read a clock or recheck the switch; it lets an already-measured frame complete even if
+a callback disables future timing. Invalid durations throw `RangeError`.
 
 ## Membership: `with` / `without`
 
@@ -224,6 +265,40 @@ anything else resolves as `T | undefined` — guard it. (`enter`/`exit` injectio
 direct components to be present and throws otherwise; list only components your predicate
 guarantees.)
 
+### Clock injection
+
+Import `Now` and `Delta` from `@vworlds/vecs` and include them in a system's `each`, `update`,
+`enter`, or `exit` inject list. Both resolve to non-optional `number` slots regardless of `.with`.
+Mix them freely with direct components and `target`, `targets`, or `down` injects, in any position:
+
+```ts
+import { Now, Delta, Iter } from "@vworlds/vecs";
+
+world
+  .system("Stamp")
+  .with(Position)
+  .update(
+    { watch: Position, onEnter: true, cursor: Iter, inject: [Now, Position, Delta] },
+    (it, position, [now, injectedPosition, delta]) => {
+      console.log(it.entity.eid, position === injectedPosition, now, delta);
+    }
+  );
+```
+
+`Now` is the timestamp passed to the system's processing tick, **not** the time the mutation was
+made. `Delta` is that system's own tick delta in milliseconds, the same value its `run` callback
+receives. An interval, rate, or upstream tick source accumulates time between fires; it does not
+inject the last frame's delta. Deferred enter/exit snapshots retain component references, but
+clock slots are filled at replay from the processing tick, even if the entity died in an earlier
+frame.
+
+Clock tokens are supported only in the four system callback kinds above. Standalone query
+callbacks and synchronous iteration/ordering/grouping have no processing clock: TypeScript
+rejects tokens there, and bypassing the types throws a clear error at registration. With
+`cursor: Iter`, clock slots have `undefined` sources in `it.src`; time remains in the inject tuple.
+Tuple lifetimes are unchanged: `each`/`update` reuse their tuples, while `enter`/`exit` give each
+event its own tuple.
+
 ### Relationship injection
 
 `{ target: [Rel, projection] }` follows the entity's **first** relationship target and flattens the
@@ -355,7 +430,10 @@ world.system("Log").tickSource(clock).run(log); // driven by a shared ITickSourc
 ```
 
 - `.interval(seconds)` replaces the cadence with an `IntervalTickSource`. Note the unit: seconds,
-  unlike the millisecond deltas of `progress`.
+  unlike the millisecond deltas of `progress`. Interval boundaries tolerate floating-point
+  residue so whole-frame intervals do not fire one frame late (see `IntervalTickSource`'s
+  TSDoc for the tolerance). Each source fires at most once per frame, even with a large delta;
+  positive residual time is preserved, and a tolerated negative remainder is clamped to zero.
 - `.rate(n)` divides the current cadence source by `n` (for an unconfigured system: every `n`
   frames). `.rate(n, source)` divides an explicit upstream source.
 - `.tickSource(source)` mirrors another source directly — an `IntervalTickSource`,
@@ -386,6 +464,82 @@ ai.destroy(); // permanent: disables, then unregisters the backing entity
 While disabled, query membership is still maintained, so the tracked set is correct on resume.
 `destroy` fires no `exit` callbacks. Both `disable` and `enable` are idempotent and chainable.
 
+## Introspection
+
+Read `world.pipeline` after finishing system configuration to inspect the **existing flat execution
+pipeline**, not a separately maintained inventory. It returns `readonly System[]`, including disabled
+systems, in the order selected by the pipeline query (including a custom `setPipeline`). Between
+frames it builds pending queries and refreshes only when the pipeline query changed. It does not
+execute systems or drain deferred commands. During a frame it returns that frame's pipeline; queued
+changes become visible after their normal flush. Re-read the getter after changes: an old array is
+not a live subscription. Read-only means the TypeScript array API; do not cast away the type to mutate it.
+
+```ts
+import {
+  ALWAYS_TICK_SOURCE,
+  DependsOn,
+  IntervalTickSource,
+  RateTickSource,
+  System,
+  World,
+  type ITickSource,
+} from "@vworlds/vecs";
+
+function describeCadence(source: ITickSource): string {
+  if (source === ALWAYS_TICK_SOURCE) return "every tick";
+  if (source instanceof IntervalTickSource) return `every ${source.seconds}s`;
+  if (source instanceof RateTickSource) {
+    return `every ${source.rate} ticks of ${
+      source.source ? describeCadence(source.source) : "world frames"
+    }`;
+  }
+  if (source instanceof System) return `system ${source.name}`;
+  return "custom clock";
+}
+
+const world = new World();
+world
+  .system("AI")
+  .interval(0.5)
+  .run(() => {});
+for (const [order, system] of world.pipeline.entries()) {
+  console.log({
+    order,
+    name: system.name,
+    phase: system.entity.target(DependsOn)?.name,
+    cadence: describeCadence(system.cadence),
+    enabled: system.enabled,
+  });
+}
+```
+
+`system.cadence` exposes the current source; the existing `.tickSource(source)` method configures
+it. Compare cadence by identity with the exported `ALWAYS_TICK_SOURCE` for the default every-tick
+case. `IntervalTickSource.seconds`, `RateTickSource.rate`, and `RateTickSource.source` are getters;
+an unconfigured standalone rate source has no upstream source and counts world frames. Replacing
+cadence changes the getter immediately. A source's existing `start`/`stop` controls still work.
+
+Use `system.callbacks` to distinguish per-tick work from reactive callbacks, and `system.watched`
+to inspect the component classes whose changes trigger `update`. Both are frozen snapshots and
+reflect builder registrations immediately, including before the system is built:
+
+```ts
+const perTickSystems = world.pipeline.filter(
+  (system) =>
+    system.cadence === ALWAYS_TICK_SOURCE &&
+    (system.callbacks.includes("each") || system.callbacks.includes("run"))
+);
+const watchedComponents = world.pipeline.flatMap((system) => system.watched);
+```
+
+`callbacks` lists registered kinds (`each`, `run`, `enter`, `update`, `exit`); `watched` contains
+only components with an `update` callback, not every component in the query predicate.
+
+Name and phase need no new API: `system.name` and `system.entity.target(DependsOn)` already expose
+them. Systems are entities carrying `System`, so a query with `System` can inventory them independently
+of pipeline membership; retrieve the instance with `entity.get(System)`. The existing `toString()`
+display is unchanged; introspection does not add structured query terms or `world.systems()`.
+
 ## Reference
 
 | Method                                                           | Description                                                                                                                      |
@@ -404,6 +558,9 @@ While disabled, query membership is still maintained, so the tracked set is corr
 | `disable()` / `enable()`                                         | Pause / resume processing. Idempotent.                                                                                           |
 | `destroy()`                                                      | Permanently remove the system (no `exit` callbacks).                                                                             |
 | `didTick` / `lastFireDelta`                                      | This frame's cadence result; ms accumulated into the last fire.                                                                  |
+| `cadence` / `enabled`                                            | Read current cadence source and enabled state; see [Introspection](#introspection).                                              |
+| `callbacks` / `watched`                                          | Read registered callback kinds and update-watched component classes; see [Introspection](#introspection).                        |
+| `world.pipeline`                                                 | Read systems in pipeline execution order; see [Introspection](#introspection).                                                   |
 | `count` / `has(e)` / `belongs(e)` / iteration / `forEach`        | Shared query surface; see [Queries](./queries-and-filters.md#reading-a-query).                                                   |
 
 `groupBy` is not available on systems — use `world.query(...).groupBy(...)`.

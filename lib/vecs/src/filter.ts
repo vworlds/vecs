@@ -8,7 +8,7 @@ import {
   makeInjectedInvoker,
   normalizeFanInjectCallbackArgs,
   type FanInjectCallbackArg,
-  type FanInjectTuple,
+  type ComponentFanInjectTuple,
   type InjectedCallback,
   type MaybeResolvedInjectTuple,
 } from "./inject.js";
@@ -85,6 +85,7 @@ export class Filter<R extends ComponentType[] = []> {
    * Components covered by the filter's DSL or `_guaranteed` hint are
    * non-nullable in the resolved tuple; any other component class may be
    * `undefined` if the entity does not have it.
+   * Processing-clock tokens are unavailable in synchronous filter iteration.
    *
    * The resolved tuple is reused for every matching entity. Read or
    * destructure it inside the callback; do not retain the tuple array.
@@ -93,7 +94,7 @@ export class Filter<R extends ComponentType[] = []> {
    * @param callback - Receives the entity and a tuple of resolved component
    *   instances.
    */
-  public forEach<const J extends FanInjectTuple>(
+  public forEach<const J extends ComponentFanInjectTuple>(
     components: readonly [...J],
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
@@ -102,7 +103,7 @@ export class Filter<R extends ComponentType[] = []> {
    * As above, but pass `{ cursor: Entity, inject: [...] }` to make the
    * entity-first signature explicit. Identical behavior to the array form.
    */
-  public forEach<const J extends FanInjectTuple>(
+  public forEach<const J extends ComponentFanInjectTuple>(
     options: EntityCursorOption & FanInjectCallbackOptions<J>,
     callback: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;
@@ -114,7 +115,7 @@ export class Filter<R extends ComponentType[] = []> {
    * resolved component was read from (the visited entity for direct components,
    * the relationship's target entity for ones injected via `target`).
    */
-  public forEach<const J extends FanInjectTuple>(
+  public forEach<const J extends ComponentFanInjectTuple>(
     options: IterCursorOption & FanInjectCallbackOptions<J>,
     callback: (it: Iter, resolved: MaybeResolvedInjectTuple<J, R>) => void
   ): this;

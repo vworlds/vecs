@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # vecs release script: merge dev into master, push, wait for CI to bump+tag,
-# then fast-forward dev onto the new master.
+# then fast-forward dev onto the new master and verify npm publication.
 #
 # Safety properties:
 #   - Never resets/deletes a branch with uncommitted or unpushed work.
@@ -14,8 +14,8 @@ set -euo pipefail
 DEV_BRANCH="dev"
 MASTER_BRANCH="master"
 REMOTE="origin"
-POLL_INTERVAL_SEC=15
-MAX_WAIT_SEC=$((60 * 20)) # 20 minutes hard cap
+POLL_INTERVAL_SEC="${POLL_INTERVAL_SEC:-15}"
+MAX_WAIT_SEC="${MAX_WAIT_SEC:-1200}" # 20 minutes hard cap
 
 log() { printf '[release] %s\n' "$*"; }
 err() { printf '[release][error] %s\n' "$*" >&2; }
@@ -167,12 +167,10 @@ fi
 log "Local master now at $NEW_MASTER_SHA."
 
 # ---------------------------------------------------------------------------
-# 4b. Label the Unreleased changelog section with the upcoming version.
+# 4b. Collect changelog fragments under the upcoming version.
 # ---------------------------------------------------------------------------
-# CI will tag this release as vX.Y.Z where Z = current patch + 1. We move the
-# changelog's "## Unreleased" bullets under a "## vX.Y.Z (YYYY-MM-DD)" heading
-# and leave a fresh empty "## Unreleased" above it, then commit on master
-# before pushing. This keeps the changelog honest without relying on CI.
+# CI will tag this release as vX.Y.Z where Z = current patch + 1. Collect
+# validated fragments and remove them in the same commit before pushing.
 CHANGELOG="architecture/CHANGELOG.md"
 if [ ! -f "$CHANGELOG" ]; then
   err "Expected changelog at '$CHANGELOG' but it is missing."
@@ -192,37 +190,22 @@ NEXT_VERSION="$MAJ.$MIN.$((PAT + 1))"
 RELEASE_DATE="$(date -u +%Y-%m-%d)"
 log "Upcoming release: v$NEXT_VERSION ($RELEASE_DATE)"
 
-# Move the Unreleased section to a versioned heading. Use perl for a precise
-# single replacement: the first "## Unreleased" line becomes the versioned
-# heading, with a fresh empty Unreleased section inserted above it.
-if ! perl -0777 -i -pe '
-  s/^## Unreleased\n\n/## Unreleased\n\n## v'"$NEXT_VERSION"' ('"$RELEASE_DATE"')\n\n/m
-' "$CHANGELOG"; then
-  err "Failed to update changelog headings."
+. scripts/lib/changelog.sh
+if ! collect_changelog "$NEXT_VERSION" "$RELEASE_DATE"; then
+  err "Failed to collect changelog fragments."
   exit 1
 fi
 
-# Sanity-check that the replacement produced the expected headings.
-if ! grep -q "^## Unreleased$" "$CHANGELOG" \
-  || ! grep -q "^## v${NEXT_VERSION} (${RELEASE_DATE})$" "$CHANGELOG"; then
-  err "Changelog rewrite did not produce the expected headings."
-  err "Expected empty '## Unreleased' and '## v${NEXT_VERSION} (${RELEASE_DATE})'."
-  err "Inspect $CHANGELOG and resolve manually."
-  exit 1
-fi
-
-# Only commit if the changelog actually changed.
-if ! git diff --quiet -- "$CHANGELOG"; then
+# The collector stages the changelog and fragment removals together.
+if ! git diff --cached --quiet -- "$CHANGELOG" architecture/unreleased; then
   log "Committing changelog update for v$NEXT_VERSION..."
-  git add "$CHANGELOG"
-  if ! git commit -m "docs: label changelog for v$NEXT_VERSION release" > /dev/null 2>&1; then
+  if ! git commit -m "docs: changelog for v$NEXT_VERSION" \
+    -m "Collect validated unreleased fragments in descending PR order and remove them from the pending release directory."; then
     err "Failed to commit changelog update."
     exit 1
   fi
   NEW_MASTER_SHA="$(git rev-parse "$MASTER_BRANCH")"
   log "Local master now at $NEW_MASTER_SHA (after changelog commit)."
-else
-  log "Changelog unchanged (no Unreleased bullets to label). Continuing."
 fi
 
 # ---------------------------------------------------------------------------
@@ -287,7 +270,7 @@ while [ "$ELAPSED" -lt "$MAX_WAIT_SEC" ]; do
   fi
 
   if [ -n "$BUMP_COMMIT" ] && [ -n "$NEW_TAG" ]; then
-    log "CI complete: bump commit $BUMP_COMMIT, tag $NEW_TAG."
+    log "CI tag detected: bump commit $BUMP_COMMIT, tag $NEW_TAG."
     break
   fi
 done
@@ -337,6 +320,12 @@ if [ "$LOCAL_DEV_TIP" != "$REMOTE_DEV_TIP" ]; then
     exit 1
   fi
 fi
+
+# ---------------------------------------------------------------------------
+# 9. Git is complete; wait for the original push's publish run and npm latest.
+# ---------------------------------------------------------------------------
+. scripts/lib/release-publish.sh
+wait_release_publish "$NEW_MASTER_SHA" "${NEW_TAG#v}"
 
 log ""
 log "Release complete."

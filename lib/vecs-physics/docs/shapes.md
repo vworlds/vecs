@@ -211,7 +211,7 @@ Segments are best for static environment edges. For long terrain made of many co
 Polygons are convex shapes defined by local vertices.
 
 ```ts
-export type Vec2 = { x: number; y: number };
+import type { Vec2 } from "@vworlds/vecs";
 
 export class Polygon {
   vertices: Vec2[] = [];

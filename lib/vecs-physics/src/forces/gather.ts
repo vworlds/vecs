@@ -3,7 +3,7 @@ import { ChildOf, Module } from "@vworlds/vecs";
 import { getPhysicsEngine, PhysicsSystemTag } from "../adapter/engine.js";
 import { Body } from "../body/components.js";
 import { Force, Torque } from "./components.js";
-import { scr_b2Vec2 } from "../adapter/runtime.js";
+import { rev } from "../adapter/runtime.js";
 import { PhysicsCoreModule } from "../core/module.js";
 
 const forceTargetPredicate = { any: [Body, { parent: Body }] } as const;
@@ -32,9 +32,13 @@ export class ForceGatherModule extends Module {
           return;
         }
 
-        const vec = scr_b2Vec2[0];
-        vec.Set(force.x, force.y);
-        engine.box2d.b2Body_ApplyForceToCenter(bodyId, vec, force.wake);
+        engine.fast.module._b2x_Body_ApplyForceToCenter(
+          bodyId.index1,
+          rev(bodyId),
+          force.x,
+          force.y,
+          force.wake ? 1 : 0
+        );
       })
       .add(PhysicsSystemTag);
 
@@ -56,7 +60,12 @@ export class ForceGatherModule extends Module {
             return;
           }
 
-          engine.box2d.b2Body_ApplyTorque(bodyId, torque.value, torque.wake);
+          engine.fast.module._b2x_Body_ApplyTorque(
+            bodyId.index1,
+            rev(bodyId),
+            torque.value,
+            torque.wake ? 1 : 0
+          );
         }
       )
       .add(PhysicsSystemTag);

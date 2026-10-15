@@ -1,3 +1,5 @@
+import type { Vec2 } from "@vworlds/vecs";
+
 import {
   type AnyProperty,
   type Frame,
@@ -46,10 +48,10 @@ export class MapObject implements MapObjectIface {
   public point: boolean;
 
   /** Polygon points; `[]` when not a polygon. */
-  public polygon: { x: number; y: number }[];
+  public polygon: Vec2[];
 
   /** Polyline points; `[]` when not a polyline. */
-  public polyline: { x: number; y: number }[];
+  public polyline: Vec2[];
 
   /**
    * @param id       - Unique id across all objects in the tileset.
@@ -76,8 +78,8 @@ export class MapObject implements MapObjectIface {
     type: string,
     ellipse: boolean,
     point: boolean,
-    polygon: { x: number; y: number }[],
-    polyline: { x: number; y: number }[]
+    polygon: Vec2[],
+    polyline: Vec2[]
   ) {
     this.id = id;
     this.x = x;

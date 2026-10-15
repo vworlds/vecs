@@ -114,13 +114,16 @@ export class PhysicsSnapshotModule extends Module {
   public init(): void {
     const world = this.world;
 
-    // World-bound resources. The engine owns Box2D's world, its phases, and the
-    // reaper queue; the event components hold `Entity` references reported by
-    // this world's solver. Neither can be reconstructed elsewhere, and an event
-    // buffer is a report about the world that produced it, not state to carry.
+    // The engine owns world-bound Box2D resources and cannot cross worlds.
     world.component(PhysicsEngine).snapshotPolicy(DontSnapshot);
+
+    // Event component presence is the opt-in: preserve it so destination hooks
+    // re-arm reporting, but discard buffers holding this solver's Entity references.
     [ContactEvents, SensorEvents, HitEvents].forEach((Class) =>
-      world.component(Class).snapshotPolicy(DontSnapshot)
+      world.component(Class).snapshotPolicy(CustomSnapshot, {
+        capture: () => ({}),
+        materialize: () => new Class(),
+      })
     );
 
     // Declarative components whose engine handle is not worth copying.
