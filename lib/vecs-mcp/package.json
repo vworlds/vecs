@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-mcp",
-  "version": "1.0.57",
+  "version": "1.0.58",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -26,8 +26,8 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
-    "@vworlds/vecs": "1.0.57",
-    "@vworlds/vecs-wire": "1.0.57",
+    "@vworlds/vecs": "1.0.58",
+    "@vworlds/vecs-wire": "1.0.58",
     "ws": "8.22.0",
     "zod": "^3.25.76"
   },

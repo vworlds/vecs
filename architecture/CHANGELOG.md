@@ -3,6 +3,16 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## v1.0.58 (2026-10-15)
+
+- [repo] Changed: Add isolated orchestrator tracks and integration bases (#345).
+- [vecs-mcp] Added: Opt-in local-world MCP server with seven inspection/mutation tools, namespaced routing, isomorphic schema decorators, validation, opaque-value protection, docs and demo integration (#340). Local batches validate before applying inline between ticks, support read-after-write, reject deferred worlds and report completed prefixes on runtime failure.
+- [vecs-wire] Added: Frozen, detached `wireFields(C)` metadata snapshots including inherited fields; non-wire classes return an empty array (#340).
+- [vecs-mcp] Changed: Cache schemas with registration invalidation, skip repeated standard-decorator registration, check structural constraints only on written keys while validating whole drafts, exclude identity/provenance from traits and advertise the node name with the package manifest version (#340).
+- [vecs-mcp] Fixed: Resolve the informational MCP version lazily and fall back to `unknown` when bundled metadata is unavailable, without throwing or requiring manifest copies (#340).
+- [vecs-phaser-server] [vecs-client]: Add deterministic render-clock characterization smoke coverage and an opt-in seeded matrix documenting sparse keepalive clock holds and the #271 resume compaction defect (#272).
+- [vecs-server] [vecs-phaser-server] [vecs-phaser-client]: Pause idle downstream keepalives (#262, #270). `ServerWorld.keepAliveWhile(dsl)` gates keepalives on visible query membership or an unacknowledged last content send, including resends. Register before the first session; requires `keepAliveFrames`. Registrations OR their queries. `DeadReckonedModule` enables this by default (`idleKeepAlive: false` opts out), using a server-local moving tag. Client correction blends, first-baseline blends and hand-off fades use render-loop time from `progress(now, delta)`, independently of `renderFrame`, and finish even after a render-loop stall with no further frame arriving. `blendMs` defaults to 100 ms, supports longer values and `0` to snap. `renderFrame` remains the clock of replicated state and holds while idle. No wire change; worlds without a gate retain their bytes. See [Replication](../REPLICATION.md#pause-idle-sessions-with-a-gate).
+
 ## v1.0.57 (2026-10-15)
 
 - [vecs-protocol] Added configurable module id capacity to network worlds (#335).
