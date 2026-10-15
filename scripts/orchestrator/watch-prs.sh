@@ -84,6 +84,16 @@ needs_me() {
     *) return 0 ;;
   esac
 }
+# Watcher-only board writes must not spend the remaining GraphQL reserve when BLIND.
+watch_progress() {
+  [ "${BLIND:-false}" != true ] || return 2
+  board_progress "$@"
+}
+watch_progress_clear() { watch_progress "$1" state=- round=- ci=ok; }
+watch_progress_move() {
+  [ "${BLIND:-false}" != true ] || return 2
+  board_move "$@"
+}
 # report_comment <number> <first line> <event line>: wake or stay quiet, and on a worker's READY
 # for an open task PR move its card to In review.
 report_comment() {
@@ -93,17 +103,17 @@ report_comment() {
   local round
   case "$first" in
     "[worker] READY"*)
-      board_move "$number" "In review" 2> /dev/null || true
+      watch_progress_move "$number" "In review" 2> /dev/null || true
       round="$(grep -o -i -E 'round [0-9]+' <<< "$first" | grep -o -E '[0-9]+' | head -1)"
-      board_progress "$number" state=ready ${round:+round=$round} 2> /dev/null || true
+      watch_progress "$number" state=ready ${round:+round=$round} 2> /dev/null || true
       ;;
-    "[worker] QUESTION"*) board_progress "$number" state=question 2> /dev/null || true ;;
-    "[worker] DESIGN"*) board_progress "$number" state=design 2> /dev/null || true ;;
-    "[worker] BLOCKED"*) board_progress "$number" state=blocked 2> /dev/null || true ;;
+    "[worker] QUESTION"*) watch_progress "$number" state=question 2> /dev/null || true ;;
+    "[worker] DESIGN"*) watch_progress "$number" state=design 2> /dev/null || true ;;
+    "[worker] BLOCKED"*) watch_progress "$number" state=blocked 2> /dev/null || true ;;
     "[worker]"*) revive "$number" ;;
   esac
 }
-revive() { board_progress "$1" state=working if="${PROGRESS_STUCK// /,}" 2> /dev/null || true; }
+revive() { watch_progress "$1" state=working if="${PROGRESS_STUCK// /,}" 2> /dev/null || true; }
 # The board is shared with other repos: only vecs cards are reported. Moves made by the
 # orchestrator scripts are already recorded (board_remember), so they aren't reported back. The
 # first poll only records where every card is. READY_ROWS and APPROVED_ROWS keep those columns
@@ -261,12 +271,12 @@ watch_workers() {
       *"WAITING on"*)
         once "w-$num-$(key "${line% (*}")" \
           && emit "WORKER #$num ($branch): waits for a permission; see worker.sh permit ${dir#"$ROOT"/}" \
-          && { board_progress "$num" state=permission if=working,silent,idle,failed 2> /dev/null || true; }
+          && { watch_progress "$num" state=permission if=working,silent,idle,failed 2> /dev/null || true; }
         ;;
       *" idle (failed) "*)
         once "w-$num-$(key "${line% (*}")" \
           && emit "WORKER #$num ($branch): its turn failed; see worker.sh log ${dir#"$ROOT"/}" \
-          && { board_progress "$num" state=failed if=working,silent,idle,permission 2> /dev/null || true; }
+          && { watch_progress "$num" state=failed if=working,silent,idle,permission 2> /dev/null || true; }
         ;;
     esac
   done <<< "$1"
@@ -362,11 +372,11 @@ progress_of_head() {
   fi
   if [ "$mergeable" = MERGEABLE ] && [ -e "$STATE/conflict-$num" ]; then
     rm -f "$STATE/conflict-$num"
-    board_progress "$num" state=working if=conflict 2> /dev/null || true
+    watch_progress "$num" state=working if=conflict 2> /dev/null || true
   fi
   case "$ci" in FAILURE | ERROR) ci=red ;; *) ci=ok ;; esac
   if [ "$ci" != "$(cat "$STATE/ci-$num" 2> /dev/null || true)" ]; then
-    board_progress "$num" ci="$ci" 2> /dev/null && printf '%s\n' "$ci" > "$STATE/ci-$num"
+    watch_progress "$num" ci="$ci" 2> /dev/null && printf '%s\n' "$ci" > "$STATE/ci-$num"
   fi
 }
 polls=0
@@ -401,20 +411,20 @@ while :; do
         S)
           once "s-$(key "$url")" \
             && emit "PR #$num ($branch) STALE: no worker reply for 30+ min after my last review" \
-            && { board_progress "$num" state=idle if=working 2> /dev/null || true; }
+            && { watch_progress "$num" state=idle if=working 2> /dev/null || true; }
           ;;
         P) once "picked-$num" && quiet "PR #$num ($branch) picked up: $url commits" ;;
         F) once "conflict-$num-$url" && emit "CONFLICT #$num ($branch): its worker must merge origin/$first and push" \
           && {
             touch "$STATE/conflict-$num"
-            board_progress "$num" state=conflict 2> /dev/null || true
+            watch_progress "$num" state=conflict 2> /dev/null || true
           } ;;
         Q)
           grep -q -x -- "$num" <<< "$INPROGRESS_PRS" || continue
           grep -q "^S"$'\t'"$num"$'\t' <<< "$lines" && continue
           once "q-$num-$(key "$url")" \
             && emit "PR #$num ($branch) SILENT: no commit or comment for 40+ min while In progress; see worker.sh status and log" \
-            && { board_progress "$num" state=silent if=working 2> /dev/null || true; }
+            && { watch_progress "$num" state=silent if=working 2> /dev/null || true; }
           ;;
       esac
     done <<< "$lines"
@@ -435,7 +445,7 @@ while :; do
           rm -f "$STATE/merged-$num"
         else
           emit "PR #$num is now $state"
-          board_progress_clear "$num" 2> /dev/null || true
+          watch_progress_clear "$num" 2> /dev/null || true
         fi
       fi
     done

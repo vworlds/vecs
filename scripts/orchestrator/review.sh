@@ -24,7 +24,6 @@ head -c 14 "$file" | grep -q '^\[orchestrator\]' || die "the comment must start 
 url="$(retry 3 gh api -X POST "repos/$REPO_SLUG/issues/$pr/comments" -F body=@"$file" --jq .html_url)" \
   || die "could not post the comment"
 log "posted $url"
-is_pr="$(retry 3 gh api "repos/$REPO_SLUG/issues/$pr" --jq 'has("pull_request")' 2> /dev/null || echo false)"
 case "$outcome" in
   changes)
     board_move "$pr" "In progress" || true
@@ -42,6 +41,7 @@ case "$outcome" in
     ;;
   answer)
     board_turn "$pr" nobody || true
+    is_pr="$(retry 3 gh api "repos/$REPO_SLUG/issues/$pr" --jq 'has("pull_request")' 2> /dev/null || echo false)"
     if [ "$is_pr" = true ]; then board_progress "$pr" state=working || true; else board_progress "$pr" state=- || true; fi
     ;;
   ask)

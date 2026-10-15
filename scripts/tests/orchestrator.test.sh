@@ -65,9 +65,15 @@ checks=$((checks + 1))
 unset -f date
 
 # Progress formatting, partial updates, conditional writes, and no-op suppression use offline fakes.
-declare -A PROGRESS_STATES=([working]="🤖🔨" [ready]="🤖👍" [silent]="⏳")
 check test "$(progress_text working 12 red)" = '🤖🔨 🔁1️⃣2️⃣ 🔴'
 check test "$(progress_parse '🤖👍 🔁2️⃣ 🔴')" = $'ready\t2\tred'
+while IFS= read -r assignment; do
+  state="${assignment#state=}"
+  case "$state" in
+    - | all | closed | open) continue ;;
+  esac
+  check test -n "${PROGRESS_STATES[$state]:-}"
+done < <(grep -hoE 'state=[a-z-]+' scripts/orchestrator/*.sh | sort -u)
 export VECS_BOARD=on
 _board_gql() {
   local arg
@@ -103,6 +109,7 @@ check test "$TEST_WRITES" = 4
 unset VECS_BOARD
 _board_gql() { retry 3 gh api graphql -f p="$BOARD_PROJECT" "$@"; }
 unset -f board_item
+BLIND=false
 board_progress() { printf '%s\n' "$*" >> "$TEST_DIR/progress-events"; }
 board_move() { printf 'move %s\n' "$*" >> "$TEST_DIR/progress-events"; }
 touch "$STATE/open-77"
@@ -135,8 +142,16 @@ gh() {
       printf 'HTTP/2.0 403 Forbidden\nX-RateLimit-Remaining: 0\nX-RateLimit-Reset: %s\n\n{}\n' "$(($(date +%s) + 600))"
       return 1
       ;;
+    *'api graphql'*)
+      printf '%s\n' "$*" >> "$TEST_DIR/blind-graphql"
+      return 1
+      ;;
     *'api user'*) printf 'tester\n' ;;
-    *'/issues/comments?'* | *'/issues?state=open&assignee='*) : ;;
+    *'/issues/comments?'*)
+      printf '42\tworker\thttps://github.com/vworlds/vecs/pull/42#issuecomment-1\t[worker] READY FOR REVIEW (round 2)\n'
+      ;;
+    *'/issues/42'*) printf 'NODE\n' ;;
+    *'/issues?state=open&assignee='*) : ;;
     *)
       printf 'unexpected gh request: %s\n' "$*" >&2
       return 1
@@ -146,11 +161,14 @@ gh() {
 export -f gh
 mkdir -p "$TEST_DIR/blind-state/vecs-watch"
 printf '2026-01-01T00:00:00Z\n' > "$TEST_DIR/blind-state/vecs-watch/.comments-since"
+touch "$TEST_DIR/blind-state/vecs-watch/open-42"
 XDG_STATE_HOME="$TEST_DIR/blind-state" MAX_MINUTES=0 bash scripts/orchestrator/watch-prs.sh > "$TEST_DIR/blind-events"
 check grep -q '^BUDGET:' "$TEST_DIR/blind-events"
 check grep -q '/issues/comments?' "$TEST_DIR/blind-calls"
 check grep -q '/issues?state=open&assignee=' "$TEST_DIR/blind-calls"
 check test "$(grep -c 'api graphql' "$TEST_DIR/blind-calls")" = 1
+check grep -q 'COMMENT #42 by worker: \[worker\] READY FOR REVIEW' "$TEST_DIR/blind-events"
+check test ! -s "$TEST_DIR/blind-graphql"
 
 # A missing task PR needs confirmation; even a partial GraphQL answer can be valid JSON.
 gh() {

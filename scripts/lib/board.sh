@@ -261,7 +261,7 @@ board_move() {
 # Progress is a machine-maintained summary of what a card waits on: <state>[ 🔁<round>][ 🔴].
 declare -A PROGRESS_STATES=(
   [hold]="⛔" [working]="🤖🔨" [question]="🤖❓" [design]="🤖📐" [blocked]="🤖🚫"
-  [ready]="🤖👍" [verifying]="🧭🔍" [owner - review]="👤🔍" [owner - question]="👤❓"
+  [ready]="🤖👍" [verifying]="🧭🔍" ["owner-review"]="👤🔍" ["owner-question"]="👤❓"
   [conflict]="💥" [silent]="⏳" [permission]="🔑" [failed]="🪫" [idle]="💤"
 )
 PROGRESS_STUCK="silent permission failed idle conflict"
