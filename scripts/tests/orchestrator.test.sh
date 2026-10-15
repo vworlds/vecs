@@ -33,6 +33,34 @@ date() { if [ "${1:-}" = +%s ]; then printf '%s\n' "$NOW"; else command date "$@
 query_open_braces="$(grep -o '{' <<< "$PR_QUERY" | wc -l | tr -d ' ')"
 query_close_braces="$(grep -o '}' <<< "$PR_QUERY" | wc -l | tr -d ' ')"
 check test "$query_open_braces" = "$query_close_braces"
+python3 - "$ROOT/scripts" << 'PY'
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+documents = []
+for path in root.rglob("*.sh"):
+    for match in re.finditer(r"\bquery\s*=\s*(['\"])(.*?)\1", path.read_text(), re.DOTALL):
+        document = match.group(2)
+        if not document.strip().startswith(("query", "mutation")):
+            continue
+        stack = []
+        pairs = {")": "(", "}": "{"}
+        for char in document:
+            if char in "({":
+                stack.append(char)
+            elif char in ")}":
+                if not stack or stack.pop() != pairs[char]:
+                    raise SystemExit(f"unbalanced GraphQL delimiters in {path}: {document}")
+        if stack:
+            raise SystemExit(f"unbalanced GraphQL delimiters in {path}: {document}")
+        documents.append((path, document))
+
+if len(documents) < 10:
+    raise SystemExit(f"expected to check all embedded GraphQL documents, found {len(documents)}")
+print(f"checked balanced GraphQL delimiters in {len(documents)} embedded documents")
+PY
 cat > "$TEST_DIR/pr-query-fixture.json" << 'EOF'
 {"data":{"repository":{"pullRequests":{"nodes":[{"number":42,"headRefName":"42-work","headRefOid":"head-sha","baseRefName":"dev","mergeable":"MERGEABLE","createdAt":"2026-01-01T00:00:00Z","comments":{"nodes":[]},"commits":{"totalCount":1,"nodes":[{"commit":{"committedDate":"2026-01-01T00:00:00Z","statusCheckRollup":{"state":"SUCCESS"}}}]}}]}}}}
 EOF
@@ -43,6 +71,19 @@ report_graphql_error 'Expected NAME, actual: (none)' > "$TEST_DIR/graphql-events
 report_graphql_error 'Expected NAME, actual: (none)' >> "$TEST_DIR/graphql-events" || true
 report_graphql_error 'a different GraphQL error' >> "$TEST_DIR/graphql-events"
 check test "$(grep -c '^watcher: GraphQL error:' "$TEST_DIR/graphql-events" || true)" = 2
+fails=1 BLIND=false
+report_transport_error 'temporary gateway error' > "$TEST_DIR/transport-events" || true
+fails=2
+report_transport_error 'temporary gateway error' >> "$TEST_DIR/transport-events" || true
+check test ! -s "$TEST_DIR/transport-events"
+fails=3
+report_transport_error 'temporary gateway error' >> "$TEST_DIR/transport-events"
+report_transport_error 'temporary gateway error' >> "$TEST_DIR/transport-events" || true
+check test "$(grep -c '^watcher: GraphQL transport failure:' "$TEST_DIR/transport-events")" = 1
+fails=4 BLIND=true
+report_transport_error 'budget 403' >> "$TEST_DIR/transport-events" || true
+check test "$(grep -c '^watcher: GraphQL transport failure:' "$TEST_DIR/transport-events")" = 1
+BLIND=false
 
 # Owner's pacing examples, plus budget exhaustion and recovery.
 pace 4000 "$((NOW + 3600))"
@@ -234,6 +275,7 @@ printf '2026-01-01T00:00:00Z\n' > "$TEST_DIR/blind-state/vecs-watch/.comments-si
 touch "$TEST_DIR/blind-state/vecs-watch/open-42"
 XDG_STATE_HOME="$TEST_DIR/blind-state" MAX_MINUTES=0 bash scripts/orchestrator/watch-prs.sh > "$TEST_DIR/blind-events"
 check grep -q '^BUDGET:' "$TEST_DIR/blind-events"
+check test "$(grep -c 'GraphQL transport failure' "$TEST_DIR/blind-events" || true)" = 0
 check grep -q '/issues/comments?' "$TEST_DIR/blind-calls"
 check grep -q '/issues?state=open&assignee=' "$TEST_DIR/blind-calls"
 check test "$(grep -c 'api graphql' "$TEST_DIR/blind-calls")" = 1

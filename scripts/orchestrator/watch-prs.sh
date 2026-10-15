@@ -88,6 +88,16 @@ report_graphql_error() {
   message="${message//$'\t'/ }"
   once "graphql-error-$(key "$message")" && emit "watcher: GraphQL error: $message"
 }
+report_transport_error() {
+  local message="$1"
+  [ "$BLIND" != true ] || return 0
+  [ "$fails" -ge 3 ] || return 0
+  [ -n "$message" ] || message="GitHub request failed without an error message"
+  message="${message//$'\r'/ }"
+  message="${message//$'\n'/ }"
+  message="${message//$'\t'/ }"
+  once "graphql-transport-error-$(key "$message")" && emit "watcher: GraphQL transport failure: $message"
+}
 # needs_me <first line of a comment>: a worker's READY, QUESTION, DESIGN and BLOCKED do; its
 # other notes don't. Anything that is not a [worker] note does.
 needs_me() {
@@ -405,6 +415,8 @@ while :; do
   [ "$(date +%s)" -ge "$GQL_AT" ] || turn=false
   answered=false
   graphql_failed=false
+  transport_failed=false
+  transport_error=""
   if $turn; then
     gh api graphql -i -f owner="${REPO_SLUG%/*}" -f name="${REPO_SLUG#*/}" -f query="$PR_QUERY" \
       > "$STATE/.answer" 2> "$STATE/.error" && answered=true
@@ -418,9 +430,9 @@ while :; do
       answered=false
       graphql_failed=true
     elif ! $answered; then
-      graphql_error="$(head -1 "$STATE/.error" | tr '\t\r\n' '   ' | cut -c1-300)"
-      report_graphql_error "${graphql_error:-GitHub request failed without an error message}"
+      transport_error="$(head -1 "$STATE/.error" | tr '\t\r\n' '   ' | cut -c1-300)"
       graphql_failed=true
+      transport_failed=true
     fi
   fi
   if ! $turn; then
@@ -486,6 +498,7 @@ while :; do
       report_graphql_error "Invalid GraphQL response or PR_LINES parsing failure"
     fi
     fails=$((fails + 1))
+    [ "$transport_failed" != true ] || report_transport_error "$transport_error"
     backoff=$((INTERVAL * (1 << (fails < 5 ? fails : 5))))
     [ "$backoff" -le 300 ] || backoff=300
     GQL_AT=$(($(date +%s) + backoff))
