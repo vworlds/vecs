@@ -78,6 +78,35 @@ This holds for issues and PRs, on the board or not.
 - After a review the owner takes themselves off or assigns you. Read their comment on the card,
   then act.
 
+### Progress says what a card waits on
+
+The Progress text field reads `<state>[ 🔁<round>][ 🔴]`: what the card is waiting on, which READY
+round it is in, and whether CI is red on its head. Orchestrator scripts update it as a side effect;
+never edit it by hand (`board_progress` in `scripts/lib/board.sh`). Merged and closed cards have no
+value.
+
+| State | Meaning                                    | Set by                                 |
+| ----- | ------------------------------------------ | -------------------------------------- |
+| ⛔    | Opened on hold                             | `open-task.sh --hold`                  |
+| 🤖🔨  | Worker is building                         | open/release, review changes or answer |
+| 🤖❓  | Worker asked a question                    | watcher                                |
+| 🤖📐  | Worker posted a design note                | watcher                                |
+| 🤖🚫  | Worker is blocked                          | watcher                                |
+| 🤖👍  | Worker is ready; includes the review round | watcher                                |
+| 🧭🔍  | Orchestrator verifies                      | `verify.sh`                            |
+| 👤🔍  | Owner review                               | `review.sh owner`                      |
+| 👤❓  | Owner was asked something                  | `review.sh ask`                        |
+| 💥    | Branch conflicts with its base             | watcher                                |
+| ⏳    | No commit or comment for 40+ minutes       | watcher                                |
+| 🔑    | Worker waits for permission                | watcher                                |
+| 🪫    | Worker turn failed                         | watcher                                |
+| 💤    | Worker has not replied to a review         | watcher                                |
+
+The watcher marks CI red on the PR head. A worker comment or new commit clears stuck states and
+returns the card to working; a conflict clears when the branch merges cleanly again. Approval and
+answers on issues clear the value. A merge or external close clears it entirely. Worker scripts do
+not access the board; watcher updates are therefore eventual.
+
 ### Issues: develop, agree, then open the PR
 
 - **Take the first card of Ready that nothing blocks** (`board.sh next`); don't wait to be told.

@@ -258,6 +258,92 @@ board_move() {
   fi
 }
 
+# Progress is a machine-maintained summary of what a card waits on: <state>[ 🔁<round>][ 🔴].
+declare -A PROGRESS_STATES=(
+  [hold]="⛔" [working]="🤖🔨" [question]="🤖❓" [design]="🤖📐" [blocked]="🤖🚫"
+  [ready]="🤖👍" [verifying]="🧭🔍" ["owner-review"]="👤🔍" ["owner-question"]="👤❓"
+  [conflict]="💥" [silent]="⏳" [permission]="🔑" [failed]="🪫" [idle]="💤"
+)
+PROGRESS_STUCK="silent permission failed idle conflict"
+
+_progress_field() {
+  if [ -z "${_PROGRESS_FIELD:-}" ]; then
+    _PROGRESS_FIELD="$(_board_gql -f query='query($p: ID!) { node(id: $p) { ... on ProjectV2 { field(name: "Progress") { ... on ProjectV2Field { id } } } } }' --jq '.data.node.field.id // empty')" || return 1
+    [ -n "$_PROGRESS_FIELD" ] || {
+      log "board: the project has no Progress field"
+      return 1
+    }
+  fi
+  printf '%s\n' "$_PROGRESS_FIELD"
+}
+
+progress_round() { sed 's/[0-9]/&\xef\xb8\x8f\xe2\x83\xa3/g' <<< "$1"; }
+progress_text() {
+  local parts=() IFS=' '
+  [ "$1" = - ] || parts+=("${PROGRESS_STATES[$1]}")
+  [ "$2" = - ] || parts+=("🔁$(progress_round "$2")")
+  [ "$3" != red ] || parts+=("🔴")
+  printf '%s' "${parts[*]}"
+}
+progress_parse() {
+  local word state=- round=- ci=- name
+  for word in $1; do
+    case "$word" in
+      🔁*)
+        round="$(tr -cd '0-9' <<< "$word")"
+        [ -n "$round" ] || round=-
+        ;;
+      🔴) ci=red ;;
+      *) for name in "${!PROGRESS_STATES[@]}"; do [ "${PROGRESS_STATES[$name]}" = "$word" ] && state="$name"; done ;;
+    esac
+  done
+  printf '%s\t%s\t%s\n' "$state" "$round" "$ci"
+}
+
+# board_progress <ref> [state=<name>|-] [round=<n>|-] [ci=red|ok] [if=<state,...>]
+board_progress() {
+  board_enabled || return 0
+  local ref="$1" item field cur state round ci only='' arg want='' new
+  shift
+  item="$(board_item "$ref")" && [ -n "$item" ] || {
+    log "board: no card for $ref"
+    return 1
+  }
+  field="$(_progress_field)" || return 1
+  cur="$(_board_gql -f i="$item" -f query='query($i: ID!) { node(id: $i) { ... on ProjectV2Item { fieldValueByName(name: "Progress") { ... on ProjectV2ItemFieldTextValue { text } } } } }' --jq '.data.node.fieldValueByName.text // ""')" || return 1
+  IFS=$'\t' read -r state round ci < <(progress_parse "$cur")
+  for arg in "$@"; do
+    case "$arg" in
+      state=*) want="${arg#state=}" ;;
+      round=*) round="${arg#round=}" ;;
+      ci=red) ci=red ;;
+      ci=ok) ci=- ;;
+      if=*) only="${arg#if=}" ;;
+      *)
+        log "board: unknown Progress part '$arg'"
+        return 1
+        ;;
+    esac
+  done
+  if [ -n "$only" ] && [[ ",$only," != *",$state,"* ]]; then return 0; fi
+  if [ -n "$want" ]; then
+    [ "$want" = - ] || [ -n "${PROGRESS_STATES[$want]:-}" ] || {
+      log "board: unknown Progress state '$want'"
+      return 1
+    }
+    state="$want"
+  fi
+  new="$(progress_text "$state" "$round" "$ci")"
+  [ "$new" != "$cur" ] || return 0
+  if [ -z "$new" ]; then
+    _board_gql -f i="$item" -f f="$field" -f query='mutation($p: ID!, $i: ID!, $f: ID!) { clearProjectV2ItemFieldValue(input: {projectId: $p, itemId: $i, fieldId: $f}) { projectV2Item { id } } }' > /dev/null || return 1
+  else
+    _board_gql -f i="$item" -f f="$field" -f t="$new" -f query='mutation($p: ID!, $i: ID!, $f: ID!, $t: String!) { updateProjectV2ItemFieldValue(input: {projectId: $p, itemId: $i, fieldId: $f, value: {text: $t}}) { projectV2Item { id } } }' > /dev/null || return 1
+  fi
+  log "board: $ref progress ${new:-cleared}"
+}
+board_progress_clear() { board_progress "$1" state=- round=- ci=ok; }
+
 # board_where <ref>: the column an issue's or PR's card is in; nothing if it has no card.
 board_where() {
   local repo="" number=""

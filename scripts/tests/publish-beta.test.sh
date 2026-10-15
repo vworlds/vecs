@@ -92,9 +92,10 @@ assert_output 'Publish run timeout'
 test ! -f "$TMP/npm-calls"
 echo 'PASS: run deadline'
 
-REGISTRY_MAX_WAIT_SEC=1 run_case registry-timeout 1
+REGISTRY_MAX_WAIT_SEC=10 run_case registry-timeout 1
 assert_output 'under pack-idle-keepalive: @vworlds/vecs-wire.'
 assert_output 'Retry verification, not dispatch'
+assert_output 'Registry timeout: still behind 1.0.56-pack-idle-keepalive.7 under pack-idle-keepalive: @vworlds/vecs-wire.'
 echo 'PASS: registry deadline identifies lagging package'
 
 run_case moved 1
