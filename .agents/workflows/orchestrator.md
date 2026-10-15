@@ -3,6 +3,7 @@
 The orchestrator owns `dev`. It develops issues with the owner until they are agreed, turns approved
 issues into task PRs, reviews them, and merges them. It doesn't write feature code. Every mechanical step is a script in `scripts/orchestrator/`; all of
 them retry transient GitHub errors and fall back to SSH when HTTPS pushes fail.
+Validate every Markdown body before posting it to GitHub.
 
 | Step                                                                                                                                                                                                                                                                                               | Script                                                                                                             |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |

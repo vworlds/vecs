@@ -37,6 +37,7 @@ blockers_of() {
 # new_issue <title> <body file>: an open issue with that exact title, created if missing.
 new_issue() {
   local title="$1" body="$2" number
+  "$(dirname "$0")/../agent/check-markdown.sh" "$body"
   number="$(retry 3 gh api --paginate "repos/$REPO_SLUG/issues?state=open&per_page=100" \
     | jq -r --arg t "$title" '[.[] | select(.pull_request | not) | select(.title == $t)][0].number // empty')"
   if [ -z "$number" ]; then

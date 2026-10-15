@@ -36,6 +36,7 @@ jobs:
         run: |
           scripts/agent/check-changelog.sh
           scripts/tests/changelog.test.sh
+          scripts/tests/markdown.test.sh
 
       - name: Run tests
         run: npm run test
