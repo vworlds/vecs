@@ -81,6 +81,40 @@ release_poll_pause() {
   sleep "$interval"
 }
 
+# Beta verification is tag-specific: it must never inspect or change latest.
+wait_beta_registry() {
+  local version="$1" tag="$2" packages="$3"
+  local wait="${REGISTRY_MAX_WAIT_SEC:-600}" interval="${POLL_INTERVAL_SEC:-15}"
+  local start=$SECONDS deadline remaining package actual count
+  local -a pending next
+  mapfile -t pending <<< "$packages"
+  count=${#pending[@]}
+  deadline=$((SECONDS + wait))
+  log "Waiting for npm $tag=$version for $count packages (timeout ${wait}s)..."
+  while ((${#pending[@]} > 0 && SECONDS < deadline)); do
+    next=()
+    for package in "${pending[@]}"; do
+      remaining=$((deadline - SECONDS))
+      actual=""
+      if ((remaining > 0)); then
+        actual="$(timeout "${remaining}s" npm view "$package" "dist-tags.$tag" --prefer-online 2> /dev/null)" || actual=""
+      fi
+      if [ "$actual" = "$version" ]; then
+        log "npm: $package $actual"
+      else
+        next+=("$package")
+      fi
+    done
+    pending=("${next[@]}")
+    ((${#pending[@]} == 0)) || release_poll_pause "$deadline" "$interval"
+  done
+  if ((${#pending[@]} > 0)); then
+    err "Registry timeout: still behind $version under $tag: ${pending[*]}. Retry verification, not dispatch; nothing needs repairing in git."
+    return 1
+  fi
+  log "npm: $count/$count packages at $version after $((SECONDS - start)) s"
+}
+
 release_workspace_packages() {
   node --input-type=module - "$1" << 'NODE'
 import { globSync, readFileSync } from 'node:fs';

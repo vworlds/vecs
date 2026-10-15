@@ -43,6 +43,11 @@ jobs:
       - name: Release publication verification tests (offline)
         run: bash scripts/tests/release-publish.test.sh
 
+      - name: Beta publication tests (offline)
+        run: |
+          node --test scripts/tests/beta-versions.test.mjs
+          bash scripts/tests/publish-beta.test.sh
+
       - name: Build
         run: npm run build
 

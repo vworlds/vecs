@@ -1,16 +1,24 @@
 name: Publish to npm
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Beta {0} ({1})', github.ref_name, inputs.request_id) || github.event.head_commit.message }}
 
 on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Optional correlation ID used by publish-beta.sh
+        required: false
+        type: string
   push:
     branches:
       - master
 
 concurrency:
-  group: publish-npm-master
+  group: publish-npm-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ${{ vars.CI_RELEASE_RUNNER || 'ubuntu-latest' }}
     permissions:
       id-token: write
@@ -113,3 +121,69 @@ jobs:
         run: |
           git reset --hard
           git clean -ffdx
+
+  beta:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ${{ vars.CI_RELEASE_RUNNER || 'ubuntu-latest' }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Require a non-master branch
+        env:
+          REF: ${{ github.ref }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if [[ "$REF_TYPE" != branch || "$REF" == refs/heads/master ]]; then
+            echo 'Beta releases require a non-master branch' >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm run test
+
+      - name: Set beta versions
+        id: beta
+        env:
+          BRANCH: ${{ github.ref_name }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          metadata=$(node scripts/beta-versions.mjs metadata "$BRANCH" "$RUN_NUMBER" "$(node -p 'require("./lib/vecs/package.json").version')")
+          IFS=$'\t' read -r version slug <<< "$metadata"
+          node scripts/beta-versions.mjs set "$BRANCH" "$RUN_NUMBER"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: npm run build
+
+      - name: Prepare publish packages
+        run: |
+          for package in vecs-client vecs-server vecs-protocol vecs-physics vecs-wire vecs-phaser vecs-phaser-server vecs-phaser-client; do
+            node scripts/prepare-vecs-publish-package.mjs "lib/$package"
+          done
+
+      - name: Publish beta packages (never latest)
+        env:
+          SLUG: ${{ steps.beta.outputs.slug }}
+          VERSION: ${{ steps.beta.outputs.version }}
+          NODE_AUTH_TOKEN: ""
+        run: |
+          test -n "$SLUG" && test "$SLUG" != latest
+          npm publish ./lib/vecs --access public --tag "$SLUG"
+          for package in vecs-wire vecs-protocol vecs-client vecs-server vecs-physics vecs-phaser vecs-phaser-server vecs-phaser-client; do
+            npm publish "./lib/$package/dist" --access public --tag "$SLUG"
+          done
+          echo "Beta: $VERSION; install: npm i @vworlds/vecs@$VERSION (or @vworlds/vecs@$SLUG)" >> "$GITHUB_STEP_SUMMARY"
