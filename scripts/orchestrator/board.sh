@@ -14,8 +14,8 @@
 #   issue <title> <body.md> [column] [label…]   open an issue (new work, a follow-up, an idea)
 #                                     and add it at the bottom of a column (default Backlog)
 #   remove <ref>                      take a card off the board; its issue or PR is untouched
-#   archive [days]                    archive our Done cards that closed more than <days> days ago
-#                                     (default 2); merge-task.sh does it after each merge
+#   archive [keep]                    Done keeps the <keep> most recently closed cards (default 6);
+#                                     archive ours before them. merge-task.sh does it after a merge
 # <ref> is 212, #212, owner/repo#212, a github.com URL or a PVTI_… card id.
 # <column> is Backlog, Ready, "In progress", "In review", Approved or Done; any case, and the short
 # forms progress and review work too.
@@ -129,7 +129,7 @@ case "$cmd" in
     ;;
   archive)
     [ $# -le 1 ] || usage
-    board_archive_done "${1:-2}"
+    board_archive_done "$@"
     ;;
   block | unblock)
     [ $# -ge 2 ] || usage

@@ -150,9 +150,9 @@ This holds for issues and PRs, on the board or not.
 - **Never poll the board in a shell loop**, or retry a failed board call in a loop. A card just
   added can be missing from the listing for minutes although its issue already shows it: read
   it from the issue (`gh issue view <n> --json projectItems`) instead of waiting for it.
-- **Done is kept short.** `merge-task.sh` runs `board.sh archive [days]` after every merge
-  (default 2). It archives only `vworlds/vecs` cards in Done whose issue or PR closed more than
-  that many days ago; an archive failure does not fail the merge. Archived cards stay in the
+- **Done is kept short.** It shows the six most recently closed cards across both repositories.
+  `merge-task.sh` runs `board.sh archive [keep]` after every merge (default 6), archiving only
+  `vworlds/vecs` cards ranked after those six; an archive failure does not fail the merge. Archived cards stay in the
   project's "Archived items" view and can be restored. The watcher and default `list`, `next`
   and `mine` omit Done; use `board.sh list --all` or `board.sh list Done` to see it.
 - **Keep the watcher smart.** When it wakes you for something that needed no action, or for
