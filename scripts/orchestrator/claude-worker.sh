@@ -57,7 +57,7 @@ turn() {
     exec setsid bash -c 'prompt="$1"; trap '\''rm -f "$prompt"'\'' EXIT; shift;
       "$@" < "$prompt"' bash "$prompt" "$CLAUDE" -p "$resume" "$id" --model "$model" \
       --output-format stream-json --verbose --permission-mode acceptEdits \
-      --allowedTools Bash Edit Write Read Grep Glob >> "$dir/.claude-worker.log" 2>&1
+      --allowedTools Bash Edit Write Read Grep Glob >> "$dir/.tmp/claude-worker.log" 2>&1
   ) < /dev/null > /dev/null 2>&1 &
   local pid="$!"
   put "$f" pid "$pid"
@@ -112,7 +112,7 @@ case "$cmd" in
       status)
         activity=idle
         if running "$f"; then activity=running; fi
-        last="$(tail -n 50 "$(get "$f" dir)/.claude-worker.log" | jq -Rr 'fromjson? | select(.type == "result") | .subtype' | tail -1)"
+        last="$(tail -n 50 "$(get "$f" dir)/.tmp/claude-worker.log" | jq -Rr 'fromjson? | select(.type == "result") | .subtype' | tail -1)"
         if [ "$activity" = idle ] && [[ "$last" == error* ]]; then activity='idle (failed)'; fi
         printf '%s %s | %s | %s | %s\n' "$(get "$f" id)" "$activity" "$(get "$f" model)" "$(get "$f" dir)" "$last"
         ;;
@@ -120,7 +120,7 @@ case "$cmd" in
         jq -Rr 'fromjson? | select(.type == "assistant") | .message.content[]?
           | if .type == "text" then "said: " + (.text | gsub("\n"; " ") | .[0:400])
           elif .type == "tool_use" then .name + " " + ((.input.command // .input.file_path // .input.pattern // "") | tostring | .[0:200])
-          else empty end' "$(get "$f" dir)/.claude-worker.log" | tail -n "${1:-15}"
+          else empty end' "$(get "$f" dir)/.tmp/claude-worker.log" | tail -n "${1:-15}"
         ;;
       stop) stop_turn "$f" ;;
       wait) idle "$f" "${1:-600}" ;;

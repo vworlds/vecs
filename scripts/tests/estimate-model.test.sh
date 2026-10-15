@@ -241,6 +241,7 @@ cat > "$TEST_DIR/claude" << 'EOF'
 printf '%s\n' "$*" >> "$TEST_DIR/claude-args"
 case "$*" in *--session-id*) if [ "${CLAUDE_SLOW:-false}" = true ]; then touch "$TEST_DIR/slow-started"; sleep 30; fi ;; esac
 cat >> "$TEST_DIR/claude-prompts"
+printf '{"type":"assistant","message":{"content":[{"type":"text","text":"offline Claude transcript"}]}}\n'
 printf '{"type":"result","subtype":"success","is_error":false}\n'
 EOF
 chmod +x "$TEST_DIR/claude"
@@ -249,6 +250,9 @@ unset OPENCODE_SERVER_PASSWORD
 mkdir -p "$TEST_DIR/claude-dir"
 id="$(bash scripts/orchestrator/worker.sh start "$TEST_DIR/claude-dir" "$TEST_DIR/task.md" --model sonnet)"
 bash scripts/orchestrator/worker.sh wait "$id" 10
+check test -s "$TEST_DIR/claude-dir/.tmp/claude-worker.log"
+check test ! -e "$TEST_DIR/claude-dir/.claude-worker.log"
+check grep -q 'said: offline Claude transcript' <(bash scripts/orchestrator/worker.sh log "$id")
 check grep -q -- '--session-id' "$TEST_DIR/claude-args"
 check grep -q -- '--permission-mode acceptEdits' "$TEST_DIR/claude-args"
 check test "$(grep -c 'bypassPermissions' "$TEST_DIR/claude-args" || true)" = 0
@@ -256,6 +260,7 @@ check grep -q 'idle | claude-sonnet-5-5' <(bash scripts/orchestrator/worker.sh s
 bash scripts/orchestrator/worker.sh model "$id" opus
 bash scripts/orchestrator/worker.sh send "$id" "$TEST_DIR/task.md"
 bash scripts/orchestrator/worker.sh wait "$id" 10
+check test "$(grep -c 'offline Claude transcript' "$TEST_DIR/claude-dir/.tmp/claude-worker.log")" = 2
 check grep -q -- "--resume $id --model claude-opus-5-5" "$TEST_DIR/claude-args"
 refuse bash scripts/orchestrator/worker.sh model "$id" sol
 check test ! -e "$TEST_DIR/claude-dir/.tmp/claude-worker-prompt"

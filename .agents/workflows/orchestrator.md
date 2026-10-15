@@ -276,8 +276,14 @@ It uses `acceptEdits`, with Bash, Edit, Write, Read, Grep and Glob allowed, neve
 `--now` interrupts and confirms idle before resuming. Tokens never go on argv:
 `CLAUDE_WORKER_GH_TOKEN`, if set, becomes the child process's `GH_TOKEN`; otherwise it inherits
 the launching shell's GitHub identity. Records live beside opencode records under
-`vecs-orchestrator/claude-workers`; turn logs are `.claude-worker.log` in the worktree and prompts
-are temporary files in its ignored `.tmp/`. Stop workers before merging.
+`vecs-orchestrator/claude-workers`; turn logs are `.tmp/claude-worker.log` in the worktree and
+prompts are temporary files in that same ignored `.tmp/`. Stop workers before merging.
+
+**Isolation differs by backend.** opencode workers run as `jm`, a separate OS user that cannot
+touch the orchestrator's checkout or files. Headless Claude workers run as the **orchestrator's
+own user**, with that user's filesystem access. Their "work only in your worktree" rule is
+enforced by the prompt alone, not OS-user isolation. Consider this difference before choosing
+sonnet or opus; `acceptEdits` is not a filesystem sandbox.
 
 After each merge append PR, family, points, rounds and findings to the checked-in
 [model calibration log](../model-log.md), which replaces the private log. Separate design churn
