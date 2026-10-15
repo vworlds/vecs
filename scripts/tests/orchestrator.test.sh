@@ -121,8 +121,6 @@ checks=$((checks + 1))
 unset -f date
 
 # Progress formatting, partial updates, conditional writes, and no-op suppression use offline fakes.
-# Opening a task hands the issue from the owner to its PR; the issue has no separate Progress then.
-check grep -q 'board_progress_clear "$issue" || true' scripts/orchestrator/open-task.sh
 check test "$(progress_text working 12 red)" = '🤖🔨 🔁1️⃣2️⃣ 🔴'
 check test "$(progress_parse '🤖👍 🔁2️⃣ 🔴')" = $'ready\t2\tred'
 while IFS= read -r assignment; do
@@ -265,6 +263,84 @@ gh() {
   esac
 }
 printf 'placeholder task\n' > "$TEST_DIR/task.md"
+# Exercise open-task's issue-to-PR handoff with offline board fakes. Seed the issue with owner
+# review Progress; retain updates per card so the assertions cover both the issue and new PR.
+python3 - "$ROOT/scripts/orchestrator/open-task.sh" "$TEST_DIR/open-task-offline.sh" "$ROOT" << 'PY'
+import pathlib
+import sys
+
+source, target, root = map(pathlib.Path, sys.argv[1:])
+text = source.read_text()
+text = text.replace(
+    '. "$(dirname "$0")/../lib/common.sh"',
+    f'. "{root}/scripts/lib/common.sh"',
+)
+text = text.replace(
+    '. "$(dirname "$0")/../lib/board.sh"',
+    f'. "{root}/scripts/lib/board.sh"\n'
+    'board_enabled() { return 0; }\n'
+    'board_load_tracks() { :; }\n'
+    'board_require_ours() { :; }\n'
+    'board_blockers() { :; }\n'
+    'board_where() { printf "Approved\\n"; }\n'
+    'board_move() { :; }\n'
+    'board_turn() { :; }\n'
+    'board_beside() { :; }\n'
+    'board_progress() {\n'
+    '  local ref="$1" arg state="" round=""\n'
+    '  shift\n'
+    '  for arg in "$@"; do case "$arg" in state=*) state="${arg#state=}" ;; round=*) round="${arg#round=}" ;; esac; done\n'
+    '  if [ "$state" = - ]; then : > "$TEST_DIR/progress-$ref";\n'
+    '  else printf "%s\\t%s\\n" "$state" "$round" > "$TEST_DIR/progress-$ref"; fi\n'
+    '}\n',
+)
+text = text.replace(
+    '"$(dirname "$0")/../agent/check-markdown.sh"',
+    f'"{root}/scripts/agent/check-markdown.sh"',
+)
+target.write_text(text)
+PY
+printf 'owner-review\t-\n' > "$TEST_DIR/progress-339"
+gh() {
+  case "$*" in
+    *'issues/339 --jq'*) printf 'open\tfalse\tOffline task\n' ;;
+    *'pr list '*) : ;;
+    *'issues?state=all'*) printf '100\n' ;;
+    *'api graphql'*) printf '100\n100\n' ;;
+    *'/issues/101/labels'*) : ;;
+    *'pr create '*) printf 'https://github.com/vworlds/vecs/pull/101\n' ;;
+    *)
+      printf 'unexpected open-task gh request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+git() {
+  case "$*" in
+    'rev-parse --show-toplevel') printf '%s\n' "$ROOT" ;;
+    *'ls-remote '*) return 2 ;;
+    *'commit-tree '*) printf 'fixture-placeholder-sha\n' ;;
+    *'fetch '* | *' push '*) : ;;
+    *) command git "$@" ;;
+  esac
+}
+export -f gh git
+VECS_BOARD=on VECS_TRACK=mcp ROOT="$ROOT" TEST_DIR="$TEST_DIR" bash "$TEST_DIR/open-task-offline.sh" \
+  339 "$TEST_DIR/task.md" --slug offline-test > "$TEST_DIR/open-behavior"
+check test "$(cat "$TEST_DIR/progress-339")" = ''
+check test "$(cat "$TEST_DIR/progress-101")" = $'working\t1'
+unset -f gh git
+gh() {
+  case "$*" in
+    *'issues?state=open&per_page=100'*) jq -nc '[{number:339,labels:[{name:"track:mcp"}]},{number:340,pull_request:{},labels:[{name:"track:mcp"}]}]' ;;
+    *'/issues/339'*) printf 'open\tfalse\tVecs MCP\n' ;;
+    *)
+      printf 'unexpected gh request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+export -f gh
 if VECS_TRACK='' VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/no-track" \
   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT" \
   bash scripts/orchestrator/open-task.sh 339 "$TEST_DIR/task.md" > "$TEST_DIR/open-refusal" 2>&1; then
