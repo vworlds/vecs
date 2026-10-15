@@ -12,6 +12,8 @@ JSON
 printf '%s\n' '{"name":"@vworlds/alpha"}' > "$TMP/repo/modules/alpha/package.json"
 printf '%s\n' '{"name":"@vworlds/beta"}' > "$TMP/repo/modules/beta/package.json"
 printf '%s\n' '{"name":"@vworlds/private","private":true}' > "$TMP/repo/modules/private/package.json"
+mkdir -p "$TMP/repo/modules/wire"
+printf '%s\n' '{"name":"@vworlds/vecs-wire","private":true}' > "$TMP/repo/modules/wire/package.json"
 printf '%s\n' '{"name":"@other/foreign"}' > "$TMP/repo/modules/foreign/package.json"
 printf '%s\n' '{"name":"@vworlds/outside"}' > "$TMP/repo/lib/outside/package.json"
 cat > "$TMP/bin/gh" << 'SH'
@@ -68,9 +70,10 @@ run_case() {
 assert_output() { grep -Fq -- "$1" "$TMP/output"; }
 
 run_case lag 0
-assert_output 'npm: 2/2 packages at 1.2.3'
+assert_output 'npm: 3/3 packages at 1.2.3'
 assert_output 'npm: @vworlds/alpha 1.2.3'
 assert_output 'npm: @vworlds/beta 1.2.3'
+assert_output 'npm: @vworlds/vecs-wire 1.2.3'
 test "$(cat "$TMP/alpha-count")" -eq 3
 test "$(cat "$TMP/gh-count")" -eq 3
 echo 'PASS: publish discovery, pending run, and registry lag'
@@ -104,13 +107,13 @@ echo 'PASS: stalled gh request is bounded'
 started=$SECONDS
 REGISTRY_MAX_WAIT_SEC=1 run_case npm-stall 1
 test "$((SECONDS - started))" -lt 10
-assert_output 'Registry timeout: still behind 1.2.3: @vworlds/beta.'
+assert_output 'Registry timeout: still behind 1.2.3: @vworlds/beta'
 echo 'PASS: stalled npm request is bounded'
 
 run_case success 0
-diff -u <(printf '@vworlds/alpha\n@vworlds/beta\n') "$TMP/npm-calls"
-assert_output '2 workspace packages'
-echo 'PASS: workspace patterns exclude private, foreign, and non-workspace packages'
+diff -u <(printf '@vworlds/alpha\n@vworlds/beta\n@vworlds/vecs-wire\n') "$TMP/npm-calls"
+assert_output '3 workspace packages'
+echo 'PASS: workspace discovery includes dist-published private packages and excludes other private, foreign, and non-workspace packages'
 
 PUBLISH_MAX_WAIT_SEC=0 run_case success 1
 assert_output 'must be positive integer seconds'

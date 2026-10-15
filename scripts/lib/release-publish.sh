@@ -42,7 +42,7 @@ wait_release_publish() {
   fi
 
   if ! packages="$(release_workspace_packages "$root")" || [ -z "$packages" ]; then
-    err "Could not discover non-private @vworlds/* workspaces. Git is complete; no git repair is needed."
+    err "Could not discover published @vworlds/* workspaces. Git is complete; no git repair is needed."
     return 1
   fi
   mapfile -t pending <<< "$packages"
@@ -126,7 +126,10 @@ if (!Array.isArray(patterns)) throw new Error('Missing workspaces');
 const names = new Set();
 for (const path of globSync(patterns.map(pattern => `${pattern}/package.json`), { cwd: root })) {
   const pkg = JSON.parse(readFileSync(resolve(root, path), 'utf8'));
-  if (!pkg.private && pkg.name?.startsWith('@vworlds/')) names.add(pkg.name);
+  // vecs-wire is private in source but prepare-vecs-publish-package.mjs writes
+  // a public manifest to its dist directory, which the publish workflow uses.
+  const preparedForDist = pkg.name === '@vworlds/vecs-wire';
+  if ((!pkg.private || preparedForDist) && pkg.name?.startsWith('@vworlds/')) names.add(pkg.name);
 }
 console.log([...names].sort().join('\n'));
 NODE
