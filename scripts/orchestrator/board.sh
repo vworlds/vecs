@@ -7,6 +7,7 @@
 #   next                              the first Space Rocks card of Ready that nothing blocks: the
 #                                     next thing to start (blocked cards stay in Ready)
 #   mine                              open issues and PRs assigned to me: each needs an action
+#   tracks                            list open issues and PRs in a track
 #   turn <ref> owner|me|nobody        say whose move it is, by assignee
 #   blocked <ref>                     the open issues that block an issue
 #   block <issue> <blocker…>          add "blocked by" relations
@@ -70,6 +71,7 @@ case "$cmd" in
       printf '%s\n' "$items"
       exit 0
     fi
+    board_load_tracks "$WATCH_STATE/tracks" || log "warning: could not read tracks"
     for column in "Backlog" "Ready" "In progress" "In review" "Approved" "Done" "-"; do
       [ -z "$want" ] || [ "$want" = "$column" ] || continue
       [ "$column" != Done ] || $all || [ -n "$want" ] || continue
@@ -83,6 +85,7 @@ case "$cmd" in
         if [ "$number" = "-" ]; then ref="(draft)"; elif [ "$repo" = "$REPO_SLUG" ]; then ref="#$number"; else ref="${repo#*/}#$number"; fi
         note=""
         [ "$who" = "-" ] || note=" [@${who//,/ @}]"
+        if [ "$repo" = "$REPO_SLUG" ] && [ -n "${BOARD_TRACK[$number]:-}" ]; then note="$note {track:${BOARD_TRACK[$number]}}"; fi
         if [ "$column" = Ready ] && [ "$repo" = "$REPO_SLUG" ] && [ "$kind" = ISSUE ]; then
           note="$note$(blockers_of "$number")"
         fi
@@ -97,8 +100,10 @@ case "$cmd" in
     board_move "$1" "$2" $where || exit 1
     ;;
   next)
+    board_load_tracks "$WATCH_STATE/tracks" || die "could not read tracks"
     while IFS=$'\t' read -r _ column kind repo number _ title _; do
       [ "$column" = Ready ] && [ "$repo" = "$REPO_SLUG" ] || continue
+      board_ours "$number" || continue
       if [ "$kind" = ISSUE ]; then
         blocked="$(blockers_of "$number")"
         if [ -n "$blocked" ]; then
@@ -112,12 +117,19 @@ case "$cmd" in
     ;;
   mine)
     me="$(board_me)" || die "cannot read my login"
+    board_load_tracks "$WATCH_STATE/tracks" || die "could not read tracks"
     retry 3 gh api --paginate "repos/$REPO_SLUG/issues?state=open&assignee=$me&per_page=100" \
-      --jq '.[] | "#\(.number)\t\(if .pull_request then "PR" else "ISSUE" end)\t\(.title)"'
+      --jq '.[] | "\(.number)\t\(if .pull_request then "PR" else "ISSUE" end)\t\(.title)"' | while IFS=$'\t' read -r number kind title; do
+      board_ours "$number" && printf '#%s\t%s\t%s\n' "$number" "$kind" "$title"
+    done
+    [ -z "$VECS_TRACK" ] || exit 0
     # Cards of the other repos on the shared board that are assigned to me.
     board_items "-status:Done" | awk -F'\t' -v here="$REPO_SLUG" -v me="$me" '
       $4 != here && $4 != "-" && $6 == "OPEN" && ("," $8 ",") ~ ("," me ",") {
         sub(/^[^\/]*\//, "", $4); print $4 "#" $5 "\t" $3 "\t" $7 }'
+    ;;
+  tracks)
+    board_tracks | awk -F'\t' '$2 != "-" { print "#" $1 "\t" $2 }'
     ;;
   turn)
     [ $# -eq 2 ] || usage

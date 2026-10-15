@@ -11,6 +11,7 @@ set -euo pipefail
 . "$(dirname "$0")/../lib/common.sh"
 . "$(dirname "$0")/../lib/board.sh"
 pr="${1:?usage: merge-task.sh <pr> [--subject s] [--body-file f]}"
+board_require_ours "$pr"
 shift
 subject="" body_file=""
 while [ $# -gt 0 ]; do

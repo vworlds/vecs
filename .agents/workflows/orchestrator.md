@@ -150,6 +150,14 @@ not access the board; watcher updates are therefore eventual.
 
 ### Everything else
 
+**Tracks keep other sessions' work apart.** Label an issue `track:<name>` to run it separately;
+its PRs inherit the track through the same label or a `Closes #n` / `Part of #n` reference.
+Without `VECS_TRACK`, scripts ignore track items; with `VECS_TRACK=<name>`, they handle that
+track only. Opened PRs receive the track label. `board.sh tracks` lists track membership and
+`board.sh list` annotates it. The watcher refreshes REST labels every 30 seconds and stores
+per-track state at `vecs-watch-<track>`. `WATCH_ONLY` and `WATCH_SKIP` remain available.
+Set `VECS_BASE=<branch>` to open task PRs against a track integration branch instead of `dev`.
+
 - **Write on the card, not in the chat.** Results, conclusions, questions and next steps about one
   item go in a comment on its issue or PR; then move the card and set whose move it is. The chat
   with the owner is for coordination: priorities and order across issues, how the project is
