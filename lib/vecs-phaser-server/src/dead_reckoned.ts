@@ -57,8 +57,18 @@ import { PhaserServerModule, POSE_GUARD_PHASE } from "./PhaserServerModule.js";
  */
 export class DeadReckoned {}
 
+/** Server-local moving baseline tag; never networked or captured in subtree snapshots. */
+export class DeadReckonedMoving {}
+
 /** Options for {@link DeadReckonedModule}. */
 export interface DeadReckonedOptions {
+  /**
+   * Pause idle keepalives by default (`true`) once no moving dead-reckoned body is
+   * visible and the client acknowledges the last content send. `false` keeps
+   * sending at `keepAliveFrames` cadence. The replicated-state render clock holds
+   * while paused; client-local effects should use their render loop's time.
+   */
+  readonly idleKeepAlive?: boolean;
   /**
    * How far, in meters, the body may stray from the predicted position before the server sends a
    * new baseline. Default `0.01`. Keep it above any quantization of `Motion` a later protocol
@@ -104,6 +114,9 @@ export interface DeadReckonedOptions {
  * and a session whose replicated state did not change is sent no frame. A scene of dead-reckoned
  * bodies that drift between corrections is exactly that, so without a keepalive the bodies freeze
  * until the next frame arrives and then jump. The module throws at install without it.
+ * By default it gates keepalives on visible moving bodies and waits for the last
+ * content send's ack before pausing. Client blends finish on render-loop time even
+ * while the replicated-state clock holds. Set `idleKeepAlive: false` for continuous keepalives.
  *
  * It installs {@link PhaserServerModule}, gives {@link DeadReckoned} its structural guarantees, and
  * creates the world's single {@link MotionClock} entity from the physics settings (step, substeps,
@@ -202,6 +215,10 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
 
     world.module(PhaserServerModule);
     world.component(MotionPrediction).snapshotPolicy(DontSnapshot);
+    world.component(DeadReckonedMoving).snapshotPolicy(DontSnapshot);
+    if (options?.idleKeepAlive !== false) {
+      world.keepAliveWhile(DeadReckonedMoving);
+    }
     world.component(MovingBaseline).snapshotPolicy(DontSnapshot);
     world.component(PendingMotion).snapshotPolicy(DontSnapshot);
     world.component(ApplicationBaseline).snapshotPolicy(DontSnapshot);
@@ -229,6 +246,7 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
         entity.remove(Motion);
         entity.remove(MotionParams);
         entity.remove(MotionPrediction);
+        entity.remove(DeadReckonedMoving);
         if (world.deferred) {
           // The render pose is added by the guard at the end of the frame, not by a command queued
           // here: a command queued behind a later re-add of the tag in the same flush would meet the
@@ -483,6 +501,15 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
         motionPose(prediction.state, prediction.params, prediction.pose);
       }
       prediction.frame = frame;
+      // Both tags describe a moving baseline, but serve separate consumers: keepalive gating
+      // and sync eligibility. Keep their state together without unifying their lifecycles.
+      if (!prediction.primed || prediction.rest !== motion.rest) {
+        if (motion.rest) {
+          entity.remove(DeadReckonedMoving);
+        } else {
+          entity.add(DeadReckonedMoving);
+        }
+      }
       prediction.rest = motion.rest;
       prediction.primed = true;
       if (motion.rest) {
