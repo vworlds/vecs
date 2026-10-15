@@ -31,6 +31,7 @@ import {
   Phase,
   Relationship,
   type System,
+  type QueryDSL,
 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 import {
@@ -235,6 +236,10 @@ export interface ServerWorldOptions extends NetworkWorldOptions {
    * optimistic), every `keepAliveFrames` ticks for
    * each session that would otherwise be sent nothing, and nothing for a session that is sent a
    * diff anyway. It keeps one session integer; constructing and encoding the frame can allocate.
+   * {@link ServerWorld.keepAliveWhile} can gate this cadence on visible query membership
+   * and acknowledgement of the last content send. With no gate, behavior and bytes are unchanged.
+   * The client's `renderFrame` is the clock of replicated state and holds while idle;
+   * client-local effects should use their render loop's time instead.
    */
   keepAliveFrames?: number;
   /**
@@ -360,6 +365,8 @@ class ServerClientSession {
    * Only kept while `keepAliveFrames` is set, to tell when the session is due one.
    */
   public lastDiffFrame: number;
+  /** Last content send; a gated session keeps sending until this frame is acknowledged. */
+  public lastContentSendFrame = 0;
   /**
    * The content state frame watched for liveness, or `undefined` when fully acked.
    * New sends leave an unacked probe alone. An ack covering it retargets it to
@@ -452,6 +459,8 @@ export class ServerWorld extends NetworkWorld {
   private _shutdown: Promise<void> | undefined;
   private _clients!: System<[typeof View, typeof ServerClientSession]>;
   private _frame = 1;
+  private _keepAliveGate: QueryDSL | undefined;
+  private _sessionCreated = false;
   private _replicationSendMs = 0;
 
   public constructor(options: ServerWorldOptions = {}) {
@@ -513,7 +522,7 @@ export class ServerWorld extends NetworkWorld {
       .update(
         { watch: View, onEnter: true, inject: [ServerClientSession] },
         (_entity, view, [_session]) => {
-          view._refreshTracker(this._trackerCache);
+          view._refreshTracker(this._trackerCache, this._keepAliveGate);
         }
       )
       .exit([View, ServerClientSession], (_entity, [view, _session]) => {
@@ -560,6 +569,26 @@ export class ServerWorld extends NetworkWorld {
    */
   public get keepAliveFrames(): number | undefined {
     return this._keepAliveFrames;
+  }
+
+  /**
+   * Pause keepalives unless the session's view matches `dsl` or its last content send
+   * has not been acknowledged. Membership is tracked reactively,
+   * with one shared, listener-free tracker per distinct view/gate combination.
+   * Several registrations OR their queries. Pausing only when fully acknowledged
+   * preserves redundant carriers of the last change and disarms its liveness probe.
+   * Call before the first session exists; throws after that or without `keepAliveFrames`.
+   * With no registration, keepalive behavior and bytes are unchanged.
+   */
+  public keepAliveWhile(dsl: QueryDSL): void {
+    if (this._keepAliveFrames === undefined) {
+      throw new Error("keepAliveWhile requires keepAliveFrames");
+    }
+    if (this._sessionCreated) {
+      throw new Error("keepAliveWhile must be registered before the first session exists");
+    }
+    this._keepAliveGate =
+      this._keepAliveGate === undefined ? dsl : { any: [this._keepAliveGate, dsl] };
   }
 
   /** @internal */
@@ -758,6 +787,8 @@ export class ServerWorld extends NetworkWorld {
    * With {@link ServerWorldOptions.keepAliveFrames} set, a session that has acked a baseline
    * and has not been sent a frame with a diff for that many frames is sent one whose diff is
    * empty, from the base the frame would have had anyway.
+   * A registered {@link ServerWorld.keepAliveWhile} gate pauses these empty sends once
+   * nothing visible needs the render clock and the last content send is acknowledged.
    *
    * Registered as the world's own `Send` system in a phase after `ON_STORE`, so
    * it normally runs as part of `progress()`; call it directly only to drive a
@@ -845,13 +876,16 @@ export class ServerWorld extends NetworkWorld {
       const diff = this._stateFor(session, latest, sendsBaseline, nowMs);
 
       const content = worthAFrame(diff);
-      const keepAlive = !content && this._keepAliveDue(session, diff, toFrame);
+      const keepAlive = !content && this._keepAliveDue(session, diff, toFrame, view);
       if (!content && !keepAlive && rpc.length === 0) {
         return;
       }
       if (diff !== undefined) {
         session.rtt.recordSend(toFrame, nowMs);
         if (content) {
+          if (this._keepAliveGate !== undefined) {
+            session.lastContentSendFrame = toFrame;
+          }
           this._noteContentSent(session, nowMs);
         }
         if (this._keepAliveFrames !== undefined) {
@@ -1138,10 +1172,18 @@ export class ServerWorld extends NetworkWorld {
   private _keepAliveDue(
     session: ServerClientSession,
     diff: StateDiff | undefined,
-    toFrame: number
+    toFrame: number,
+    view: View
   ): boolean {
     const every = this._keepAliveFrames;
-    return every !== undefined && diff !== undefined && toFrame - session.lastDiffFrame >= every;
+    return (
+      every !== undefined &&
+      diff !== undefined &&
+      toFrame - session.lastDiffFrame >= every &&
+      (this._keepAliveGate === undefined ||
+        view.gateCount > 0 ||
+        session.ackFrame < session.lastContentSendFrame)
+    );
   }
 
   /**
@@ -1194,6 +1236,7 @@ export class ServerWorld extends NetworkWorld {
       socket.close();
       return;
     }
+    this._sessionCreated = true;
     const entity = this.entity().add(Networked).add(NetworkClient).add(View);
     const session = new ServerClientSession(
       this._frame - 1,

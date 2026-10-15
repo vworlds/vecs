@@ -113,7 +113,7 @@ export class ReplicationSim {
       clock: this.clock,
       seed: deriveSeed(this._seed, index),
       networkComponents: this._options.networkComponents,
-      tickMs: this._options.tickMs,
+      tickMs: options.serverTickIntervalMs ?? this._options.tickMs,
       renderMs: this._options.renderMs,
       ackIntervalMs: options.ackIntervalMs ?? this._options.ackIntervalMs,
       link: mergeConditions(this._options.link, options.link),
@@ -193,6 +193,8 @@ export interface ReplicationSimOptions {
 
 /** Options for {@link ReplicationSim.addClient}. */
 export interface SimClientOptions {
+  /** Advertised tick interval, independently of actual server scheduling; defaults to the server's. */
+  serverTickIntervalMs?: number;
   /** Conditions for this client's two links; overrides the simulation's defaults field by field. */
   link?: Partial<DuplexConditions>;
   /** How often this client acks, in milliseconds. */
