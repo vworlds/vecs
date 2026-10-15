@@ -9,8 +9,6 @@ import { z } from "zod";
 import type { World } from "@vworlds/vecs";
 import { Router } from "./bridge/router.js";
 
-const version = packageVersion();
-
 /** Node-level MCP configuration. Listening is always explicitly opt-in. */
 export interface VecsMcpServerOptions {
   /** Target path prefix; defaults to hostname-pid. Must be one nonempty path segment. */
@@ -21,11 +19,16 @@ export interface VecsMcpServerOptions {
   readOnly?: boolean;
 }
 
-/** Pull-only MCP access to explicitly registered local worlds over Streamable HTTP. */
+/**
+ * Pull-only MCP access to explicitly registered local worlds over Streamable HTTP.
+ * The informational package version is resolved lazily, falling back to "unknown"
+ * if bundling or unavailable metadata prevents discovery.
+ */
 export class VecsMcpServer {
   private readonly _router: Router;
   private readonly _token: string | undefined;
   private _http: Server | undefined;
+  private _version: string | undefined;
   private readonly _active = new Set<McpServer>();
 
   /** Capture best-effort process and git metadata once; no world hooks are installed. */
@@ -129,6 +132,7 @@ export class VecsMcpServer {
   }
 
   private _adapter(): McpServer {
+    const version = (this._version ??= packageVersion());
     const server = new McpServer({ name: this._router.name, version });
     for (const [name, tool] of Object.entries(tools)) {
       server.registerTool(
@@ -171,20 +175,23 @@ function git(...args: string[]): string | null {
 }
 
 function packageVersion(): string {
-  const require = createRequire(import.meta.url);
-  // Published entrypoints sit beside package.json; workspace src/dist sit below
-  // it. The bundled demo copies our manifest beside its relocated entrypoint.
-  for (const path of ["./package.json", "../package.json", "./vecs-mcp.package.json"]) {
-    try {
-      const pkg = require(path) as { name?: string; version?: string };
-      if (pkg.name === "@vworlds/vecs-mcp" && typeof pkg.version === "string") {
-        return pkg.version;
+  try {
+    const require = createRequire(import.meta.url);
+    // Published entrypoints sit beside package.json; workspace src/dist sit below it.
+    for (const path of ["./package.json", "../package.json"]) {
+      try {
+        const pkg = require(path) as { name?: string; version?: string };
+        if (pkg.name === "@vworlds/vecs-mcp" && typeof pkg.version === "string") {
+          return pkg.version;
+        }
+      } catch {
+        /* Try the next supported package layout. */
       }
-    } catch {
-      /* Try the next supported package layout. */
     }
+  } catch {
+    /* Bundlers may relocate the entrypoint or make a require loader unavailable. */
   }
-  throw new Error("Cannot locate @vworlds/vecs-mcp package version");
+  return "unknown";
 }
 
 const target = z

@@ -22,10 +22,12 @@ otherwise the error lists available paths.
 ephemeral port for tests. `close()` shuts down transports and the listener and is
 safe to call repeatedly. Process metadata (`name`, `pid`, `cwd`, git `branch` and
 `sha`) is captured once at construction. Unavailable git values are `null`.
-MCP initialization advertises the node name and the version from vecs-mcp's
-package manifest, so normal package-version bumps also update the handshake.
-If you bundle the Node entry, retain its manifest as `vecs-mcp.package.json`
-beside the bundled entrypoint; the demo build already copies this file.
+MCP initialization advertises the node name and lazily reads the version from
+vecs-mcp's package manifest on first use. Normal package-version bumps update
+the handshake. If bundling relocates the entrypoint or metadata cannot be read,
+the informational version is `"unknown"`; no manifest copying is required and
+version discovery never prevents import or use. This fallback is expected for
+the bundled demo.
 
 ## Demo server
 
