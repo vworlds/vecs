@@ -35,8 +35,8 @@ main() {
       --jq '.workflow_runs[0].id // empty')" || run=""
     if [ -z "$run" ]; then
       if [ "$check_mergeable" = true ]; then
-        state="$(api "repos/$REPO_SLUG/pulls/$pr" --jq '(.mergeable | tostring) + "\t" + (.mergeable_state // "") + "\t" + (.base.ref // "")')" || state=""
-        IFS=$'\t' read -r mergeable status base_ref <<< "$state"
+        state="$(api "repos/$REPO_SLUG/pulls/$pr" --jq '[(.mergeable | tostring), (.mergeable_state // ""), (.base.ref // "")] | map(tostring) | join("\u001f")')" || state=""
+        IFS=$'\x1f' read -r mergeable status base_ref <<< "$state"
         if [ "$mergeable" = false ] && [ "$status" = dirty ]; then
           printf 'checks: CONFLICT with %s: merge origin/%s, push, run again\n' "$base_ref" "$base_ref"
           exit 3

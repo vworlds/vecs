@@ -156,6 +156,18 @@ branches may normalize to the same slug; choose distinct slugs when they must
 retain independent tags. Workflow reruns reuse the same version, so do not rerun
 a partially published beta blindly: inspect the run and registry first.
 
+When pinning a beta in a consumer checkout, editing manifests (including root
+`overrides`) and running `npm install` can update lockfile entries while leaving
+`node_modules/@vworlds/*` at the old version; `npm ls` may not make the mismatch
+obvious. To refresh reliably, remove the `node_modules/@vworlds/vecs*` entries
+from `package-lock.json`, delete those installed directories, and install again.
+Then verify the installed version against the registry, for example:
+
+```bash
+npm view @vworlds/vecs@pack-idle-keepalive version
+node -p 'require("@vworlds/vecs/package.json").version'
+```
+
 The publish wait defaults to 20 minutes (`PUBLISH_MAX_WAIT_SEC`), registry
 propagation to 10 minutes (`REGISTRY_MAX_WAIT_SEC`), and polling to 15 seconds
 (`POLL_INTERVAL_SEC`). All accept positive integer seconds; requests are bounded

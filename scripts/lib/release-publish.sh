@@ -23,8 +23,8 @@ wait_release_publish() {
     remaining=$((deadline - SECONDS))
     ((remaining > 0)) || break
     if run="$(timeout "${remaining}s" gh run list --workflow publish.yml --commit "$commit" --branch master --event push --limit 1 \
-      --json databaseId,status,conclusion,url --jq '.[0] | select(. != null) | [.databaseId, .status, (.conclusion // "pending"), .url] | @tsv')" && [ -n "$run" ]; then
-      IFS=$'\t' read -r id status conclusion url <<< "$run"
+      --json databaseId,status,conclusion,url --jq '.[0] | select(. != null) | [.databaseId, .status, (if (.conclusion // "") == "" then "pending" else .conclusion end), .url] | map(tostring) | join("\u001f")')" && [ -n "$run" ]; then
+      IFS=$'\x1f' read -r id status conclusion url <<< "$run"
       if [ "$status" = completed ]; then
         if [ "$conclusion" != success ]; then
           err "Publish run failed ($conclusion): $url. Git is complete; inspect the publish failure, not git state."

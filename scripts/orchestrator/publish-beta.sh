@@ -36,9 +36,9 @@ main() {
     remaining=$((deadline - SECONDS))
     if run="$(timeout "${remaining}s" gh run list -R "$REPO_SLUG" --workflow publish.yml --branch "$branch" --event workflow_dispatch --limit 100 \
       --json databaseId,number,status,conclusion,url,displayTitle,headSha \
-      --jq ".[] | select(.displayTitle == $title_json) | [.databaseId, .number, .status, (.conclusion // \"pending\"), .url, .headSha] | @tsv")" && [ -n "$run" ]; then
+      --jq ".[] | select(.displayTitle == $title_json) | [.databaseId, .number, .status, (if (.conclusion // \"\") == \"\" then \"pending\" else .conclusion end), .url, .headSha] | map(tostring) | join(\"\u001f\")")" && [ -n "$run" ]; then
       local sha
-      IFS=$'\t' read -r id number status conclusion url sha <<< "$run"
+      IFS=$'\x1f' read -r id number status conclusion url sha <<< "$run"
       if [ "$sha" != "$commit" ]; then
         err "Branch moved before dispatch: $url. Inspect the run; do not redispatch blindly."
         return 1
