@@ -519,6 +519,22 @@ case. `IntervalTickSource.seconds`, `RateTickSource.rate`, and `RateTickSource.s
 an unconfigured standalone rate source has no upstream source and counts world frames. Replacing
 cadence changes the getter immediately. A source's existing `start`/`stop` controls still work.
 
+Use `system.callbacks` to distinguish per-tick work from reactive callbacks, and `system.watched`
+to inspect the component classes whose changes trigger `update`. Both are frozen snapshots and
+reflect builder registrations immediately, including before the system is built:
+
+```ts
+const perTickSystems = world.pipeline.filter(
+  (system) =>
+    system.cadence === ALWAYS_TICK_SOURCE &&
+    (system.callbacks.includes("each") || system.callbacks.includes("run"))
+);
+const watchedComponents = world.pipeline.flatMap((system) => system.watched);
+```
+
+`callbacks` lists registered kinds (`each`, `run`, `enter`, `update`, `exit`); `watched` contains
+only components with an `update` callback, not every component in the query predicate.
+
 Name and phase need no new API: `system.name` and `system.entity.target(DependsOn)` already expose
 them. Systems are entities carrying `System`, so a query with `System` can inventory them independently
 of pipeline membership; retrieve the instance with `entity.get(System)`. The existing `toString()`
@@ -543,6 +559,7 @@ display is unchanged; introspection does not add structured query terms or `worl
 | `destroy()`                                                      | Permanently remove the system (no `exit` callbacks).                                                                             |
 | `didTick` / `lastFireDelta`                                      | This frame's cadence result; ms accumulated into the last fire.                                                                  |
 | `cadence` / `enabled`                                            | Read current cadence source and enabled state; see [Introspection](#introspection).                                              |
+| `callbacks` / `watched`                                          | Read registered callback kinds and update-watched component classes; see [Introspection](#introspection).                        |
 | `world.pipeline`                                                 | Read systems in pipeline execution order; see [Introspection](#introspection).                                                   |
 | `count` / `has(e)` / `belongs(e)` / iteration / `forEach`        | Shared query surface; see [Queries](./queries-and-filters.md#reading-a-query).                                                   |
 
