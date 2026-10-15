@@ -80,6 +80,14 @@ once() {
   touch "$STATE/$1"
 }
 key() { printf '%s' "$1" | md5sum | cut -c1-16; }
+report_graphql_error() {
+  local message="$1"
+  [ -n "$message" ] || message="GitHub returned an unspecified GraphQL error"
+  message="${message//$'\r'/ }"
+  message="${message//$'\n'/ }"
+  message="${message//$'\t'/ }"
+  once "graphql-error-$(key "$message")" && emit "watcher: GraphQL error: $message"
+}
 # needs_me <first line of a comment>: a worker's READY, QUESTION, DESIGN and BLOCKED do; its
 # other notes don't. Anything that is not a [worker] note does.
 needs_me() {
@@ -344,7 +352,7 @@ PR_QUERY='
     pullRequests(states: OPEN, first: 50, orderBy: {field: CREATED_AT, direction: DESC}) { nodes {
       number headRefName headRefOid baseRefName mergeable
       comments(last: 40) { nodes { url createdAt body author { login } } }
-      commits(last: 1) { totalCount nodes { commit { committedDate statusCheckRollup { state } } } } } } }'
+      commits(last: 1) { totalCount nodes { commit { committedDate statusCheckRollup { state } } } } } } } }'
 PR_LINES='
   if (.errors // [] | length) > 0 then error("GraphQL errors") else . end
   |
@@ -396,10 +404,24 @@ while :; do
   turn=true
   [ "$(date +%s)" -ge "$GQL_AT" ] || turn=false
   answered=false
+  graphql_failed=false
   if $turn; then
     gh api graphql -i -f owner="${REPO_SLUG%/*}" -f name="${REPO_SLUG#*/}" -f query="$PR_QUERY" \
-      > "$STATE/.answer" 2> /dev/null && answered=true
+      > "$STATE/.answer" 2> "$STATE/.error" && answered=true
     note_budget "$STATE/.answer" || true
+    graphql_errors="$(sed '1,/^\r\{0,1\}$/d' "$STATE/.answer" | jq -r '.errors[]?.message // empty' 2> /dev/null || true)"
+    if [ -n "$graphql_errors" ]; then
+      while IFS= read -r graphql_error; do
+        [ -n "$graphql_error" ] || continue
+        report_graphql_error "$graphql_error"
+      done <<< "$graphql_errors"
+      answered=false
+      graphql_failed=true
+    elif ! $answered; then
+      graphql_error="$(head -1 "$STATE/.error" | tr '\t\r\n' '   ' | cut -c1-300)"
+      report_graphql_error "${graphql_error:-GitHub request failed without an error message}"
+      graphql_failed=true
+    fi
   fi
   if ! $turn; then
     :
@@ -460,6 +482,9 @@ while :; do
   elif ! $BLIND; then
     # GitHub did not answer, or refused: don't hammer it. Back off up to five minutes.
     lines=""
+    if ! $graphql_failed; then
+      report_graphql_error "Invalid GraphQL response or PR_LINES parsing failure"
+    fi
     fails=$((fails + 1))
     backoff=$((INTERVAL * (1 << (fails < 5 ? fails : 5))))
     [ "$backoff" -le 300 ] || backoff=300

@@ -29,6 +29,21 @@ polls=0
 NOW="$(date +%s)"
 date() { if [ "${1:-}" = +%s ]; then printf '%s\n' "$NOW"; else command date "$@"; fi; }
 
+# Keep the embedded PR query structurally balanced and prove its response pipeline emits open PRs.
+query_open_braces="$(grep -o '{' <<< "$PR_QUERY" | wc -l | tr -d ' ')"
+query_close_braces="$(grep -o '}' <<< "$PR_QUERY" | wc -l | tr -d ' ')"
+check test "$query_open_braces" = "$query_close_braces"
+cat > "$TEST_DIR/pr-query-fixture.json" << 'EOF'
+{"data":{"repository":{"pullRequests":{"nodes":[{"number":42,"headRefName":"42-work","headRefOid":"head-sha","baseRefName":"dev","mergeable":"MERGEABLE","createdAt":"2026-01-01T00:00:00Z","comments":{"nodes":[]},"commits":{"totalCount":1,"nodes":[{"commit":{"committedDate":"2026-01-01T00:00:00Z","statusCheckRollup":{"state":"SUCCESS"}}}]}}]}}}}
+EOF
+query_fixture_lines="$(jq -r "$PR_LINES" "$TEST_DIR/pr-query-fixture.json")"
+check grep -qx $'O\t42\t42-work\thead-sha\tMERGEABLE\tSUCCESS' <<< "$query_fixture_lines"
+: > "$TEST_DIR/graphql-events"
+report_graphql_error 'Expected NAME, actual: (none)' > "$TEST_DIR/graphql-events"
+report_graphql_error 'Expected NAME, actual: (none)' >> "$TEST_DIR/graphql-events" || true
+report_graphql_error 'a different GraphQL error' >> "$TEST_DIR/graphql-events"
+check test "$(grep -c '^watcher: GraphQL error:' "$TEST_DIR/graphql-events" || true)" = 2
+
 # Owner's pacing examples, plus budget exhaustion and recovery.
 pace 4000 "$((NOW + 3600))"
 check test "$GQL_AT:$BLIND" = 0:false
@@ -267,6 +282,11 @@ for scenario in OPEN MERGED CLOSED failure unreadable errors; do
       check grep -qx "PR #42 is now $scenario" "$TEST_DIR/missing-events"
       check test ! -e "$missing_state/open-42"
       check test -e "$missing_state/.recheck-next"
+      ;;
+    errors)
+      check grep -q '^watcher: GraphQL error: partial answer$' "$TEST_DIR/missing-events"
+      check test -e "$missing_state/open-42"
+      check test ! -e "$missing_state/.recheck-next"
       ;;
     *)
       check test ! -s "$TEST_DIR/missing-events"
