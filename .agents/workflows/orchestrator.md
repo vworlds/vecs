@@ -141,7 +141,13 @@ not access the board; watcher updates are therefore eventual.
   the playtest steps and the owner's playtest feedback. When a playtest changes what was agreed,
   also correct the issue's body, so the issue stays true.
 - **Every PR goes to the owner before it merges.** Assign it to the owner for review; no class of
-  PR is merged without owner review.
+  PR is merged without owner review. Draft means "not mergeable yet": `review.sh owner` marks a
+  PR ready and leaves it In review, assigned to the owner. The owner can move it to Approved for
+  the orchestrator to merge, or click GitHub's merge button. The watcher finishes follow-up for
+  a button merge (issues, Done, Progress, branch cleanup and main-checkout refresh).
+  Failed follow-up retries at most every ten minutes per PR; the watcher reports its last log
+  line once, then only reports a changed error or success.
+  `review.sh changes` returns a PR to draft; workers never change its draft state.
 - **Releases are cards of their own.** Record the PRs they carry, whether the wire changes, the
   stress and benchmark comparison, and whether consumers must deploy server and client together.
 - **On Approved:** re-verify if `dev` moved, stop the worker, merge. The merge closes the issue
@@ -252,3 +258,5 @@ session in that worktree. Follow the owner's model order: `codexbal/gpt-6.1-sol`
 Merge an approved integration-pack PR with `merge-task.sh <pr> --merge-commit`. This uses a merge
 commit so the pack branch's integration history is preserved. The `pack/*` head branch is kept by
 default; pass `--delete-branch` only when the owner wants it removed.
+The pack PR body must say **merge with a merge commit**, because GitHub's merge button cannot
+choose the method by branch. The watcher also preserves `pack/*` branches after an owner merge.

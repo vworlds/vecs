@@ -26,11 +26,15 @@ url="$(retry 3 gh api -X POST "repos/$REPO_SLUG/issues/$pr/comments" -F body=@"$
 log "posted $url"
 case "$outcome" in
   changes)
+    is_pr="$(retry 3 gh api "repos/$REPO_SLUG/issues/$pr" --jq 'has("pull_request")')"
+    if [ "$is_pr" = true ]; then retry 3 gh pr ready --undo "$pr" -R "$REPO_SLUG"; fi
     board_move "$pr" "In progress" || true
     board_turn "$pr" nobody || true
     board_progress "$pr" state=working || true
     ;;
   owner)
+    is_pr="$(retry 3 gh api "repos/$REPO_SLUG/issues/$pr" --jq 'has("pull_request")')"
+    if [ "$is_pr" = true ]; then retry 3 gh pr ready "$pr" -R "$REPO_SLUG"; fi
     board_move "$pr" "In review" || true
     board_turn "$pr" owner || true
     board_progress "$pr" state=owner-review || true

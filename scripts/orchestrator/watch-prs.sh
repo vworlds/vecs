@@ -14,8 +14,10 @@
 #   - ASSIGNED #n: an open issue or PR newly assigned to me, which means I must act on it;
 #   - OWNER DONE #n: the owner took themselves off a card that was waiting for them;
 #   - STALE: my latest [orchestrator] review has had no reply or commit for 30+ minutes;
-#   - PR #n is now MERGED/CLOSED: a missing task PR confirmed closed over REST, once per
-#     missing PR per poll. OPEN or failed lookups keep its marker and stay quiet;
+#   - PR #n is now MERGED/CLOSED: a missing task PR confirmed closed over REST. An owner's
+#     merge runs merge-task.sh to finish follow-up; failures keep the open marker for retry.
+#     Retry at most every 10 minutes per PR; report failures only when their last log line changes.
+#     OPEN or failed lookups keep its marker and stay quiet;
 #   - CONFLICT #n (<branch>): its worker must merge origin/<base> and push; once per head SHA.
 #     UNKNOWN mergeability stays quiet; uses the existing PR query, not another call;
 #   - WORKER #n: the worker of a task PR that is In progress waits for a permission, or its turn
@@ -371,7 +373,7 @@ PR_LINES='
   if (.errors // [] | length) > 0 then error("GraphQL errors") else . end
   |
   .data.repository.pullRequests.nodes[]
-  | select(.headRefName | test("^(task-|[0-9]+-)"))
+  | select(.headRefName | test("^(task-|[0-9]+-|pack/)"))
   | . as $pr
   | ([.comments.nodes[] | select(.author.login != "github-actions")]) as $comments
   | ($pr.commits.nodes[0].commit.committedDate // "") as $last
@@ -499,15 +501,31 @@ while :; do
           elif .state == "open" then "OPEN"
           else empty end' 2> /dev/null)" || continue
         case "$state" in MERGED | CLOSED) ;; *) continue ;; esac
-        rm -f "$f" "$STATE/head-$num" "$STATE/ci-$num" "$STATE/conflict-$num"
-        touch "$STATE/.recheck-next"
         # merge-task.sh leaves "merged-<pr>": our own merge is not news.
         if [ -e "$STATE/merged-$num" ]; then
           rm -f "$STATE/merged-$num"
+        elif [ "$state" = MERGED ]; then
+          now="$(date +%s)"
+          attempted="$(cat "$STATE/merge-attempt-$num" 2> /dev/null || echo 0)"
+          [ $((now - attempted)) -ge 600 ] || continue
+          printf '%s\n' "$now" > "$STATE/merge-attempt-$num"
+          if "$ROOT/scripts/orchestrator/merge-task.sh" "$num" > "$STATE/.merge-$num.log" 2>&1; then
+            emit "PR #$num is now MERGED: finished owner-merge follow-up"
+          else
+            error="$(tail -1 "$STATE/.merge-$num.log" | tr '\t\r' '  ')"
+            error="${error:-merge-task.sh failed without a log message}"
+            if [ "$error" != "$(cat "$STATE/merge-error-$num" 2> /dev/null || true)" ]; then
+              printf '%s\n' "$error" > "$STATE/merge-error-$num"
+              emit "PR #$num owner-merge follow-up failed: $error; retry in 10 minutes (see $STATE/.merge-$num.log)"
+            fi
+            continue
+          fi
         else
           emit "PR #$num is now $state"
           watch_progress_clear "$num" 2> /dev/null || true
         fi
+        rm -f "$f" "$STATE/head-$num" "$STATE/ci-$num" "$STATE/conflict-$num" "$STATE/merge-attempt-$num" "$STATE/merge-error-$num"
+        touch "$STATE/.recheck-next"
       fi
     done
   elif ! $BLIND; then
