@@ -120,17 +120,26 @@ release_workspace_packages() {
 import { globSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const root = resolve(process.argv[2]);
-const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
-const patterns = manifest.workspaces?.packages ?? manifest.workspaces;
-if (!Array.isArray(patterns)) throw new Error('Missing workspaces');
-const names = new Set();
-for (const path of globSync(patterns.map(pattern => `${pattern}/package.json`), { cwd: root })) {
-  const pkg = JSON.parse(readFileSync(resolve(root, path), 'utf8'));
-  // vecs-wire is private in source but prepare-vecs-publish-package.mjs writes
-  // a public manifest to its dist directory, which the publish workflow uses.
-  const preparedForDist = pkg.name === '@vworlds/vecs-wire';
-  if ((!pkg.private || preparedForDist) && pkg.name?.startsWith('@vworlds/')) names.add(pkg.name);
+const listPath = resolve(root, 'scripts/published-packages.txt');
+const targets = readFileSync(listPath, 'utf8').split(/\r?\n/).filter(Boolean);
+if (targets.length === 0) throw new Error(`No published packages listed in ${listPath}`);
+const names = [];
+for (const target of targets) {
+  const sourceManifest = resolve(root, target, 'package.json');
+  const distManifest = resolve(root, target, 'dist/package.json');
+  let pkg;
+  try {
+    pkg = JSON.parse(readFileSync(distManifest, 'utf8'));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    pkg = JSON.parse(readFileSync(sourceManifest, 'utf8'));
+  }
+  if (typeof pkg.name !== 'string' || !pkg.name.startsWith('@vworlds/')) {
+    throw new Error(`Invalid published package manifest for ${target}`);
+  }
+  names.push(pkg.name);
 }
-console.log([...names].sort().join('\n'));
+if (new Set(names).size !== names.length) throw new Error('Duplicate package names in published package list');
+console.log(names.sort().join('\n'));
 NODE
 }

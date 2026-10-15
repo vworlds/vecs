@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d "$ROOT/.release-publish-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
-mkdir -p "$TMP/bin" "$TMP/repo/modules/alpha" "$TMP/repo/modules/beta" "$TMP/repo/modules/private" "$TMP/repo/modules/foreign" "$TMP/repo/lib/outside"
+mkdir -p "$TMP/bin" "$TMP/repo/modules/alpha" "$TMP/repo/modules/beta" "$TMP/repo/modules/private" "$TMP/repo/modules/foreign" "$TMP/repo/modules/unpublished" "$TMP/repo/modules/wire/dist" "$TMP/repo/lib/outside" "$TMP/repo/scripts"
 export STATE="$TMP" PATH="$TMP/bin:$PATH"
 cat > "$TMP/repo/package.json" << 'JSON'
 {"workspaces":["modules/*"]}
@@ -12,10 +12,16 @@ JSON
 printf '%s\n' '{"name":"@vworlds/alpha"}' > "$TMP/repo/modules/alpha/package.json"
 printf '%s\n' '{"name":"@vworlds/beta"}' > "$TMP/repo/modules/beta/package.json"
 printf '%s\n' '{"name":"@vworlds/private","private":true}' > "$TMP/repo/modules/private/package.json"
-mkdir -p "$TMP/repo/modules/wire"
 printf '%s\n' '{"name":"@vworlds/vecs-wire","private":true}' > "$TMP/repo/modules/wire/package.json"
+printf '%s\n' '{"name":"@vworlds/vecs-wire"}' > "$TMP/repo/modules/wire/dist/package.json"
+printf '%s\n' '{"name":"@vworlds/unpublished"}' > "$TMP/repo/modules/unpublished/package.json"
 printf '%s\n' '{"name":"@other/foreign"}' > "$TMP/repo/modules/foreign/package.json"
 printf '%s\n' '{"name":"@vworlds/outside"}' > "$TMP/repo/lib/outside/package.json"
+cat > "$TMP/repo/scripts/published-packages.txt" << 'PACKAGES'
+modules/alpha
+modules/beta
+modules/wire
+PACKAGES
 cat > "$TMP/bin/gh" << 'SH'
 #!/usr/bin/env bash
 set -eu
@@ -113,7 +119,7 @@ echo 'PASS: stalled npm request is bounded'
 run_case success 0
 diff -u <(printf '@vworlds/alpha\n@vworlds/beta\n@vworlds/vecs-wire\n') "$TMP/npm-calls"
 assert_output '3 workspace packages'
-echo 'PASS: workspace discovery includes dist-published private packages and excludes other private, foreign, and non-workspace packages'
+echo 'PASS: published list includes dist-published private packages and excludes private, foreign, unpublished, and non-workspace packages'
 
 PUBLISH_MAX_WAIT_SEC=0 run_case success 1
 assert_output 'must be positive integer seconds'
