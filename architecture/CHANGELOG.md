@@ -3,6 +3,14 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## v1.0.57 (2026-10-15)
+
+- [vecs-protocol] Added configurable module id capacity to network worlds (#335).
+- [repo]: Track task PR progress and CI state on the project board (#333).
+- [repo]: Fix beta/release polling when GitHub returns an empty conclusion, and document reliable consumer beta refresh (#331).
+- [repo] Fixed: Verify all nine published packages, including vecs-wire (#330).
+- [repo] Changed: Keep the six most recently closed cards in Done across repositories (#329).
+
 ## v1.0.56 (2026-10-15)
 
 - [repo]: Refresh root dependencies after a task merge changes the lockfile, and report missing checker dependencies clearly (#324).
