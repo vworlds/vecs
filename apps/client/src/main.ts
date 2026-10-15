@@ -1,4 +1,5 @@
 import { ClientWorld } from "@vworlds/vecs-client";
+import { installBridge } from "@vworlds/vecs-mcp/client";
 import { phaserNetworkComponents } from "@vworlds/vecs-phaser";
 import {
   type Catalog,
@@ -307,4 +308,3 @@ function readConnectionOptions(): VecsConnectionOptions {
     apiBasePath: options?.apiBasePath,
   };
 }
-import { installBridge } from "@vworlds/vecs-mcp/client";
