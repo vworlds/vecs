@@ -37,6 +37,7 @@ jobs:
           scripts/agent/check-changelog.sh
           scripts/tests/changelog.test.sh
           scripts/tests/markdown.test.sh
+          node --test scripts/tests/format-worktrees.test.mjs
 
       - name: Run tests
         run: npm run test
