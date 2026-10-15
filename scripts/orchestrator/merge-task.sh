@@ -99,5 +99,5 @@ board_progress_clear "$pr" || true
 log "#$pr merged as ${sha:0:8}"
 board_announce_startable || true
 board_release_startable
-# Done only grows: put away what closed more than two days ago.
-board_archive_done 2 || true
+# Done only grows: keep the six most recently closed cards, put away the rest.
+board_archive_done 6 || true

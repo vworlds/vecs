@@ -106,12 +106,16 @@ board_startable_held() {
   [ -e "$f" ] && [ $(($(date +%s) - $(stat -c %Y "$f" 2> /dev/null || echo 0))) -lt 120 ]
 }
 
-# board_archive_done [days]: archive this repo's cards in Done whose issue or PR closed more than
-# <days> days ago (default 2). An archived card leaves the board and its listings, and stays in
-# the project's "Archived items" view, from where it can be restored.
+# board_archive_done [keep]: Done shows the <keep> most recently closed cards (default 6); archive
+# this repo's cards that closed before them. Other repos (vecs shares the board) count towards the
+# <keep> but are left to their own sessions. Archived cards stay in "Archived items" and can be restored.
 board_archive_done() {
   board_enabled || return 0
-  local days="${1:-2}" cursor="" page ids="" id n=0
+  local keep="${1:-6}" cursor="" page cards="" ids id n=0
+  [[ "$keep" =~ ^[0-9]+$ ]] || {
+    log "board: archive keeps a number of cards, not '$keep'"
+    return 2
+  }
   # Collect first: archiving while paging would shift the pages.
   while :; do
     page="$(_board_gql ${cursor:+-f after="$cursor"} -f query='
@@ -122,12 +126,14 @@ board_archive_done() {
             ... on Issue { closedAt repository { nameWithOwner } }
             ... on PullRequest { closedAt repository { nameWithOwner } } } } } } } }')" \
       || return 1
-    ids="$ids $(jq -r --arg here "$REPO_SLUG" --argjson days "$days" '.data.node.items.nodes[]
-      | select(.content.repository.nameWithOwner == $here and .content.closedAt != null)
-      | select((now - (.content.closedAt | fromdateiso8601)) > ($days * 86400)) | .id' <<< "$page" | tr '\n' ' ')"
+    cards+="$(jq -r '.data.node.items.nodes[] | select(.content.closedAt != null)
+      | [.content.closedAt, .content.repository.nameWithOwner, .id] | @tsv' <<< "$page")"$'\n'
     [ "$(jq -r '.data.node.items.pageInfo.hasNextPage' <<< "$page")" = true ] || break
     cursor="$(jq -r '.data.node.items.pageInfo.endCursor' <<< "$page")"
   done
+  # ISO 8601 UTC timestamps sort lexically; rank all repos together before filtering ours.
+  ids="$(sort -r <<< "$cards" | awk -F'\t' -v keep="$keep" -v here="$REPO_SLUG" \
+    'NF { n++ } NF && n > keep && $2 == here { print $3 }')"
   for id in $ids; do
     _board_gql -f i="$id" -f query='
       mutation($p: ID!, $i: ID!) { archiveProjectV2Item(input: {projectId: $p, itemId: $i}) {
@@ -135,7 +141,7 @@ board_archive_done() {
     rm -f "$BOARD_STATE/$id" "$BOARD_STATE/$id.who"
     n=$((n + 1))
   done
-  [ "$n" -eq 0 ] || log "board: archived $n Done card(s) that closed more than $days day(s) ago"
+  [ "$n" -eq 0 ] || log "board: archived $n Done card(s); Done keeps the $keep most recently closed"
 }
 
 # board_announce_startable: after a step of ours that can unblock cards (a merge closes
