@@ -5,8 +5,12 @@
 BOARD_PROJECT="${VECS_BOARD_PROJECT:-PVT_kwDOBvP9TM4Bmegb}"
 # The owner's GitHub login: an item assigned to them is waiting for them.
 BOARD_OWNER="${VECS_OWNER:-jpeletier}"
+# Items belong to a track by label, or through a task PR's issue reference.
+VECS_TRACK="${VECS_TRACK:-}"
+VECS_BASE="${VECS_BASE:-dev}"
+WATCH_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/vecs-watch${VECS_TRACK:+-$VECS_TRACK}"
 # Shared with watch-prs.sh, which reports cards that change column.
-BOARD_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/vecs-watch/board"
+BOARD_STATE="$WATCH_STATE/board"
 
 # VECS_BOARD=off turns every board step into a no-op (forks, tests, offline work).
 board_enabled() { [ "${VECS_BOARD:-on}" != off ]; }
@@ -151,8 +155,9 @@ board_announce_startable() {
   board_enabled || return 0
   local items next launch
   items="$(board_items "-status:Done" 2> /dev/null)" || return 0
-  next="$(board_first_unblocked "$(board_ready_rows "$items")")" || return 0
-  launch="$(board_first_unblocked "$(board_approved_rows "$items")")" || return 0
+  board_load_tracks "$WATCH_STATE/tracks" 2> /dev/null || return 0
+  next="$(board_first_unblocked "$(board_ours_rows "$(board_ready_rows "$items")")")" || return 0
+  launch="$(board_first_unblocked "$(board_ours_rows "$(board_approved_rows "$items")")")" || return 0
   mkdir -p "$BOARD_STATE"
   if [ "$next" != "$(cat "$BOARD_STATE/.next" 2> /dev/null || true)" ]; then
     printf '%s\n' "$next" > "$BOARD_STATE/.next"
@@ -162,6 +167,69 @@ board_announce_startable() {
     printf '%s\n' "$launch" > "$BOARD_STATE/.launch"
     [ -z "$launch" ] || log "launch: $launch: approved and nothing blocks it"
   fi
+}
+
+# Track membership snapshot. Item listings are REST-only (no additional GraphQL budget).
+declare -A BOARD_TRACK=() BOARD_KNOWN=()
+BOARD_LISTED=false
+board_tracks() {
+  retry 3 gh api --paginate "repos/$REPO_SLUG/issues?state=open&per_page=100" | jq -rs '
+    add as $all
+    | def track: [.labels[].name | select(startswith("track:")) | ltrimstr("track:")][0];
+    ([$all[] | select(.pull_request | not) | select(track) | {key: (.number | tostring), value: track}] | from_entries) as $issues
+    | $all[] | (track // (if .pull_request then
+        [(.body // "") | scan("(?i)(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|part of)\\s+#([0-9]+)") | .[0] | $issues[.] // empty][0]
+      else null end) // "-") as $track
+    | "\(.number)\t\($track)"'
+}
+board_load_tracks() {
+  local file="${1:-}" rows number track
+  rows="$(board_tracks)" || return 1
+  if [ -n "$file" ] && [ -r "$file" ]; then
+    while IFS=$'\t' read -r number track; do
+      [ -n "${number:-}" ] || continue
+      BOARD_KNOWN[$number]=1
+      [ "$track" = - ] || BOARD_TRACK[$number]="$track"
+    done < "$file"
+  fi
+  while IFS=$'\t' read -r number track; do
+    [ -n "${number:-}" ] || continue
+    BOARD_KNOWN[$number]=1
+    if [ "$track" = - ]; then unset 'BOARD_TRACK[$number]'; else BOARD_TRACK[$number]="$track"; fi
+  done <<< "$rows"
+  BOARD_LISTED=true
+  if [ -n "$file" ]; then
+    mkdir -p "$(dirname "$file")"
+    for number in "${!BOARD_TRACK[@]}"; do printf '%s\t%s\n' "$number" "${BOARD_TRACK[$number]}"; done > "$file.tmp" && mv "$file.tmp" "$file"
+  fi
+}
+board_track_one() {
+  local item track issue
+  BOARD_KNOWN[$1]=1
+  item="$(retry 2 gh api "repos/$REPO_SLUG/issues/$1" 2> /dev/null)" || return 1
+  track="$(jq -r '[.labels[].name | select(startswith("track:")) | ltrimstr("track:")][0] // empty' <<< "$item")"
+  if [ -z "$track" ] && [ "$(jq -r 'has("pull_request")' <<< "$item")" = true ]; then
+    while read -r issue; do
+      track="${BOARD_TRACK[$issue]:-}"
+      [ -z "$track" ] || break
+    done < <(jq -r '(.body // "") | [scan("(?i)(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|part of)\\s+#([0-9]+)") | .[0]] | .[]' <<< "$item")
+  fi
+  [ -z "$track" ] || BOARD_TRACK[$1]="$track"
+}
+board_ours() {
+  if $BOARD_LISTED && [ -z "${BOARD_KNOWN[$1]:-}" ] && [[ "$1" =~ ^[1-9][0-9]*$ ]]; then board_track_one "$1" || true; fi
+  [ "${BOARD_TRACK[$1]:-}" = "$VECS_TRACK" ]
+}
+board_ours_rows() {
+  local number rest
+  while IFS=$'\t' read -r number rest; do
+    [ -n "${number:-}" ] && board_ours "$number" && printf '%s\t%s\n' "$number" "$rest"
+  done <<< "$1"
+  return 0
+}
+board_require_ours() {
+  board_load_tracks "$WATCH_STATE/tracks" || die "cannot read the tracks"
+  board_ours "$1" || die "#$1 is in track '${BOARD_TRACK[$1]:-none}', this session runs '${VECS_TRACK:-none}' (VECS_TRACK)"
 }
 
 # board_ref <ref>: "<repo> TAB <number>" for 212, #212, owner/repo#212 or a github.com URL.
@@ -180,6 +248,15 @@ board_ref() {
 
 # board_item <ref>: the card's item id, adding the issue or PR to the board if it isn't there
 # (adding an existing one returns its card). A PVTI_… id passes through.
+board_lookup_item() {
+  local repo="$1" number="$2" node
+  node="$(retry 3 gh api "repos/$repo/issues/$number" --jq .node_id)" || return 1
+  gh api graphql -f c="$node" -f query='
+    query($c: ID!) { node(id: $c) { ... on Issue { projectItems(first: 100) { nodes {
+      id projectV2 { id } status: fieldValueByName(name: "Status") {
+        ... on ProjectV2ItemFieldSingleSelectValue { name } }
+    } } } } }' --jq '.data.node.projectItems.nodes[] | select(.projectV2.id == "'"$BOARD_PROJECT"'") | [.id, (.status.name // "-")] | @tsv'
+}
 board_item() {
   local repo="" number="" node
   case "$1" in PVTI_*)
@@ -346,10 +423,14 @@ board_progress_clear() { board_progress "$1" state=- round=- ci=ok; }
 
 # board_where <ref>: the column an issue's or PR's card is in; nothing if it has no card.
 board_where() {
-  local repo="" number=""
+  local repo="" number="" result
   IFS=$'\t' read -r repo number < <(board_ref "$1") || true
   [ -n "$number" ] || return 1
-  board_items | awk -F'\t' -v r="$repo" -v n="$number" '$4 == r && $5 == n { print $2; exit }'
+  result="$(board_items | awk -F'\t' -v r="$repo" -v n="$number" '$4 == r && $5 == n { print $2; exit }')"
+  if [ -z "$result" ]; then
+    result="$(board_lookup_item "$repo" "$number" | cut -f2)"
+  fi
+  [ "$result" = - ] || printf '%s\n' "$result"
 }
 
 # board_beside <ref> <anchor ref>: rank a card right below another one (a task PR under its issue).

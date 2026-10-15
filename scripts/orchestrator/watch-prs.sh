@@ -53,7 +53,7 @@
 set -uo pipefail
 . "$(dirname "$0")/../lib/common.sh"
 . "$(dirname "$0")/../lib/board.sh"
-STATE="${XDG_STATE_HOME:-$HOME/.local/state}/vecs-watch"
+STATE="$WATCH_STATE"
 mkdir -p "$STATE"
 exec 9> "$STATE/watcher.lock"
 if ! flock -n 9; then
@@ -157,6 +157,7 @@ watch_board() {
   }
   while IFS=$'\t' read -r item column kind repo number _ title who; do
     [ -n "${item:-}" ] || continue
+    if [ "$repo" = "$REPO_SLUG" ] && [[ "$number" =~ ^[0-9]+$ ]] && ! board_ours "$number"; then continue; fi
     [ "$column" != Done ] || continue
     was="$(cat "$BOARD_STATE/$item.who" 2> /dev/null || true)"
     if [ "$was" != "$who" ]; then
@@ -197,9 +198,9 @@ watch_board() {
     id="${f##*/}" id="${id%.who}"
     awk -F'\t' -v id="$id" '$1 == id && $2 != "Done" { found = 1 } END { exit !found }' <<< "$items" || rm -f "$f"
   done
-  READY_ROWS="$(awk -F'\t' -v here="$REPO_SLUG" '$2 == "Ready" && $4 == here { print $5 "\t" $3 "\t" $7 }' <<< "$items")"
-  APPROVED_ROWS="$(awk -F'\t' -v here="$REPO_SLUG" '$2 == "Approved" && $4 == here && $3 == "ISSUE" { print $5 "\t" $3 "\t" $7 }' <<< "$items")"
-  INPROGRESS_PRS="$(awk -F'\t' -v here="$REPO_SLUG" '$2 == "In progress" && $4 == here && $3 == "PR" { print $5 }' <<< "$items")"
+  READY_ROWS="$(board_ours_rows "$(awk -F'\t' -v here="$REPO_SLUG" '$2 == "Ready" && $4 == here { print $5 "\t" $3 "\t" $7 }' <<< "$items")")"
+  APPROVED_ROWS="$(board_ours_rows "$(awk -F'\t' -v here="$REPO_SLUG" '$2 == "Approved" && $4 == here && $3 == "ISSUE" { print $5 "\t" $3 "\t" $7 }' <<< "$items")")"
+  INPROGRESS_PRS="$(awk -F'\t' -v here="$REPO_SLUG" '$2 == "In progress" && $4 == here && $3 == "PR" { print $5 }' <<< "$items" | while read -r number; do board_ours "$number" && printf '%s\n' "$number"; done)"
   # Open cards of the other repos, for watch_assigned: repo, number, kind, title, assignees.
   OTHER_ROWS="$(awk -F'\t' -v here="$REPO_SLUG" '$4 != here && $4 != "-" && $6 == "OPEN" { print $4 "\t" $5 "\t" $3 "\t" $7 "\t" $8 }' <<< "$items")"
 }
@@ -238,6 +239,7 @@ watch_assigned() {
     --jq '.[] | "\(.number)\t\(if .pull_request then "PR" else "ISSUE" end)\t\(.title)"' 2> /dev/null)" || return 0
   while IFS=$'\t' read -r number kind title; do
     [ -n "${number:-}" ] || continue
+    board_ours "$number" || continue
     once "mine-$number" && emit "ASSIGNED #$number ($kind): $title"
   done <<< "$mine"
   for f in "$STATE"/mine-*; do
@@ -249,6 +251,7 @@ watch_assigned() {
   local repo who theirs=""
   while IFS=$'\t' read -r repo number kind title who; do
     [ -n "${number:-}" ] || continue
+    [ "$repo" = "$REPO_SLUG" ] || [ -z "$VECS_TRACK" ] || continue
     grep -q -w -- "$me" <<< "${who//,/ }" || continue
     theirs="$theirs ${repo//\//_}-$number "
     once "theirs-${repo//\//_}-$number" && emit "ASSIGNED ${repo#*/}#$number ($kind): $title"
@@ -276,6 +279,7 @@ watch_comments() {
          (.body | gsub("\r"; "") | split("\n")[0] | gsub("\t"; " ") | .[0:200])] | @tsv' 2> /dev/null)" || return 0
   while IFS=$'\t' read -r number login url first; do
     [ -n "${number:-}" ] || continue
+    board_ours "$number" || continue
     once "c-$(key "$url")" || continue
     report_comment "$number" "$first" "COMMENT #$number by $login: $first"
   done <<< "$lines"
@@ -405,12 +409,23 @@ progress_of_head() {
     watch_progress "$num" ci="$ci" 2> /dev/null && printf '%s\n' "$ci" > "$STATE/ci-$num"
   fi
 }
+watch_filter_pr_lines() {
+  local what num rest
+  while IFS=$'\t' read -r what num rest; do
+    [[ "${num:-}" =~ ^[1-9][0-9]*$ ]] && board_ours "$num" && printf '%s\t%s\t%s\n' "$what" "$num" "$rest"
+  done <<< "$1"
+  return 0
+}
 polls=0
+tracks_read=false
 fails=0
 settling=false
 while :; do
   polls=$((polls + 1))
   lines=""
+  if [ $((polls % 3)) -eq 1 ] || ! $tracks_read; then
+    board_load_tracks "$STATE/tracks" 2> /dev/null && tracks_read=true
+  fi
   turn=true
   [ "$(date +%s)" -ge "$GQL_AT" ] || turn=false
   answered=false
@@ -469,10 +484,14 @@ while :; do
             && { watch_progress "$num" state=silent if=working 2> /dev/null || true; }
           ;;
       esac
-    done <<< "$lines"
+    done < <(watch_filter_pr_lines "$lines")
     for f in "$STATE"/open-*; do
       [ -e "$f" ] || continue
       num="${f##*/open-}"
+      if ! board_ours "$num"; then
+        rm -f "$f"
+        continue
+      fi
       if ! grep -q "^O"$'\t'"$num"$'\t' <<< "$lines"; then
         state="$(gh api "repos/$REPO_SLUG/pulls/$num" --jq '
           if .merged == true then "MERGED"

@@ -27,7 +27,7 @@ set -euo pipefail
 . "$(dirname "$0")/../lib/board.sh"
 cd "$(git rev-parse --show-toplevel)"
 usage="usage: open-task.sh <issue> <task.md> [--spec f] [--part] [--slug s] [--title t] [--hold] [--unapproved] | open-task.sh --direct <title> <task.md> [--slug s] [--hold]"
-slug="" title="" spec="" hold=false part=false approved_only=true direct=false ref=""
+slug="" title="" spec="" hold=false part=false approved_only=true direct=false ref="" base="$VECS_BASE"
 if [ "${1:-}" = --direct ]; then
   direct=true
   title="${2:?$usage}"
@@ -64,6 +64,10 @@ while [ $# -gt 0 ]; do
       hold=true
       shift
       ;;
+    --base)
+      base="$2"
+      shift 2
+      ;;
     *) die "unknown option $1" ;;
   esac
 done
@@ -93,6 +97,8 @@ if ! $direct; then
   IFS=$'\t' read -r state is_pr issue_title <<< "$info"
   [ "$is_pr" = false ] || die "#$issue is a pull request, not an issue"
   [ "$state" = open ] || die "issue #$issue is $state"
+  board_load_tracks "$WATCH_STATE/tracks" || die "cannot read the tracks"
+  board_require_ours "$issue"
   # A blocked issue is not started: it waits in Ready until its blockers close.
   blockers="$(board_blockers "$issue" | cut -f1 | sed 's/^/#/' | paste -sd' ' -)" || die "cannot read the blockers of #$issue"
   [ -z "$blockers" ] || die "issue #$issue is blocked by $blockers"
@@ -138,13 +144,14 @@ latest="$({
 } | sort -n | tail -1)"
 branch="$((latest + 1))-$suffix"
 
-body="$(mktemp)"
+mkdir -p .tmp
+body="$(mktemp "$PWD/.tmp/open-task.XXXXXX")"
 trap 'rm -f "$body"' EXIT
 {
   if $hold; then
     printf '> ⛔ **ON HOLD for owner review. Do not start.** No agent may pick this up until the orchestrator posts `[orchestrator] GO`.\n\n'
   fi
-  printf '> **Agent task%s.** Branch `%s`, base `dev`. Follow [`.agents/workflows/task-workflow.md`](https://github.com/%s/blob/dev/.agents/workflows/task-workflow.md): this description is your prompt, and `[orchestrator]` comments amend it.\n\n' "${issue:+ for #$issue}" "$branch" "$REPO_SLUG"
+  printf '> **Agent task%s.** Branch `%s`, base `%s`. Follow [`.agents/workflows/task-workflow.md`](https://github.com/%s/blob/%s/.agents/workflows/task-workflow.md): this description is your prompt, and `[orchestrator]` comments amend it.\n\n' "${issue:+ for #$issue}" "$branch" "$base" "$REPO_SLUG" "$base"
   if $direct; then
     printf 'Agreed with the owner in chat; this task has no issue.\n\n'
   elif $part; then
@@ -156,13 +163,14 @@ trap 'rm -f "$body"' EXIT
 } > "$body"
 "$(dirname "$0")/../agent/check-markdown.sh" "$body"
 
-fetch_refs "+dev:refs/remotes/origin/dev" || die "fetch failed"
+fetch_refs "+$base:refs/remotes/origin/$base" || die "fetch failed"
 if ! git ls-remote --exit-code --heads "https://github.com/$REPO_SLUG.git" "$branch" > /dev/null 2>&1; then
-  commit="$(git commit-tree "origin/dev^{tree}" -p origin/dev -m "chore: open task${issue:+ for #$issue} ($branch)")"
+  commit="$(git commit-tree "origin/$base^{tree}" -p "origin/$base" -m "chore: open task${issue:+ for #$issue} ($branch)")"
   push_ref "$commit:refs/heads/$branch" || die "could not push $branch"
 fi
-url="$(retry 3 gh pr create -R "$REPO_SLUG" --draft --base dev --head "$branch" --title "$pr_title" --body-file "$body")" || die "gh pr create failed"
+url="$(retry 3 gh pr create -R "$REPO_SLUG" --draft --base "$base" --head "$branch" --title "$pr_title" --body-file "$body")" || die "gh pr create failed"
 log "opened $url"
+if [ -n "$VECS_TRACK" ]; then retry 3 gh api -X POST "repos/$REPO_SLUG/issues/${url##*/}/labels" -f "labels[]=track:$VECS_TRACK" > /dev/null || log "warning: could not label PR #${url##*/} track:$VECS_TRACK"; fi
 [ "${url##*/}" = "${branch%%-*}" ] || log "warning: PR #${url##*/} does not match branch $branch (another issue or PR was created meanwhile)"
 if $hold; then
   board_move "${url##*/}" "In review" || true
