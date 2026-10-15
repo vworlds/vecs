@@ -1,5 +1,7 @@
 import { World } from "@vworlds/vecs";
 import { LocalWorld } from "./world.js";
+import type { ServerWorld } from "@vworlds/vecs-server";
+import { registerTunnel, clientTargets, dispatchClient, TunnelError } from "../tunnel/index.js";
 
 /** @internal Shared request envelope for local and future remote targets. */
 export interface BridgeRequest {
@@ -22,6 +24,7 @@ export interface Destination {
 export class Router {
   public readonly destinations = new Map<string, Destination>();
   public readonly worlds = new Map<string, LocalWorld>();
+  private readonly _tunnels = new Map<string, ServerWorld>();
 
   public constructor(
     public readonly name: string,
@@ -29,12 +32,31 @@ export class Router {
     private readonly readOnly = false
   ) {
     this.destinations.set(name, {
-      paths: () => [...this.worlds.keys()].map((world) => `${name}/${world}`),
+      paths: () =>
+        [...this.worlds.keys()].flatMap((world) => [
+          `${name}/${world}`,
+          ...this._clients(world).map((client) => `${name}/${world}/${client.id}`),
+        ]),
       dispatch: (request) => {
         const segments = request.target!.split("/");
         const local = this.worlds.get(segments[1]);
-        if (!local || segments.length !== 2) {
+        if (!local || (segments.length !== 2 && segments.length !== 3)) {
           throw new Error(`Unknown target ${request.target}`);
+        }
+        if (segments.length === 3) {
+          const tunnel = this._tunnels.get(segments[1]);
+          if (!tunnel || !this._clients(segments[1]).some((client) => client.id === segments[2])) {
+            throw new Error(`Unknown target ${request.target}`);
+          }
+          if (
+            this.readOnly &&
+            (request.command === "vecs_mutate" ||
+              (request.command === "vecs_systems" &&
+                (request.params.enable !== undefined || request.params.disable !== undefined)))
+          ) {
+            throw new Error("readOnly server: client mutations are forbidden");
+          }
+          return dispatchClient(tunnel, segments[2], request);
         }
         return local.command(request.command, request.params);
       },
@@ -49,6 +71,10 @@ export class Router {
       throw new Error(`Duplicate world ${name}`);
     }
     this.worlds.set(name, new LocalWorld(world, this.readOnly));
+    const tunnel = registerTunnel(world);
+    if (tunnel) {
+      this._tunnels.set(name, tunnel);
+    }
   }
 
   public async dispatch(request: BridgeRequest): Promise<BridgeResponse> {
@@ -58,11 +84,18 @@ export class Router {
           id: request.id,
           result: {
             node: this.node,
-            targets: [...this.worlds].map(([name, local]) => ({
-              path: `${this.name}/${name}`,
-              kind: "world",
-              world: { name, ...local.counts() },
-            })),
+            targets: [...this.worlds].flatMap(([name, local]) => [
+              {
+                path: `${this.name}/${name}`,
+                kind: "world",
+                world: { name, ...local.counts() },
+              },
+              ...this._clients(name).map((client) => ({
+                path: `${this.name}/${name}/${client.id}`,
+                kind: "client",
+                client,
+              })),
+            ]),
           },
         };
       }
@@ -80,11 +113,16 @@ export class Router {
       return {
         id: request.id,
         error: {
-          code: "VECS_ERROR",
+          code: error instanceof TunnelError ? error.detail.code : "VECS_ERROR",
           message: error instanceof Error ? error.message : String(error),
-          hops: [this.name],
+          hops: [this.name, ...(error instanceof TunnelError ? error.detail.hops : [])],
         },
       };
     }
+  }
+
+  private _clients(name: string): ReturnType<typeof clientTargets> {
+    const world = this._tunnels.get(name);
+    return world ? clientTargets(world) : [];
   }
 }

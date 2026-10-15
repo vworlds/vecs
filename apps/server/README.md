@@ -20,6 +20,11 @@ Set `VECS_MCP_PORT` to opt into a separate loopback MCP listener for the `main`
 world. Without it, no MCP server starts and the tick loop is unchanged. See
 [MCP setup and security](../../lib/vecs-mcp/docs/getting-started.md#demo-server).
 
+For browser client targets, the demo installs the bridge in Vite development
+builds or when the page URL includes `?mcp` (also `&mcp` with other parameters).
+See [browser clients](../../lib/vecs-mcp/docs/clients.md) for installation,
+latency and which replicated changes the server overwrites.
+
 Start the client in another shell after the server is running:
 
 ```bash

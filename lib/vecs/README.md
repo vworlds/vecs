@@ -97,6 +97,8 @@ Networking is documented alongside the packages that own it:
 [Remote procedure calls](../vecs-protocol/docs/rpc.md) ·
 [Sessions and caller context](../vecs-server/docs/sessions.md) ·
 [Client world](../vecs-client/docs/client-world.md).
+For MCP inspection through an opted-in browser connection, see
+[Browser client targets](../vecs-mcp/docs/clients.md).
 
 ## Build & Test
 

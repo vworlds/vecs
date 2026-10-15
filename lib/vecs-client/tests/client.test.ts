@@ -127,6 +127,43 @@ function entityIds(world: ClientWorld): EID[] {
 }
 
 describe("ClientWorld", () => {
+  it("emits connect synchronously once per attachment and exposes connection/disposal state", () => {
+    const world = createClientWorld();
+    const first = new MemorySocket("first");
+    const second = new MemorySocket("second");
+    const events: boolean[] = [];
+    world.events.on("connect", () => events.push(world.connected));
+    expect(world.connected).toBe(false);
+    expect(world.disposed).toBe(false);
+    world.attachSocket(first);
+    expect(events).toEqual([true]);
+    world.progress(0, 16);
+    world.apply(16);
+    expect(events).toEqual([true]);
+    first.disconnect();
+    expect(world.connected).toBe(false);
+    world.attachSocket(second);
+    first.disconnect();
+    expect(world.connected).toBe(true);
+    expect(events).toEqual([true, true]);
+    world.dispose();
+    expect(world.connected).toBe(false);
+    expect(world.disposed).toBe(true);
+    expect(() => world.attachSocket(first)).toThrow("disposed");
+    expect(events).toEqual([true, true]);
+  });
+
+  it("unlisten removes only the same handler reference", () => {
+    const world = createClientWorld();
+    const old = () => "old";
+    const replacement = () => "new";
+    world.listen(201, old);
+    world.listen(201, replacement);
+    expect(world.unlisten(201, old)).toBe(false);
+    expect(world.unlisten(201, replacement)).toBe(true);
+    expect(world.unlisten(201, replacement)).toBe(false);
+    world.dispose();
+  });
   it("honours moduleIdCount", () => {
     const client = new ClientWorld({ moduleIdCount: 300 });
     expect(client.pools.find((pool) => pool.name === "module")).toEqual({

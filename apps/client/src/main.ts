@@ -249,6 +249,9 @@ async function createSession(scene: DemoScene): Promise<Session> {
     localEntityIdStart: LOCAL_ENTITY_START,
     networkComponents: phaserNetworkComponents,
   });
+  if (import.meta.env.DEV || new URLSearchParams(location.search).has("mcp")) {
+    installBridge(world);
+  }
   world.module(PhaserRenderModule, {
     catalog: scene.catalog,
     pixelsPerMeter: PIXELS_PER_METER,
@@ -304,3 +307,4 @@ function readConnectionOptions(): VecsConnectionOptions {
     apiBasePath: options?.apiBasePath,
   };
 }
+import { installBridge } from "@vworlds/vecs-mcp/client";

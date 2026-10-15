@@ -539,24 +539,45 @@ Because cleanup hangs off entity removal, it is observable with the normal ECS t
 `NetworkClient` entity yourself when you want a disconnect, and react to removal with `exit`
 systems.
 
+## Calling a client
+
+Use `world.invoke(connectionId, rpcId, params = [], ttl = 5000)` to call a handler
+registered with `ClientWorld.listen`. It resolves with the reply's parameters,
+not an RPC wrapper. Requests travel in server frames and the client's handler
+runs from `apply()` (normally `ON_LOAD` in `progress()`); the reply travels in its
+next ack. Keep both worlds' network loops running while awaiting the result.
+
+```ts
+const [answer] = await world.invoke(connectionId, 201, ["question"], 5000);
+```
+
+Unknown or closing connections reject immediately with `RPC_CLOSED_CODE`.
+Handler failures preserve their wire-safe `RPCError` code and message. Session
+teardown rejects outstanding calls with `RPC_CLOSED_CODE`; an unanswered call
+expires with `RPC_TIMEOUT_CODE` after its ttl. Timeouts use wall-clock elapsed
+milliseconds between sends and only advance when `send()` runs. Sessions without
+pending outgoing calls never call `SessionRPC.timeoutTick`, even when answering
+client requests. There is no additional timer or session scan.
+
 ## Reference
 
-| Member                                           | Description                                                                                                                                                                                                           |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `world.handleRpc(rpcId, handler)`                | Register a handler for every session, now and later.                                                                                                                                                                  |
-| `world.closeSession(connection, reason?, code?)` | Gracefully close one session by connection id or `NetworkClient` entity, telling the client the reason and code. Returns whether it was scheduled.                                                                    |
-| `world.shutdown(options?)`                       | Gracefully close every session, flush until gone or `timeoutMs`, close listeners. Idempotent.                                                                                                                         |
-| `world.send()`                                   | Advance one replication frame, sending each session a delta, a baseline, or nothing; called by `progress()`.                                                                                                          |
-| `ServerRPCContext`                               | `{ world, caller, connectionId }` passed as a handler's third argument.                                                                                                                                               |
-| `NetworkClient.id`                               | The connection id.                                                                                                                                                                                                    |
-| `NetworkClient.closeReason`                      | Why the server closed the session, or `undefined`.                                                                                                                                                                    |
-| `CLOSE_PROTOCOL_ERROR_CODE`                      | Reserved close code `1`: the session was closed because a frame could not be decoded. Also exported by `@vworlds/vecs-protocol`.                                                                                      |
-| `closeLingerMs` (`ServerWorldOptions`)           | Bound on how long a closing session waits for the ack of its reply flush before the transport closes.                                                                                                                 |
-| `historyFrames` (`ServerWorldOptions`)           | Frames of history each session keeps: how far behind its ack can be, while its view keeps changing, and still get a delta. Integer of at least 2; default 64.                                                         |
-| `redundancyFrames` (`ServerWorldOptions`)        | Opt in to the base at the state frame `redundancyFrames` sends ago, never before the ack: a change goes out in that many sends, not in every frame until acked. An integer in [1, `historyFrames`); unset by default. |
-| `keepAliveFrames` (`ServerWorldOptions`)         | Opt in to a frame with an empty diff for a session that was sent no diff for that many frames, so the client's `renderFrame` keeps moving in an idle scene. An integer of at least 1; unset by default. `1` is safe.  |
-| `world.keepAliveFrames`                          | The configured `keepAliveFrames`, or `undefined`.                                                                                                                                                                     |
-| `networkEntityReuseWaitFrames`                   | Frames a destroyed entity's id waits before another entity can take it; never fewer than `historyFrames + 1`. Non-negative integer; default 16, so 65 by default.                                                     |
+| Member                                             | Description                                                                                                                                                                                                           |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `world.handleRpc(rpcId, handler)`                  | Register a handler for every session, now and later.                                                                                                                                                                  |
+| `world.invoke(connectionId, rpcId, params?, ttl?)` | Call a client and resolve with reply params; reject on error, timeout or session end.                                                                                                                                 |
+| `world.closeSession(connection, reason?, code?)`   | Gracefully close one session by connection id or `NetworkClient` entity, telling the client the reason and code. Returns whether it was scheduled.                                                                    |
+| `world.shutdown(options?)`                         | Gracefully close every session, flush until gone or `timeoutMs`, close listeners. Idempotent.                                                                                                                         |
+| `world.send()`                                     | Advance one replication frame, sending each session a delta, a baseline, or nothing; called by `progress()`.                                                                                                          |
+| `ServerRPCContext`                                 | `{ world, caller, connectionId }` passed as a handler's third argument.                                                                                                                                               |
+| `NetworkClient.id`                                 | The connection id.                                                                                                                                                                                                    |
+| `NetworkClient.closeReason`                        | Why the server closed the session, or `undefined`.                                                                                                                                                                    |
+| `CLOSE_PROTOCOL_ERROR_CODE`                        | Reserved close code `1`: the session was closed because a frame could not be decoded. Also exported by `@vworlds/vecs-protocol`.                                                                                      |
+| `closeLingerMs` (`ServerWorldOptions`)             | Bound on how long a closing session waits for the ack of its reply flush before the transport closes.                                                                                                                 |
+| `historyFrames` (`ServerWorldOptions`)             | Frames of history each session keeps: how far behind its ack can be, while its view keeps changing, and still get a delta. Integer of at least 2; default 64.                                                         |
+| `redundancyFrames` (`ServerWorldOptions`)          | Opt in to the base at the state frame `redundancyFrames` sends ago, never before the ack: a change goes out in that many sends, not in every frame until acked. An integer in [1, `historyFrames`); unset by default. |
+| `keepAliveFrames` (`ServerWorldOptions`)           | Opt in to a frame with an empty diff for a session that was sent no diff for that many frames, so the client's `renderFrame` keeps moving in an idle scene. An integer of at least 1; unset by default. `1` is safe.  |
+| `world.keepAliveFrames`                            | The configured `keepAliveFrames`, or `undefined`.                                                                                                                                                                     |
+| `networkEntityReuseWaitFrames`                     | Frames a destroyed entity's id waits before another entity can take it; never fewer than `historyFrames + 1`. Non-negative integer; default 16, so 65 by default.                                                     |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-server/src/server_world.ts`,
 `lib/vecs-server/src/history.ts` (the window), `lib/vecs-server/src/rtt.ts` (the ack round-trip

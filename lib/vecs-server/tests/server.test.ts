@@ -5,7 +5,9 @@ import {
   RPC,
   RPC_RESPONSE_ID,
   Server2Client,
-  type SessionRPC,
+  SessionRPC,
+  RPC_CLOSED_CODE,
+  RPC_TIMEOUT_CODE,
   type VecsSocket,
   type VecsSocketListener,
 } from "@vworlds/vecs-protocol";
@@ -164,6 +166,134 @@ function allowAllClientViews(world: World): void {
 function createWorld(options: ServerWorldOptions = {}): ServerWorld {
   return new ServerWorld({ name: "main", networkComponents: [Position], ...options });
 }
+
+describe("ServerWorld.invoke", () => {
+  it("does not charge a new call for time before it existed while another call is pending", async () => {
+    const world = createWorld();
+    const listener = new MockListener();
+    world._attach(listener);
+    const { socket } = connectSession(world, listener);
+    const clock = vi.spyOn(performance, "now");
+    try {
+      clock.mockReturnValue(100);
+      const old = world.invoke("client-1", 201, [], 10);
+      clock.mockReturnValue(200);
+      const fresh = world.invoke("client-1", 201, [], 10);
+      tick(world);
+      await expect(old).rejects.toMatchObject({ code: RPC_TIMEOUT_CODE });
+      const [request] = decodeLastMessage(socket).rpc;
+      expect(request.callId).toBe(1);
+      clock.mockReturnValue(210);
+      tick(world);
+      await expect(fresh).rejects.toMatchObject({ code: RPC_TIMEOUT_CODE });
+    } finally {
+      clock.mockRestore();
+      world.dispose();
+    }
+  });
+  it("returns reply params and preserves a remote handler's error code", async () => {
+    const world = createWorld();
+    const listener = new MockListener();
+    world._attach(listener);
+    const { socket } = connectSession(world, listener);
+    try {
+      const call = world.invoke(socket.id, 201, ["question"]);
+      tick(world);
+      const [request] = decodeLastMessage(socket).rpc;
+      expect(request).toMatchObject({ rpcId: 201, params: ["question"] });
+      socket.receive(
+        encodeClient2Server(
+          new Client2Server({
+            rpc: [
+              new RPC({
+                rpcId: RPC_RESPONSE_ID,
+                callId: request.callId,
+                params: ["answer", 42],
+              }),
+            ],
+          })
+        )
+      );
+      await expect(call).resolves.toEqual(["answer", 42]);
+      const failed = world.invoke(socket.id, 202);
+      tick(world);
+      const [next] = decodeLastMessage(socket).rpc;
+      socket.receive(
+        encodeClient2Server(
+          new Client2Server({
+            rpc: [
+              new RPC({
+                rpcId: RPC_RESPONSE_ID,
+                callId: next.callId,
+                error: 4001,
+                message: "denied",
+              }),
+            ],
+          })
+        )
+      );
+      await expect(failed).rejects.toMatchObject({ code: 4001, message: "denied" });
+    } finally {
+      world.dispose();
+    }
+  });
+
+  it("rejects unknown and closing connections immediately, and aborts on session end", async () => {
+    const world = createWorld();
+    const listener = new MockListener();
+    world._attach(listener);
+    const { socket } = connectSession(world, listener);
+    await expect(world.invoke("missing", 201)).rejects.toMatchObject({ code: RPC_CLOSED_CODE });
+    const pending = world.invoke(socket.id, 201);
+    socket.close();
+    await expect(pending).rejects.toMatchObject({ code: RPC_CLOSED_CODE });
+    const second = connectSession(world, listener, "second");
+    world.closeSession(second.socket.id);
+    await expect(world.invoke(second.socket.id, 201)).rejects.toMatchObject({
+      code: RPC_CLOSED_CODE,
+    });
+    world.dispose();
+  });
+
+  it("ticks only sessions with outgoing calls, expires ttl, and stops ticking after settlement", async () => {
+    const world = createWorld();
+    const listener = new MockListener();
+    world._attach(listener);
+    const called = connectSession(world, listener, "called");
+    connectSession(world, listener, "never-called");
+    const spy = vi.spyOn(SessionRPC.prototype, "timeoutTick");
+    const clock = vi.spyOn(performance, "now");
+    try {
+      clock.mockReturnValue(100);
+      tick(world);
+      expect(spy).not.toHaveBeenCalled();
+      // Even an outgoing reply is not an outgoing call and must pay no timeout work.
+      world.handleRpc(101, () => "ok");
+      called.socket.receive(
+        encodeClient2Server(new Client2Server({ rpc: [new RPC({ rpcId: 101 })] }))
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      tick(world);
+      expect(spy).not.toHaveBeenCalled();
+      const pending = world.invoke("called", 201, [], 20);
+      clock.mockReturnValue(110);
+      tick(world);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenLastCalledWith(10);
+      clock.mockReturnValue(120);
+      tick(world);
+      await expect(pending).rejects.toMatchObject({ code: RPC_TIMEOUT_CODE });
+      expect(spy).toHaveBeenCalledTimes(2);
+      tick(world);
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+      clock.mockRestore();
+      world.dispose();
+    }
+  });
+});
 
 let tickMs = 0;
 

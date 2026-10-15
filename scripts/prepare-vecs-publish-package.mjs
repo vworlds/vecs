@@ -68,6 +68,7 @@ const publishPackage = {
   },
   dependencies,
   peerDependencies: sourcePackage.peerDependencies,
+  peerDependenciesMeta: sourcePackage.peerDependenciesMeta,
   license: sourcePackage.license,
 };
 

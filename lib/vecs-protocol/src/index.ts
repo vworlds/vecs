@@ -29,6 +29,8 @@ export {
   type RemovedComponent,
 } from "./messages.js";
 export {
+  BRIDGE_ANNOUNCE_RPC_ID,
+  BRIDGE_CALL_RPC_ID,
   FIRST_USER_RPC_ID,
   RPC,
   RPC_CLOSED_CODE,
