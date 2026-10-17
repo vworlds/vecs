@@ -1,8 +1,14 @@
-#!/usr/bin/env bash
-# Print a task PR's description and every comment, oldest first.
-# (Plain `gh pr view --comments` fails on this repo.) Usage: scripts/agent/read-pr.sh <pr>
-set -euo pipefail
-. "$(dirname "$0")/../lib/common.sh"
-pr="${1:?usage: read-pr.sh <pr>}"
-retry 3 gh pr view "$pr" -R "$REPO_SLUG" --json title,body,comments \
-  --jq '"# \(.title)\n\n\(.body)\n" + ([.comments[] | "\n----- \(.createdAt)\n\(.body)\n"] | join(""))'
+#!/bin/sh
+# vmethod stub
+root=${VMETHOD_ROOT:-}
+if [ -z "$root" ] && command -v git > /dev/null 2>&1; then
+  if ! root=$(git rev-parse --show-toplevel); then
+    echo "vmethod: git could not find a repository; set VMETHOD_ROOT" >&2
+    root=
+  fi
+fi
+if [ -z "$root" ] || [ ! -x "$root/node_modules/.bin/vmethod" ]; then
+  echo "vmethod: run npm ci (set VMETHOD_ROOT when no repository is available)" >&2
+  exit 2
+fi
+exec "$root/node_modules/.bin/vmethod" read-pr "$@"

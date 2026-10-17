@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Project recipe; vmethod owns merge assembly and review-worktree isolation.
+set -euo pipefail
+
+main() {
+  local logs="" packages_arg="" bench=false
+  local -a packages=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --logs)
+        logs="${2:?--logs requires a directory}"
+        shift 2
+        ;;
+      --packages)
+        packages_arg="${2:?--packages requires a workspace list}"
+        read -r -a packages <<< "$packages_arg"
+        [ "${#packages[@]}" -gt 0 ] || return 1
+        shift 2
+        ;;
+      --bench)
+        bench=true
+        shift
+        ;;
+      *)
+        echo "Unknown verify-hook argument: $1" >&2
+        return 1
+        ;;
+    esac
+  done
+  [[ "$logs" = /* ]] || {
+    echo "--logs must be an absolute directory" >&2
+    return 1
+  }
+  mkdir -p "$logs"
+  step() {
+    local name="$1"
+    shift
+    if "$@" > "$logs/$name.log" 2>&1; then
+      echo "ok    $name"
+    else
+      local code=$?
+      echo "FAIL  $name (exit $code; $logs/$name.log)" >&2
+      tail -20 "$logs/$name.log" >&2
+      return "$code"
+    fi
+  }
+  step npm-ci env HUSKY=0 npm ci
+  step typecheck npm run typecheck
+  step lint npm run lint
+  step format-check npm run format:check
+  if [ "${#packages[@]}" -gt 0 ]; then
+    local index=0 workspace
+    for workspace in "${packages[@]}"; do
+      index=$((index + 1))
+      step "test-$index" npm run test -w "$workspace"
+    done
+  else
+    step test npm run test
+  fi
+  step tooling npm run test:tooling
+  step build npm run build
+  if $bench; then
+    step bench npm run bench:sector
+    grep -E 'checksum .*trace' "$logs/bench.log" || {
+      echo "benchmark did not print its fingerprint line" >&2
+      return 1
+    }
+  fi
+}
+
+main "$@"
+exit

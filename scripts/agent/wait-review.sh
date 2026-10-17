@@ -1,24 +1,14 @@
-#!/usr/bin/env bash
-# Block until the orchestrator replies on a task PR, or the PR stops being open.
-# Prints every [orchestrator] comment newer than your latest [worker] comment, so it is
-# safe to (re)start at any time. Usage: scripts/agent/wait-review.sh <pr> [poll-seconds]
-set -uo pipefail
-. "$(dirname "$0")/../lib/common.sh"
-pr="${1:?usage: wait-review.sh <pr> [poll-seconds]}"
-poll="${2:-120}"
-newer='([.comments[] | select(.body | startswith("[worker]"))] | last | .createdAt // "") as $mine
-  | [.comments[] | select(.body | startswith("[orchestrator]")) | select(.createdAt > $mine) | .body]
-  | join("\n\n---\n\n")'
-while :; do
-  if state=$(gh pr view "$pr" -R "$REPO_SLUG" --json state --jq .state); then
-    if [ "$state" != OPEN ]; then
-      echo "PR #$pr is $state: you are dismissed"
-      exit 0
-    fi
-    if reply=$(gh pr view "$pr" -R "$REPO_SLUG" --json comments --jq "$newer") && [ -n "$reply" ]; then
-      printf '%s\n' "$reply"
-      exit 0
-    fi
+#!/bin/sh
+# vmethod stub
+root=${VMETHOD_ROOT:-}
+if [ -z "$root" ] && command -v git > /dev/null 2>&1; then
+  if ! root=$(git rev-parse --show-toplevel); then
+    echo "vmethod: git could not find a repository; set VMETHOD_ROOT" >&2
+    root=
   fi
-  sleep "$poll"
-done
+fi
+if [ -z "$root" ] || [ ! -x "$root/node_modules/.bin/vmethod" ]; then
+  echo "vmethod: run npm ci (set VMETHOD_ROOT when no repository is available)" >&2
+  exit 2
+fi
+exec "$root/node_modules/.bin/vmethod" wait-review "$@"

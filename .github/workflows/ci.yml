@@ -42,10 +42,10 @@ jobs:
       - name: Run tests
         run: npm run test
 
-      - name: Orchestrator tests (offline)
+      - name: Methodology adoption and project hooks (offline)
         run: |
-          bash scripts/tests/orchestrator.test.sh
-          bash scripts/tests/estimate-model.test.sh
+          node --test scripts/tests/vmethod-adoption.test.mjs
+          bash scripts/tests/deps-after-fast-forward.test.sh
 
       - name: Release publication verification tests (offline)
         run: bash scripts/tests/release-publish.test.sh

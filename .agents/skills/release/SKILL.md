@@ -66,7 +66,7 @@ be `v1.0.36`.
 
 ## What the agent should do
 
-1. Read `.agents/rules/commits.md` and `.agents/workflows/pr-workflow.md` for
+1. Read `.agents/rules/commits.md` and `node_modules/@vworlds/vmethod/docs/worker-guide.md` for
    context (the release script follows the same no-force, fast-forward-only
    discipline).
 2. Confirm the fragments in `architecture/unreleased/` reflect the changes to be

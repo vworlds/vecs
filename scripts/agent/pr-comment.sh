@@ -1,15 +1,14 @@
-#!/usr/bin/env bash
-# Post a [worker] comment on a task PR from a file (never inline: the shell would run backticks).
-# Adds the "[worker] " prefix if the file lacks it. Usage: scripts/agent/pr-comment.sh <pr> <file>
-set -euo pipefail
-. "$(dirname "$0")/../lib/common.sh"
-pr="${1:?usage: pr-comment.sh <pr> <file>}"
-file="${2:?usage: pr-comment.sh <pr> <file>}"
-body="$(mktemp)"
-trap 'rm -f "$body"' EXIT
-if head -c 8 "$file" | grep -q '^\[worker\]'; then cp "$file" "$body"; else {
-  printf '[worker] '
-  cat "$file"
-} > "$body"; fi
-"$(dirname "$0")/check-markdown.sh" "$body"
-retry 3 gh pr comment "$pr" -R "$REPO_SLUG" --body-file "$body"
+#!/bin/sh
+# vmethod stub
+root=${VMETHOD_ROOT:-}
+if [ -z "$root" ] && command -v git > /dev/null 2>&1; then
+  if ! root=$(git rev-parse --show-toplevel); then
+    echo "vmethod: git could not find a repository; set VMETHOD_ROOT" >&2
+    root=
+  fi
+fi
+if [ -z "$root" ] || [ ! -x "$root/node_modules/.bin/vmethod" ]; then
+  echo "vmethod: run npm ci (set VMETHOD_ROOT when no repository is available)" >&2
+  exit 2
+fi
+exec "$root/node_modules/.bin/vmethod" pr-comment "$@"

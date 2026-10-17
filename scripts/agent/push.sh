@@ -1,13 +1,14 @@
-#!/usr/bin/env bash
-# Push your current task branch with a fast-forward-only update, retrying and falling back to SSH.
-# Refuses to push a branch with no commits on top of origin/dev: GitHub would close the PR.
-# Usage: scripts/agent/push.sh
-set -euo pipefail
-. "$(dirname "$0")/../lib/common.sh"
-branch="$(git rev-parse --abbrev-ref HEAD)"
-case "$branch" in dev | master | main | HEAD) die "refusing to push $branch" ;; esac
-fetch_refs "+dev:refs/remotes/origin/dev" || die "fetch failed"
-[ "$(git rev-list --count origin/dev..HEAD)" -gt 0 ] || die "$branch has no commits on top of origin/dev"
-push_ref "HEAD:refs/heads/$branch" || die "the remote branch moved: fetch and merge it (never force-push)"
-git update-ref "refs/remotes/origin/$branch" HEAD
-log "pushed $branch at $(git rev-parse --short HEAD)"
+#!/bin/sh
+# vmethod stub
+root=${VMETHOD_ROOT:-}
+if [ -z "$root" ] && command -v git > /dev/null 2>&1; then
+  if ! root=$(git rev-parse --show-toplevel); then
+    echo "vmethod: git could not find a repository; set VMETHOD_ROOT" >&2
+    root=
+  fi
+fi
+if [ -z "$root" ] || [ ! -x "$root/node_modules/.bin/vmethod" ]; then
+  echo "vmethod: run npm ci (set VMETHOD_ROOT when no repository is available)" >&2
+  exit 2
+fi
+exec "$root/node_modules/.bin/vmethod" push "$@"

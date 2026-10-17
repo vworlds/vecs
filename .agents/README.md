@@ -1,52 +1,11 @@
-# Agent Instructions
+# Agent instructions
 
-This directory contains repo-specific instructions for AI coding agents and humans who want the same operating rules.
+Use [AGENTS.md](../AGENTS.md) as the single routing entry point for every backend.
+Shared procedures come from the exact pinned `@vworlds/vmethod` package, not copied
+workflow documents. Restore dependencies with `npm ci` before reading them.
 
-The structure is intentionally tool-agnostic. Any agent can read plain Markdown from here without depending on OpenCode, Claude, Cursor, Codex, or another app-specific format.
-
-## Layout
-
-- `rules/`: durable policies that apply across tasks.
-- `workflows/`: step-by-step procedures for recurring task types.
-
-Use this structure for repo-specific agent instructions:
-
-```text
-.agents/
-  README.md
-  rules/
-    commits.md
-    documentation.md
-    formatting.md
-    testing.md
-  workflows/
-    bug-fix.md
-    feature.md
-```
-
-Put durable rules in `.agents/rules/`:
-
-- Commit message format and commit policy: `rules/commits.md`.
-- Documentation requirements, doc style, and doc/JSDoc sync: `rules/documentation.md`.
-- Formatting, linting, hooks, and CI checks: `rules/formatting.md`.
-- Test requirements, test locations, mocking style, and assertion standards: `rules/testing.md`.
-
-Put step-by-step procedures in `.agents/workflows/`:
-
-- Bug investigation and fix flow: `workflows/bug-fix.md`.
-- Feature implementation flow: `workflows/feature.md`.
-- Release, publish, or deploy flows: `workflows/release.md`.
-- Worker task-PR protocol: `workflows/task-workflow.md`.
-- Shared board and task-PR orchestration: `workflows/orchestrator.md`.
-
-## Updating Instructions
-
-Keep `AGENTS.md` as the short routing index. Put detailed instructions here instead:
-
-- Add or update commit rules in `rules/commits.md`.
-- Add or update documentation rules in `rules/documentation.md`.
-- Add or update formatting, linting, hook, or CI rules in `rules/formatting.md`.
-- Add or update test rules in `rules/testing.md`.
-- Add task-specific procedures in `workflows/`.
-
-If a new agent tool requires its own instruction file, create a thin adapter in that tool's expected location and link back to these files. Do not copy large rule blocks into tool-specific files.
+Keep vecs-specific engineering and domain requirements in `rules/`, model
+calibration in [model-log.md](model-log.md), tooling integration in
+[vmethod.md](vmethod.md), and the vecs release recipe in `skills/release/`.
+Only change instructions when explicitly asked. Keep routing short, cross-link
+single sources of truth, and do not edit owner-controlled permissions.

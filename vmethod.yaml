@@ -1,0 +1,51 @@
+repo: vworlds/vecs
+org: vworlds
+baseBranch: dev
+releaseBranch: master
+workerUser: jm
+stateName: vecs
+legacyState: [vecs-watch]
+# rc.1 cannot import vecs-orchestrator/{workers,claude-workers}: nested paths
+# and worktree-keyed records are rejected. See the adoption guide's open gaps.
+legacyWorkers: []
+vmethod:
+  repo: vworlds/vmethod
+watch:
+  preview: false
+branches:
+  taskPattern: "<number>-<slug>"
+  worktreeRoot: .worktrees
+  mainCheckout: /home/vecsmaster/src/vecs
+  packPrefix: pack/
+  trackPrefix: track/
+board:
+  enabled: true
+  owner: vworlds
+  number: 4
+  repos: [vworlds/vecs, vworlds/spacerocks]
+learningsPrivacy: public
+push: {}
+checks:
+  verify:
+    - npm run typecheck
+    - npm run lint
+    - npm run format:check
+    - npm run test
+    - npm run build
+  release: [npm run build]
+  docsGlob: "{architecture,lib,apps}/**/*.md"
+  ci: [CI]
+postMerge:
+  install: HUSKY=0 npm ci --no-audit --no-fund
+  trigger: package-lock.json
+merge:
+  # Owner decision, 2026-10-17 (vmethod#8; PR #370).
+  requireCurrentBase: false
+changelog:
+  directory: architecture/unreleased
+  kinds: [Added, Changed, Fixed, Removed, Docs, Tests, Internal]
+credentials:
+  githubToken: GH_TOKEN
+  sshKey: VMETHOD_SSH_KEY
+  workerPassword: OPENCODE_SERVER_PASSWORD
+  workerGithubToken: CLAUDE_WORKER_GH_TOKEN
