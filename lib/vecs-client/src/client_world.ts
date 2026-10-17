@@ -71,6 +71,13 @@ export type ClientWorldDisconnectEvent = CloseNotice;
 
 export interface ClientWorldEvents {
   /**
+   * An already-connected socket was attached. Emitted synchronously at the end of
+   * every successful attachSocket(), including reconnects, never by progress()
+   * or apply(). With the constructor's socket option this fires during construction;
+   * inspect connected when installing a listener afterwards.
+   */
+  connect: () => void;
+  /**
    * The connection is gone. The payload is present only when a notice explains
    * why — the server closed the connection deliberately and its notice arrived,
    * or this client closed it because it could not decode or accept what the server
@@ -221,6 +228,16 @@ export class ClientWorld extends NetworkWorld {
     return this._diffBuffer.renderFrame;
   }
 
+  /** Whether a socket is attached and has not disconnected or been disposed. */
+  public get connected(): boolean {
+    return this._socket !== undefined && !this._disconnected && !this._disposed;
+  }
+
+  /** Whether permanent teardown has begun; refused disposal calls leave this false. */
+  public get disposed(): boolean {
+    return this._disposed;
+  }
+
   /**
    * Connect to a `VecsListener`-hosted world over the dgram transport.
    *
@@ -292,6 +309,7 @@ export class ClientWorld extends NetworkWorld {
     socket.on("receive", (data) => this._receive(socket, data));
     socket.on("disconnect", () => this._handleDisconnect(socket));
     this._startAckTimer();
+    this.events.emit("connect");
   }
 
   /** Set the input payload sent with every ack until it is replaced. */
@@ -355,6 +373,11 @@ export class ClientWorld extends NetworkWorld {
    */
   public listen(rpcId: number, handler: RPCHandler): void {
     this._rpc.listen(rpcId, handler);
+  }
+
+  /** Remove only this handler reference, returning false if absent or replaced. */
+  public unlisten(rpcId: number, handler: RPCHandler): boolean {
+    return this._rpc.unlisten(rpcId, handler);
   }
 
   /**

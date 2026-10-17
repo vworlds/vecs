@@ -34,6 +34,9 @@ export const frameSchema = z
               path: z.string().min(1),
               kind: z.string(),
               world: z.record(z.unknown()).optional(),
+              client: z
+                .object({ id: z.string(), eid: z.number(), name: z.string().optional() })
+                .optional(),
               node,
               via: z.array(z.string().min(1)).min(1),
             })

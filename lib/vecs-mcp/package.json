@@ -13,6 +13,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js"
+    },
     "./schema": {
       "types": "./dist/schema/index.d.ts",
       "import": "./dist/schema/index.js"
@@ -27,17 +31,31 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
     "@vworlds/vecs": "1.0.58",
+    "@vworlds/vecs-protocol": "1.0.58",
     "@vworlds/vecs-wire": "1.0.58",
     "ws": "8.22.0",
     "zod": "^3.25.76"
+  },
+  "peerDependencies": {
+    "@vworlds/vecs-client": "^1.0.58",
+    "@vworlds/vecs-server": "^1.0.58"
+  },
+  "peerDependenciesMeta": {
+    "@vworlds/vecs-client": {
+      "optional": true
+    },
+    "@vworlds/vecs-server": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/ws": "8.18.1",
+    "esbuild": "^0.28.1"
   },
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
     "url": "https://github.com/vworlds/vecs",
     "directory": "lib/vecs-mcp"
-  },
-  "devDependencies": {
-    "@types/ws": "8.18.1"
   }
 }

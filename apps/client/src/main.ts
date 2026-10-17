@@ -1,4 +1,5 @@
 import { ClientWorld } from "@vworlds/vecs-client";
+import { installBridge } from "@vworlds/vecs-mcp/client";
 import { phaserNetworkComponents } from "@vworlds/vecs-phaser";
 import {
   type Catalog,
@@ -249,6 +250,9 @@ async function createSession(scene: DemoScene): Promise<Session> {
     localEntityIdStart: LOCAL_ENTITY_START,
     networkComponents: phaserNetworkComponents,
   });
+  if (import.meta.env.DEV || new URLSearchParams(location.search).has("mcp")) {
+    installBridge(world);
+  }
   world.module(PhaserRenderModule, {
     catalog: scene.catalog,
     pixelsPerMeter: PIXELS_PER_METER,

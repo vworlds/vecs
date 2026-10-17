@@ -103,7 +103,11 @@ export class VecsMcpServer {
     return (http.address() as { port: number }).port;
   }
 
-  /** Register a local world. Uses world.name when available, otherwise "world"; duplicates throw. */
+  /**
+   * Register a local world. Uses world.name when available, otherwise "world";
+   * duplicates throw. ServerWorld instances also accept bridge announcements and
+   * expose opted-in clients as three-segment targets, discovered on demand.
+   */
   public registerWorld(world: World, name?: string): void {
     const worldName = "name" in world && typeof world.name === "string" ? world.name : "world";
     this._router.register(world, name ?? worldName);
@@ -233,12 +237,14 @@ function packageVersion(): string {
 const target = z
   .string()
   .optional()
-  .describe("Full node/world target path; omit only when exactly one target exists.");
+  .describe(
+    "Full node/world or node/world/connectionId target path; omit only when exactly one target exists."
+  );
 const entity = z.union([z.number().int().positive(), z.string()]);
 const tools = {
   vecs_targets: {
     description:
-      "List the cached aggregate of local and linked targets with originating process/git metadata, via node IDs and world counts. No parameters; no remote requests.",
+      "List the cached aggregate of local and linked world/client targets with originating process/git metadata, via node IDs, world counts and client connection metadata. No parameters; no remote requests.",
     schema: {},
   },
   vecs_components: {

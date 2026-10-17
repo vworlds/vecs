@@ -68,6 +68,7 @@ const publishPackage = {
   },
   dependencies,
   peerDependencies: sourcePackage.peerDependencies,
+  peerDependenciesMeta: sourcePackage.peerDependenciesMeta,
   bin: sourcePackage.bin === undefined ? undefined : rewriteBin(sourcePackage.bin),
   license: sourcePackage.license,
 };

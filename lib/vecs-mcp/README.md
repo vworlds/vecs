@@ -1,6 +1,6 @@
 # @vworlds/vecs-mcp
 
-Inspect and mutate explicitly registered local vecs worlds with an MCP agent.
+Inspect and mutate registered vecs worlds and their opted-in browser clients with an MCP agent.
 
 The Node entry exports `VecsMcpServer`, `Link` and their configuration/state types. The isomorphic `/schema` entry exports
 `field`, `describe`, `componentSchema`, `validateSet`, `FieldSpec` and `ComponentSchema`;
@@ -18,9 +18,12 @@ await mcp.listen(3210); // http://127.0.0.1:3210/mcp
 ```
 
 Nothing runs per tick: tools perform pull-only reads or synchronous writes between
-ticks. [Join or mount nodes](./docs/topology.md) to aggregate worlds through one
+ticks. The browser-safe `/client` entry exports `installBridge` to reach a
+`ClientWorld` through its server connection; see [browser clients](./docs/clients.md).
+Client execution runs on a macrotask after the current tick.
+[Join or mount nodes](./docs/topology.md) to aggregate worlds through one
 hub; the [hub CLI](./docs/getting-started.md#hub-cli) is included as `vecs-mcp`.
-Browser tunnels and watches are separate work.
+Watches are separate work.
 
 Start with the [documentation map](./docs/README.md).
 

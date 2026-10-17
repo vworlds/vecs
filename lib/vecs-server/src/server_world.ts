@@ -305,6 +305,7 @@ export interface ShutdownOptions {
 class ServerClientSession {
   public readonly history: History;
   public readonly rpc = new SessionRPC();
+  public rpcTickMs = 0;
   /** Smoothed time between sending a frame and receiving its ack. */
   public readonly rtt: RttEstimator;
   public context!: ServerRPCContext;
@@ -676,6 +677,37 @@ export class ServerWorld extends NetworkWorld {
   }
 
   /**
+   * Call one connected client and resolve with its reply parameters. Requests are
+   * retransmitted by send(); the client's listen handler runs during apply().
+   * Rejects with RPC_CLOSED_CODE for an unknown/closing connection or session end,
+   * the handler's RPCError on failure, or RPC_TIMEOUT_CODE after ttl milliseconds.
+   * Timeouts advance only when send() runs (normally once per progress()).
+   */
+  public invoke(
+    connectionId: string,
+    rpcId: number,
+    params: unknown[] = [],
+    ttl = 5000
+  ): Promise<unknown[]> {
+    const session = this._sessions.get(connectionId);
+    if (!session || session.closing || session.closed) {
+      return Promise.reject(
+        new RPCError(RPC_CLOSED_CODE, `Unknown or closed connection ${connectionId}`)
+      );
+    }
+    const nowMs = performance.now();
+    if (session.rpc.pendingCalls === 0) {
+      session.rpcTickMs = nowMs;
+    }
+    // The next tick ages every call from the previous tick. Compensate for the
+    // part before this call existed, including a long pause with another call pending.
+    const ageBeforeCall = nowMs - session.rpcTickMs;
+    return session.rpc
+      .invoke(rpcId, params, ttl + ageBeforeCall)
+      .then((response) => response.params);
+  }
+
+  /**
    * Close one connection and tear its session down.
    *
    * Cleanup runs exactly once: the session leaves the world, its `NetworkClient`
@@ -821,6 +853,11 @@ export class ServerWorld extends NetworkWorld {
         // allowed to reach the client before the transport goes down.
         this._lingerOrClose(session, nowMs, sendSocket);
         return;
+      }
+
+      if (session.rpc.pendingCalls > 0) {
+        session.rpc.timeoutTick(nowMs - session.rpcTickMs);
+        session.rpcTickMs = nowMs;
       }
 
       view._reconcileVisibility();

@@ -10,3 +10,4 @@ Read in this order:
 4. [Execution semantics](./execution.md): validation, inline writes and failures.
 5. [Security](./security.md): bind addresses, tokens and read-only access.
 6. [Nodes and links](./topology.md): join, mount, cascade paths and reconnects.
+7. [Browser clients](./clients.md): install, discover client targets, execution and replication.

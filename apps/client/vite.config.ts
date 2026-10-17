@@ -4,6 +4,7 @@ const workspaceRoot = new URL("../..", import.meta.url).pathname;
 const packages = [
   "@vworlds/vecs",
   "@vworlds/vecs-client",
+  "@vworlds/vecs-mcp",
   "@vworlds/vecs-phaser",
   "@vworlds/vecs-phaser-client",
   "@vworlds/vecs-protocol",
@@ -13,6 +14,8 @@ const packages = [
 export default defineConfig({
   resolve: {
     alias: {
+      "@vworlds/vecs-mcp/client": new URL("../../lib/vecs-mcp/src/client.ts", import.meta.url)
+        .pathname,
       "@vworlds/vecs": new URL("../../lib/vecs/src/index.ts", import.meta.url).pathname,
       "@vworlds/vecs-client": new URL("../../lib/vecs-client/src/index.ts", import.meta.url)
         .pathname,

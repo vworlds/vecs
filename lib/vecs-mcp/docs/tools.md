@@ -8,6 +8,10 @@ bare name is rejected. Entities use a positive eid or an `Identity` name.
 Component trait lists and trait classification exclude `Identity` and `ChildOf`:
 names are identity, and module provenance is already reported by `module`.
 
+[Browser clients](./clients.md) add `<node>/<world>/<connectionId>` targets with
+`kind: "client"` and `client: { id, eid, name? }` metadata to `vecs_targets`.
+All world tools accept those paths too.
+
 | Tool              | Parameters                                                                                                   | Result                                                                                                                                                    |
 | ----------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `vecs_targets`    | None                                                                                                         | Cached aggregate `{ node, targets: [{ path, kind: "world", world: { name, entities, components, systems }, node, via }] }`; see [topology](./topology.md) |
