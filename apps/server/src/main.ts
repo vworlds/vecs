@@ -35,6 +35,9 @@ if (process.env.VECS_MCP_PORT) {
   const mcp = new VecsMcpServer();
   mcp.registerWorld(world);
   const port = await mcp.listen(Number(process.env.VECS_MCP_PORT));
+  if (process.env.VECS_MCP_HUB) {
+    mcp.join(process.env.VECS_MCP_HUB);
+  }
   console.log(`vecs MCP listening on http://127.0.0.1:${port}/mcp`);
 }
 
