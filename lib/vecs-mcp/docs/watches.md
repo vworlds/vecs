@@ -81,3 +81,6 @@ Remote watches routed through links or tunnels are **pull-only** in this card:
 use the three tools, not local resource listings, reads or subscriptions. Watch
 ownership travels in the bridge request, and session teardown attempts remote
 unwatch as well; the remote idle deadline bounds cleanup if the route is lost.
+Use the full advertised target, including any cascade prefixes or a browser
+connection segment, for subsequent reads and unwatch. See
+[node topology](./topology.md) and [browser clients](./clients.md) for target discovery.

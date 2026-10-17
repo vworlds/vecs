@@ -1,6 +1,10 @@
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 
 export const RPC_RESPONSE_ID = 0;
+/** Reserved client-to-server MCP bridge announcement. */
+export const BRIDGE_ANNOUNCE_RPC_ID = 90;
+/** Reserved server-to-client MCP bridge envelope call. */
+export const BRIDGE_CALL_RPC_ID = 91;
 export const FIRST_USER_RPC_ID = 101;
 
 /**
@@ -213,6 +217,11 @@ export class SessionRPC {
     this._handlers.set(rpcId, handler);
   }
 
+  /** Remove only the matching handler reference; a replacement is left untouched. */
+  public unlisten(rpcId: number, handler: RPCHandler): boolean {
+    return this._handlers.get(rpcId) === handler && this._handlers.delete(rpcId);
+  }
+
   /**
    * Send a call and resolve with the response message.
    *
@@ -220,14 +229,18 @@ export class SessionRPC {
    * {@link RPC_TIMEOUT_ERROR} if {@link SessionRPC.timeoutTick} expires the call
    * first, or with whatever reason {@link SessionRPC.abortPending} was given.
    *
-   * @param rpcId - Request id. Ids below {@link FIRST_USER_RPC_ID} are reserved
-   *   and throw.
+   * @param rpcId - Request id. Ids below {@link FIRST_USER_RPC_ID} throw,
+   *   except the reserved bridge announcement and call ids.
    * @param params - Positional parameters to encode with the call.
    * @param ttl - Milliseconds before the call times out; defaults to the
    *   channel's TTL.
    */
   public invoke(rpcId: number, params: unknown[] = [], ttl = this._defaultTTL): Promise<RPC> {
-    if (rpcId < FIRST_USER_RPC_ID) {
+    if (
+      rpcId < FIRST_USER_RPC_ID &&
+      rpcId !== BRIDGE_ANNOUNCE_RPC_ID &&
+      rpcId !== BRIDGE_CALL_RPC_ID
+    ) {
       throw new Error(`RPC ids 0-${FIRST_USER_RPC_ID - 1} are reserved`);
     }
     const callId = this._nextCallId++;
@@ -357,6 +370,11 @@ export class SessionRPC {
   /** Number of calls awaiting a response plus responses queued for the peer. */
   public get pendingTotal(): number {
     return this._pending.size + this._outbox.size;
+  }
+
+  /** Number of outgoing calls awaiting a reply; constant-time, excluding queued replies. */
+  public get pendingCalls(): number {
+    return this._pending.size;
   }
 
   /**

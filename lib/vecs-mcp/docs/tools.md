@@ -8,18 +8,22 @@ bare name is rejected. Entities use a positive eid or an `Identity` name.
 Component trait lists and trait classification exclude `Identity` and `ChildOf`:
 names are identity, and module provenance is already reported by `module`.
 
-| Tool              | Parameters                                                                                                   | Result                                                                                                   |
-| ----------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `vecs_targets`    | None                                                                                                         | `{ node, targets: [{ path, kind: "world", world: { name, entities, components, systems } }] }`           |
-| `vecs_components` | `target?`, `filter?` (case-sensitive name substring)                                                         | Array of `{ name, eid, kind, module?, carriers, traits, schema, description? }`                          |
-| `vecs_find`       | `target?`, `where`, `include?` (component names, default none), `limit?` (default 50), `offset?` (default 0) | `{ total, entities: [{ eid, name?, components }] }`; total is before pagination                          |
-| `vecs_entity`     | `target?`, `entity`                                                                                          | `{ eid, name?, parent, components, relationships }`; each relationship has `targets` and `children` eids |
-| `vecs_mutate`     | `target?`, `ops`                                                                                             | `{ applied, error?: { index, message } }`; each completed op returns `{ eid }`                           |
-| `vecs_systems`    | `target?`, `enable?`, `disable?` (system names)                                                              | Pipeline-order array of `{ name, phase, enabled, callbacks, watched, timing }`                           |
-| `vecs_stats`      | `target?`                                                                                                    | `{ systems, operations }`; system identities are names, not live instances                               |
-| `vecs_watch`      | `target?`, `where`, `include?`, `maxEvents?` (1000)                                                          | `{ watch, members }`; no backfill events                                                                 |
-| `vecs_events`     | `target?`, `watch`, `since?` (0), `limit?` (100)                                                             | `{ events, latest, dropped }`                                                                            |
-| `vecs_unwatch`    | `target?`, `watch`                                                                                           | `{ watch }`; releases query, hooks and log                                                               |
+[Browser clients](./clients.md) add `<node>/<world>/<connectionId>` targets with
+`kind: "client"` and `client: { id, eid, name? }` metadata to `vecs_targets`.
+All world tools accept those paths too.
+
+| Tool              | Parameters                                                                                                   | Result                                                                                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vecs_targets`    | None                                                                                                         | Cached aggregate `{ node, targets: [{ path, kind: "world", world: { name, entities, components, systems }, node, via }] }`; see [topology](./topology.md) |
+| `vecs_components` | `target?`, `filter?` (case-sensitive name substring)                                                         | Array of `{ name, eid, kind, module?, carriers, traits, schema, description? }`                                                                           |
+| `vecs_find`       | `target?`, `where`, `include?` (component names, default none), `limit?` (default 50), `offset?` (default 0) | `{ total, entities: [{ eid, name?, components }] }`; total is before pagination                                                                           |
+| `vecs_entity`     | `target?`, `entity`                                                                                          | `{ eid, name?, parent, components, relationships }`; each relationship has `targets` and `children` eids                                                  |
+| `vecs_mutate`     | `target?`, `ops`                                                                                             | `{ applied, error?: { index, message } }`; each completed op returns `{ eid }`                                                                            |
+| `vecs_systems`    | `target?`, `enable?`, `disable?` (system names)                                                              | Pipeline-order array of `{ name, phase, enabled, callbacks, watched, timing }`                                                                            |
+| `vecs_stats`      | `target?`                                                                                                    | `{ systems, operations }`; system identities are names, not live instances                                                                                |
+| `vecs_watch`      | `target?`, `where`, `include?`, `maxEvents?` (1000)                                                          | `{ watch, members }`; no backfill events                                                                                                                  |
+| `vecs_events`     | `target?`, `watch`, `since?` (0), `limit?` (100)                                                             | `{ events, latest, dropped }`                                                                                                                             |
+| `vecs_unwatch`    | `target?`, `watch`                                                                                           | `{ watch }`; releases query, hooks and log                                                                                                                |
 
 See [watches](./watches.md) for event shape, lifetime, costs and resource subscriptions.
 

@@ -68,6 +68,8 @@ const publishPackage = {
   },
   dependencies,
   peerDependencies: sourcePackage.peerDependencies,
+  peerDependenciesMeta: sourcePackage.peerDependenciesMeta,
+  bin: sourcePackage.bin === undefined ? undefined : rewriteBin(sourcePackage.bin),
   license: sourcePackage.license,
 };
 
@@ -92,6 +94,13 @@ function rewriteExportTarget(target) {
     );
   }
   return target;
+}
+
+function rewriteBin(bin) {
+  const rewrite = (target) => (rootDist ? target.replace(/^(\.\/)?dist\//, "./") : target);
+  return typeof bin === "string"
+    ? rewrite(bin)
+    : Object.fromEntries(Object.entries(bin).map(([name, target]) => [name, rewrite(target)]));
 }
 
 function rewriteDependencies(dependencies, version) {

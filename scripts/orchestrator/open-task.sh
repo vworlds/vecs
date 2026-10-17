@@ -17,6 +17,9 @@
 #   --title  PR title; defaults to the issue's title
 #   --hold   mark the PR on hold for owner review: no agent may start it until release-hold.sh
 #   --unapproved   open it although the issue's card is not in Approved (say why on the issue)
+#   --model family|provider/id   worker model; else the issue hint, else sol
+#   --owner-approved   allow astra only with the owner's explicit authorization
+# Copies the issue Estimate to the PR; writes Worker model in its header for worker.sh start.
 # Refused: an issue that another open issue blocks ("blocked by" relation), and an issue the owner
 # has not approved (its card must be in Approved): no PR exists before the owner agrees to what
 # the issue says.
@@ -26,8 +29,9 @@ set -euo pipefail
 . "$(dirname "$0")/../lib/common.sh"
 . "$(dirname "$0")/../lib/board.sh"
 cd "$(git rev-parse --show-toplevel)"
-usage="usage: open-task.sh <issue> <task.md> [--spec f] [--part] [--slug s] [--title t] [--hold] [--unapproved] | open-task.sh --direct <title> <task.md> [--slug s] [--hold]"
+usage="usage: open-task.sh <issue> <task.md> [--spec f] [--part] [--slug s] [--title t] [--hold] [--unapproved] [--model family|id] [--owner-approved] | open-task.sh --direct <title> <task.md> [--slug s] [--hold] [--model family|id] [--owner-approved]"
 slug="" title="" spec="" hold=false part=false approved_only=true direct=false ref="" base="$VECS_BASE"
+model="" owner_approved=false
 if [ "${1:-}" = --direct ]; then
   direct=true
   title="${2:?$usage}"
@@ -67,6 +71,14 @@ while [ $# -gt 0 ]; do
     --base)
       base="$2"
       shift 2
+      ;;
+    --model)
+      model="$2"
+      shift 2
+      ;;
+    --owner-approved)
+      owner_approved=true
+      shift
       ;;
     *) die "unknown option $1" ;;
   esac
@@ -127,6 +139,11 @@ if ! $direct && $approved_only && board_enabled; then
   column="$(board_where "$issue")" || die "cannot read the board"
   [ "$column" = Approved ] || die "issue #$issue is in ${column:-no column}, not Approved (--unapproved overrides)"
 fi
+if [ -z "$model" ] && [ -n "$issue" ]; then model="$(board_field_get "$issue" Model)" || die "cannot read model hint"; fi
+resolved="$(model_resolve "${model:-sol}" "$owner_approved")" || exit 1
+IFS=$'\t' read -r family model_id kind <<< "$resolved"
+estimate=""
+[ -z "$issue" ] || estimate="$(board_field_get "$issue" Estimate)" || die "cannot read estimate"
 if [ -n "$spec" ]; then
   "$(dirname "$0")/../agent/check-markdown.sh" "$spec"
   retry 3 gh api -X PATCH "repos/$REPO_SLUG/issues/$issue" -F body=@"$spec" > /dev/null || die "could not update the body of #$issue"
@@ -152,6 +169,7 @@ trap 'rm -f "$body"' EXIT
     printf '> ⛔ **ON HOLD for owner review. Do not start.** No agent may pick this up until the orchestrator posts `[orchestrator] GO`.\n\n'
   fi
   printf '> **Agent task%s.** Branch `%s`, base `%s`. Follow [`.agents/workflows/task-workflow.md`](https://github.com/%s/blob/%s/.agents/workflows/task-workflow.md): this description is your prompt, and `[orchestrator]` comments amend it.\n\n' "${issue:+ for #$issue}" "$branch" "$base" "$REPO_SLUG" "$base"
+  printf '> Worker model: `%s`\n\n' "$model_id"
   if $direct; then
     printf 'Agreed with the owner in chat; this task has no issue.\n\n'
   elif $part; then
@@ -172,6 +190,8 @@ url="$(retry 3 gh pr create -R "$REPO_SLUG" --draft --base "$base" --head "$bran
 log "opened $url"
 if [ -n "$VECS_TRACK" ]; then retry 3 gh api -X POST "repos/$REPO_SLUG/issues/${url##*/}/labels" -f "labels[]=track:$VECS_TRACK" > /dev/null || log "warning: could not label PR #${url##*/} track:$VECS_TRACK"; fi
 [ "${url##*/}" = "${branch%%-*}" ] || log "warning: PR #${url##*/} does not match branch $branch (another issue or PR was created meanwhile)"
+board_model "${url##*/}" "$family" || log "warning: could not set PR Model"
+[ -z "$estimate" ] || board_estimate "${url##*/}" "$estimate" || log "warning: could not copy Estimate"
 if $hold; then
   board_move "${url##*/}" "In review" || true
   board_turn "${url##*/}" owner || true

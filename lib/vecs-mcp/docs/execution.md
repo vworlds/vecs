@@ -25,9 +25,8 @@ mid-destroy throw is a programming error, not an atomic transaction failure;
 the bridge reports it rather than trying to repair core state. Unattempted ops
 are never queued for replay.
 
-Future browser-client execution belongs to a separate card and may be deferred
-inside `apply()`, with pre-batch reads. Those semantics do not apply to local
-worlds in this release.
+[Browser-client targets](./clients.md) use these same semantics on a macrotask
+after `progress()`/`apply()` returns, not inside the deferred apply phase.
 
 ## Values and opacity
 

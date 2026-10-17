@@ -50,6 +50,22 @@ Handlers are registered with `listen` and invoked with `invoke`. Anything a hand
 the reply's `params`, so return the shape your caller expects to read. `invoke` resolves with the
 reply message, an `RPC`.
 
+`unlisten(rpcId, handler)` removes a handler only if the registered reference is
+the same, returning true when removed. Cleanup with an old reference leaves a
+replacement intact; in-flight calls and cached replies are unaffected.
+
+### Reserved request ids
+
+| Id           | Constant                 | Purpose                                              |
+| ------------ | ------------------------ | ---------------------------------------------------- |
+| `0`          | `RPC_RESPONSE_ID`        | Reply, never a request.                              |
+| `90`         | `BRIDGE_ANNOUNCE_RPC_ID` | Client announces the MCP bridge to its server.       |
+| `91`         | `BRIDGE_CALL_RPC_ID`     | Server forwards an MCP envelope to a bridged client. |
+| `101` and up | `FIRST_USER_RPC_ID`      | Application request ids.                             |
+
+`SessionRPC.invoke` rejects other ids below 101. The bridge ids are the only
+exceptions in the reserved request range; applications must not use them.
+
 `RPCHandler` takes an optional third type parameter for a context: `RPCHandler<TContext>` defaults
 to `RPCHandler<void>`, so existing handlers keep typechecking unchanged. `SessionRPC` never supplies
 a context itself — it always passes `undefined` — so a context is only meaningful when a host
@@ -92,9 +108,8 @@ rejected, timed out or aborted. Send it to the peer with every frame, and have t
 `lib/vecs-protocol/src/messages.ts`), and the receiver passes it to `setPeerSettledBelow` before it
 handles the frame's RPCs. The field is encoded as tag `5` followed by a `u32`, and only when it is
 above `0`, so a frame from a peer that never made a call, or whose first call has not settled, is
-byte-identical to one from before the field existed. Only the client issues calls today, so
-`ServerWorld` always sends `0` and omits the field, but it still sets it on every frame to keep the
-protocol symmetric.
+byte-identical to one from before the field existed. Server calls publish the same
+watermark in the other direction, allowing the client to release cached replies.
 
 A decoder that predates the field rejects the tag, and a client sends it once its first call has
 settled, so deploy servers before clients. A new server reads frames from old and new clients alike,
@@ -183,7 +198,8 @@ server sent
 `invoke` accepts a `ttl` in milliseconds. `SessionRPC` never advances time on its own, so something
 has to tick it. `ClientWorld` does not run `timeoutTick`, so a client call has no timeout: it
 settles with its reply, or rejects with `RPC_CLOSED_CODE` when the connection is lost or the world
-is disposed. A bare `SessionRPC` needs its own timer.
+is disposed. `ServerWorld.invoke` ticks only sessions with pending outgoing calls
+from its send path. A bare `SessionRPC` needs its own timer.
 
 ```ts
 const pending = client.invoke(101, [], 5_000);
@@ -218,6 +234,7 @@ call ids are not reset, so `settledBelow` keeps moving forward.
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | `new SessionRPC(defaultTtl?)`  | Create a session-local RPC channel. `defaultTtl` is the ttl of a call that names none, `5000` ms unless you pass otherwise.  |
 | `listen(rpcId, handler)`       | Register the handler for one rpc id. A later registration replaces the earlier one.                                          |
+| `unlisten(rpcId, handler)`     | Remove only the matching handler reference; return whether removed.                                                          |
 | `invoke(rpcId, params?, ttl?)` | Send a request and resolve with its reply. Rejects on timeout or handler error.                                              |
 | `process(incoming)`            | Dispatch inbound messages: replies settle calls, and each request runs its handler at most once.                             |
 | `setPeerSettledBelow(value)`   | Record the peer's `settledBelow`. Monotonic; drops cached and unsent replies below it and ignores requests below it.         |
@@ -226,6 +243,7 @@ call ids are not reset, so `settledBelow` keeps moving forward.
 | `getOutgoing()`                | Return every pending request and the owed responses, emptying the response outbox. Pending requests come back on every call. |
 | `abortPending(reason)`         | Reject every pending call with `reason`, clear the queue, and forget the peer: watermark, cached replies, running handlers.  |
 | `pendingTotal`                 | Calls awaiting a response plus responses queued for the peer.                                                                |
+| `pendingCalls`                 | Constant-time number of outgoing calls awaiting a response, excluding queued replies.                                        |
 
 Per-symbol detail — including the wire shape of `RPC`, `Server2Client`, and `Client2Server` — lives
 in the JSDoc on `lib/vecs-protocol/src/rpc.ts` and `lib/vecs-protocol/src/messages.ts`.

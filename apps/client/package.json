@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@vworlds/vecs-mcp": "*",
     "@vworlds/vecs-client": "*",
     "@vworlds/vecs-phaser": "*",
     "@vworlds/vecs-phaser-client": "*",

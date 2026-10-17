@@ -56,6 +56,26 @@ MCP listener is constructed and the tick loop is unchanged. `Ball.radius`,
 validator rejects scores over the demo limit. A radius is spawn metadata, not a
 request to rebuild an existing physics body.
 
+Set `VECS_MCP_HUB=ws://127.0.0.1:4000/link` alongside `VECS_MCP_PORT` to join a
+hub after the listener starts. The default hostname/pid name distinguishes demo
+processes; node metadata identifies their branches. With `VECS_MCP_PORT` unset,
+`VECS_MCP_HUB` alone does not create a server.
+
 The demo's MCP listener has no token and is intended for local development only.
 For access from another host, create a token-protected server as described in
 [security](./security.md).
+
+## Hub CLI
+
+Run a hub and point Claude Code at its single MCP endpoint:
+
+```bash
+npx @vworlds/vecs-mcp hub --port 4000 --name hub
+claude mcp add --transport http vecs http://127.0.0.1:4000/mcp
+```
+
+The installed binary is `vecs-mcp`. `hub` requires `--port` (0–65535) and accepts
+`--host` (default `127.0.0.1`), `--name` (default `hub`), `--token`, and repeated
+`--mount ws://host:port/link`. Invalid arguments print usage and exit non-zero.
+SIGINT/SIGTERM shuts down the listener and connectors. Connect games with
+`join`, or pull nodes with `--mount`; see [nodes and links](./topology.md).

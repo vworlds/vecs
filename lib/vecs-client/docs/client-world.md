@@ -53,6 +53,15 @@ no RPC traffic, even with keepalives enabled, and it closes sessions
 that stay silent past `disconnectGraceMs`, so a client that withheld its first ack could be
 dropped, or could never deliver an early `invoke`.
 
+For socket lifecycle notifications, use `world.events.on("connect", handler)`.
+It fires synchronously at the end of every successful `attachSocket`, including
+reconnects; it does not wait for a frame, `progress()` or `apply()`. With the
+constructor's `socket` option it fires during construction. Check `world.connected`
+when installing a listener afterwards. It is false before attachment, after the
+matching disconnect, and after disposal; stale socket events do not change it.
+`world.disposed` becomes true when permanent teardown begins, but a refused disposal
+call leaves it unchanged.
+
 ## Baselines
 
 Most frames are deltas, which the client applies in place. The server sends a **baseline** instead,
@@ -267,6 +276,10 @@ world.listen(201, ([question]) => {
 The handler runs once per call, however many copies of the request the server sends; see
 [Duplicates and the settled watermark](../../vecs-protocol/docs/rpc.md#duplicates-and-the-settled-watermark).
 
+To stop answering new calls, use `world.unlisten(rpcId, handler)`. It returns true
+only when that exact handler reference was removed. A newer replacement survives
+cleanup with the old reference. Calls already running or cached are unaffected.
+
 `ClientWorld` does not time calls out: its ack timer only sends frames and never runs
 `SessionRPC.timeoutTick`. A call settles with its reply, or rejects with `RPC_CLOSED_CODE` when the
 connection is lost or the world is disposed; one the server never answers stays pending until then.
@@ -452,6 +465,9 @@ a payload that fails there still throws out of `apply()`.
 | `world.setInput(input)`             | Set the input replicated on the next outgoing frame.                                     |
 | `world.invoke(rpcId, params?)`      | Call the server; settles with the reply params as soon as the reply arrives.             |
 | `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client; it runs from `apply()`.    |
+| `world.unlisten(rpcId, handler)`    | Remove only the same handler reference; return whether it was removed.                   |
+| `world.connected`                   | Whether an attached socket is still connected and the world is not disposed.             |
+| `world.disposed`                    | Whether permanent teardown has begun.                                                    |
 | `world.apply(now)`                  | Run queued server requests, then apply buffered frames in reset/snapshot/removal order.  |
 | `world.renderFrame`                 | The fractional server frame the world renders; `0` before the first baseline.            |
 | `world.send()`                      | Send input, outstanding replies, the current ack frame, and a gap report if one is open. |
@@ -460,6 +476,12 @@ a payload that fails there still throws out of `apply()`.
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-client/src/client_world.ts` and
 `lib/vecs-client/src/diff_buffer.ts`.
+
+| Event        | When it fires                                                                                                           |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `connect`    | Synchronously at the end of every successful socket attachment, including reconnects.                                   |
+| `disconnect` | Once on connection loss; emission waits until the outermost `progress()`/`apply()` returns. Disposal itself emits none. |
+| `reset`      | When an accepted baseline clears replicated entities, with `{ initial, fromFrame, toFrame }`.                           |
 
 ## See also
 

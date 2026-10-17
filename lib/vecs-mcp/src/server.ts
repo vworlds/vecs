@@ -15,6 +15,8 @@ import {
 import type { World } from "@vworlds/vecs";
 import { Router } from "./bridge/router.js";
 import { WATCH_IDLE_MS } from "./bridge/watch.js";
+import { Link } from "./links/link.js";
+import { listenLinks } from "./links/listener.js";
 
 interface Session {
   owner: string;
@@ -31,14 +33,14 @@ interface Session {
 export interface VecsMcpServerOptions {
   /** Target path prefix; defaults to hostname-pid. Must be one nonempty path segment. */
   name?: string;
-  /** Require Authorization: Bearer on every HTTP request when supplied. */
+  /** Require Authorization: Bearer on MCP requests and the same token in link hello. */
   token?: string;
   /** Reject mutation batches and system enable/disable requests. Defaults to false. */
   readOnly?: boolean;
 }
 
 /**
- * Session-based MCP access to explicitly registered local worlds over Streamable HTTP.
+ * Session-based MCP access to local, linked and tunneled worlds over Streamable HTTP.
  * The informational package version is resolved lazily, falling back to "unknown"
  * if bundling or unavailable metadata prevents discovery.
  */
@@ -48,6 +50,8 @@ export class VecsMcpServer {
   private _http: Server | undefined;
   private _version: string | undefined;
   private readonly _sessions = new Map<string, Session>();
+  private readonly _links = new Set<Link>();
+  private _closeLinks?: () => void;
 
   /** Capture best-effort process and git metadata once; no world hooks are installed. */
   public constructor(options: VecsMcpServerOptions = {}) {
@@ -69,11 +73,17 @@ export class VecsMcpServer {
     );
   }
 
-  /** Stop the listener, close MCP sessions and release their watches. Safe to call repeatedly. */
+  /** Stop HTTP, MCP sessions and links, releasing session watches before routes. Safe to repeat. */
   public async close(): Promise<void> {
     const http = this._http;
     this._http = undefined;
     await Promise.all([...this._sessions.values()].map((session) => this._closeSession(session)));
+    for (const link of this._links) {
+      link.close();
+    }
+    this._links.clear();
+    this._closeLinks?.();
+    this._closeLinks = undefined;
     if (http) {
       const closed = new Promise<void>((resolve, reject) =>
         http.close((error) => (error ? reject(error) : resolve()))
@@ -83,7 +93,7 @@ export class VecsMcpServer {
     }
   }
 
-  /** Listen at /mcp, binding loopback by default. Returns the bound port (use 0 for an ephemeral port). */
+  /** Listen at /mcp and /link, binding loopback by default. Returns the bound port (0 is ephemeral). */
   public async listen(port: number, host = "127.0.0.1"): Promise<number> {
     if (this._http) {
       throw new Error("VecsMcpServer is already listening");
@@ -92,6 +102,7 @@ export class VecsMcpServer {
       void this._handle(req, res);
     });
     this._http = http;
+    this._closeLinks = listenLinks(http, this._router, this._token);
     try {
       await new Promise<void>((resolve, reject) => {
         http.once("error", reject);
@@ -101,16 +112,38 @@ export class VecsMcpServer {
         });
       });
     } catch (error) {
+      this._closeLinks?.();
+      this._closeLinks = undefined;
       this._http = undefined;
       throw error;
     }
     return (http.address() as { port: number }).port;
   }
 
-  /** Register a local world. Uses world.name when available, otherwise "world"; duplicates throw. */
+  /**
+   * Register a local world. Uses world.name when available, otherwise "world";
+   * duplicates throw. ServerWorld instances also accept bridge announcements and
+   * expose opted-in clients as three-segment targets, discovered on demand.
+   */
   public registerWorld(world: World, name?: string): void {
     const worldName = "name" in world && typeof world.name === "string" ? world.name : "world";
     this._router.register(world, name ?? worldName);
+  }
+
+  /** Expose this node to a hub. Invalid/non-ws(s) URLs throw; connection failures retry until close(). */
+  public join(url: string): Link {
+    validateLinkUrl(url);
+    const link = new Link(this._router, this._token, { url, role: "join" });
+    this._links.add(link);
+    return link;
+  }
+
+  /** Mount a remote node. Invalid/non-ws(s) URLs throw; connection failures retry until close(). */
+  public mount(url: string): Link {
+    validateLinkUrl(url);
+    const link = new Link(this._router, this._token, { url, role: "mount" });
+    this._links.add(link);
+    return link;
   }
 
   private async _handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -365,6 +398,13 @@ export class VecsMcpServer {
   }
 }
 
+function validateLinkUrl(value: string): void {
+  const url = new URL(value);
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+    throw new Error("Link URL must use ws: or wss:");
+  }
+}
+
 function git(...args: string[]): string | null {
   try {
     return (
@@ -402,7 +442,9 @@ function packageVersion(): string {
 const target = z
   .string()
   .optional()
-  .describe("Full node/world target path; omit only when exactly one target exists.");
+  .describe(
+    "Full node/world or node/world/connectionId target path; omit only when exactly one target exists."
+  );
 const entity = z.union([z.number().int().positive(), z.string()]);
 const tools = {
   vecs_watch: {
@@ -432,7 +474,7 @@ const tools = {
   },
   vecs_targets: {
     description:
-      "List this node's process/git metadata and world targets with entity, component and system counts. No parameters.",
+      "List the cached aggregate of local and linked world/client targets with originating process/git metadata, via node IDs, world counts and client connection metadata. No parameters; no remote requests.",
     schema: {},
   },
   vecs_components: {
