@@ -46,6 +46,14 @@ three-segment path to any world tool. A server world and its client count as two
 targets, so omit `target` only when exactly one target exists. Errors include the
 client connection segment in `hops` after the node name.
 
+Client announcements and disconnects also refresh linked nodes' cached target
+tables immediately through per-connection component hooks, with no tick polling.
+Use the path advertised by the hub: a hub directly mounting `node` exposes
+`node/main/connection-id`; another node mounting that hub sees
+`hub/node/main/connection-id`. Tool calls follow the same path, and error `hops`
+preserve each traversed node followed by the client connection segment. See
+[nodes and links](./topology.md) for cascade addressing.
+
 ## Execution and replication
 
 The RPC handler schedules a `setTimeout(..., 0)` macrotask after the current

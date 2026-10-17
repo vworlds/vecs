@@ -1,7 +1,7 @@
 import type { World } from "@vworlds/vecs";
 import { BRIDGE_ANNOUNCE_RPC_ID, BRIDGE_CALL_RPC_ID } from "@vworlds/vecs-protocol";
 import type { ServerWorld } from "@vworlds/vecs-server";
-import type { BridgeRequest, BridgeResponse } from "../bridge/router.js";
+import { BridgeError, type BridgeRequest, type BridgeResponse } from "../bridge/router.js";
 
 // The node entry works without the optional server peer when only plain worlds are used.
 const server = await import("@vworlds/vecs-server").catch((error: unknown) => {
@@ -14,19 +14,12 @@ const server = await import("@vworlds/vecs-server").catch((error: unknown) => {
 /** @internal Local-only capability tag; connection entity destruction removes the target. */
 export class BridgeClient {}
 
-/** @internal Preserve an envelope's error while the router adds its own hop. */
-export class TunnelError extends Error {
-  public constructor(public readonly detail: Extract<BridgeResponse, { error: unknown }>["error"]) {
-    super(detail.message);
-  }
-}
-
-/** @internal Install only on real ServerWorld instances; plain worlds gain no hooks or tags. */
-export function registerTunnel(world: World): ServerWorld | undefined {
+/** @internal Install per-connection topology hooks only on actual ServerWorld instances. */
+export function registerTunnel(world: World, changed: () => void): ServerWorld | undefined {
   if (!server || !(world instanceof server.ServerWorld)) {
     return undefined;
   }
-  world.component(BridgeClient);
+  world.component(BridgeClient).on("add", changed).on("remove", changed);
   world.handleRpc(BRIDGE_ANNOUNCE_RPC_ID, (_params, _request, ctx) => {
     ctx.caller.add(BridgeClient);
   });
@@ -56,14 +49,14 @@ export async function dispatchClient(
       BridgeResponse,
     ];
     if ("error" in response) {
-      throw new TunnelError({ ...response.error, hops: [...response.error.hops, segment] });
+      throw new BridgeError({ ...response.error, hops: [...response.error.hops, segment] });
     }
     return response.result;
   } catch (error) {
-    if (error instanceof TunnelError) {
+    if (error instanceof BridgeError) {
       throw error;
     }
-    throw new TunnelError({
+    throw new BridgeError({
       code: "VECS_ERROR",
       message: error instanceof Error ? error.message : String(error),
       hops: [segment],

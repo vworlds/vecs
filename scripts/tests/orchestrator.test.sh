@@ -66,6 +66,8 @@ cat > "$TEST_DIR/pr-query-fixture.json" << 'EOF'
 EOF
 query_fixture_lines="$(jq -r "$PR_LINES" "$TEST_DIR/pr-query-fixture.json")"
 check grep -qx $'O\t42\t42-work\thead-sha\tMERGEABLE\tSUCCESS' <<< "$query_fixture_lines"
+pack_fixture_lines="$(jq '.data.repository.pullRequests.nodes[0].headRefName = "pack/integration"' "$TEST_DIR/pr-query-fixture.json" | jq -r "$PR_LINES")"
+check grep -qx $'O\t42\tpack/integration\thead-sha\tMERGEABLE\tSUCCESS' <<< "$pack_fixture_lines"
 : > "$TEST_DIR/graphql-events"
 report_graphql_error 'Expected NAME, actual: (none)' > "$TEST_DIR/graphql-events"
 report_graphql_error 'Expected NAME, actual: (none)' >> "$TEST_DIR/graphql-events" || true
@@ -263,6 +265,94 @@ gh() {
   esac
 }
 printf 'placeholder task\n' > "$TEST_DIR/task.md"
+# Exercise open-task's issue-to-PR handoff with offline board fakes. Seed the issue with owner
+# review Progress; retain updates per card so the assertions cover both the issue and new PR.
+python3 - "$ROOT/scripts/orchestrator/open-task.sh" "$TEST_DIR/open-task-offline.sh" "$ROOT" << 'PY'
+import pathlib
+import sys
+
+source, target, root = map(pathlib.Path, sys.argv[1:])
+text = source.read_text()
+def replace_once(pattern, replacement):
+    global text
+    if text.count(pattern) != 1:
+        raise SystemExit(f"open-task.sh changed: {pattern} not found")
+    text = text.replace(pattern, replacement)
+
+
+replace_once(
+    '. "$(dirname "$0")/../lib/common.sh"',
+    f'. "{root}/scripts/lib/common.sh"',
+)
+replace_once(
+    '. "$(dirname "$0")/../lib/board.sh"',
+    f'. "{root}/scripts/lib/board.sh"\n'
+    'board_enabled() { return 0; }\n'
+    'board_load_tracks() { :; }\n'
+    'board_require_ours() { :; }\n'
+    'board_blockers() { :; }\n'
+    'board_where() { printf "Approved\\n"; }\n'
+    'board_move() { :; }\n'
+    'board_turn() { :; }\n'
+    'board_beside() { :; }\n'
+    'board_field_get() { :; }\n'
+    'board_model() { :; }\n'
+    'board_estimate() { :; }\n'
+    'board_progress() {\n'
+    '  local ref="$1" arg state="" round=""\n'
+    '  shift\n'
+    '  for arg in "$@"; do case "$arg" in state=*) state="${arg#state=}" ;; round=*) round="${arg#round=}" ;; esac; done\n'
+    '  if [ "$state" = - ]; then : > "$TEST_DIR/progress-$ref";\n'
+    '  else printf "%s\\t%s\\n" "$state" "$round" > "$TEST_DIR/progress-$ref"; fi\n'
+    '}\n',
+)
+replace_once(
+    '"$(dirname "$0")/../agent/check-markdown.sh" "$body"',
+    f'"{root}/scripts/agent/check-markdown.sh" "$body"',
+)
+target.write_text(text)
+PY
+printf 'owner-review\t-\n' > "$TEST_DIR/progress-339"
+gh() {
+  case "$*" in
+    *'issues/339 --jq'*) printf 'open\tfalse\tOffline task\n' ;;
+    *'pr list '*) : ;;
+    *'issues?state=all'*) printf '100\n' ;;
+    *'api graphql'*) printf '100\n100\n' ;;
+    *'/issues/101/labels'*) : ;;
+    *'pr create '*) printf 'https://github.com/vworlds/vecs/pull/101\n' ;;
+    *)
+      printf 'unexpected open-task gh request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+git() {
+  case "$*" in
+    'rev-parse --show-toplevel') printf '%s\n' "$ROOT" ;;
+    *'ls-remote '*) return 2 ;;
+    *'commit-tree '*) printf 'fixture-placeholder-sha\n' ;;
+    *'fetch '* | *' push '*) : ;;
+    *) command git "$@" ;;
+  esac
+}
+export -f gh git
+VECS_BOARD=on VECS_TRACK=mcp ROOT="$ROOT" TEST_DIR="$TEST_DIR" bash "$TEST_DIR/open-task-offline.sh" \
+  339 "$TEST_DIR/task.md" --slug offline-test > "$TEST_DIR/open-behavior"
+check test "$(cat "$TEST_DIR/progress-339")" = ''
+check test "$(cat "$TEST_DIR/progress-101")" = $'working\t1'
+unset -f gh git
+gh() {
+  case "$*" in
+    *'issues?state=open&per_page=100'*) jq -nc '[{number:339,labels:[{name:"track:mcp"}]},{number:340,pull_request:{},labels:[{name:"track:mcp"}]}]' ;;
+    *'/issues/339'*) printf 'open\tfalse\tVecs MCP\n' ;;
+    *)
+      printf 'unexpected gh request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+export -f gh
 if VECS_TRACK='' VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/no-track" \
   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT" \
   bash scripts/orchestrator/open-task.sh 339 "$TEST_DIR/task.md" > "$TEST_DIR/open-refusal" 2>&1; then
@@ -315,17 +405,66 @@ VECS_TRACK=mcp VECS_BASE=dev VECS_BOARD=off ROOT="$ROOT" \
 check grep -q -- '--base integration' "$TEST_DIR/create-args"
 check grep -q 'base `integration`' "$TEST_DIR/create-body"
 check grep -q 'track:mcp' "$TEST_DIR/label-call"
+check grep -q -- '--draft' "$TEST_DIR/create-args"
 unset -f gh git
+# Review outcomes run against offline board functions and a fail-closed gh fake.
+python3 - "$ROOT" "$TEST_DIR/review-offline.sh" << 'PY'
+import pathlib
+import sys
+
+root, target = map(pathlib.Path, sys.argv[1:])
+text = (root / "scripts/orchestrator/review.sh").read_text()
+text = text.replace('. "$(dirname "$0")/../lib/common.sh"', f'. "{root}/scripts/lib/common.sh"')
+text = text.replace('. "$(dirname "$0")/../lib/board.sh"', '''
+board_move() { :; }
+board_turn() { :; }
+board_progress() { :; }
+''')
+text = text.replace('"$(dirname "$0")/../agent/check-markdown.sh"', f'"{root}/scripts/agent/check-markdown.sh"')
+target.write_text(text)
+PY
+printf '[orchestrator] Offline review outcome\n' > "$TEST_DIR/review.md"
+gh() {
+  case "$*" in
+    *'api -X POST '*'/comments '*) printf 'https://example/comment\n' ;;
+    *'api repos/vworlds/vecs/issues/42 '*) printf '%s\n' "$REVIEW_IS_PR" ;;
+    'pr ready '*) printf '%s\n' "$*" >> "$TEST_DIR/ready-calls" ;;
+    *)
+      printf 'unexpected review gh request: %s\n' "$*" >&2
+      return 1
+      ;;
+  esac
+}
+export -f gh
+for kind in true false; do
+  for outcome in changes owner approve answer ask; do
+    : > "$TEST_DIR/ready-calls"
+    REVIEW_IS_PR="$kind" bash "$TEST_DIR/review-offline.sh" 42 "$outcome" "$TEST_DIR/review.md" > "$TEST_DIR/review-output"
+    expected=''
+    if [ "$kind:$outcome" = true:owner ]; then expected='pr ready 42 -R vworlds/vecs'; fi
+    if [ "$kind:$outcome" = true:changes ]; then expected='pr ready --undo 42 -R vworlds/vecs'; fi
+    check test "$(cat "$TEST_DIR/ready-calls")" = "$expected"
+  done
+done
 gh() {
   case "$*" in
     *'issues?state=open&per_page=100'*) jq -nc '[{number:360,pull_request:{},labels:[{name:"track:mcp"}]}]' ;;
     *'pr view 360 '*)
       if [ "${MERGE_CASE:-merged}" = conflict ]; then
         printf 'OPEN\t360-track-task\tfalse\tCONFLICTING\tTrack task\tintegration\n'
+      elif [ "${MERGE_CASE:-merged}" = merge-open ]; then
+        printf 'OPEN\tpack/idle-keepalive\tfalse\tMERGEABLE\tPack integration\tdev\n'
+      elif [ "${MERGE_CASE:-merged}" = squash-open ]; then
+        printf 'OPEN\t360-track-task\tfalse\tMERGEABLE\tTrack task\tdev\n'
+      elif [ "${MERGE_CASE:-merged}" = pack-merged ]; then
+        printf 'MERGED\tpack/idle-keepalive\tfalse\tMERGEABLE\tPack integration\tintegration\n'
       else
         printf 'MERGED\t360-track-task\tfalse\tMERGEABLE\tTrack task\tintegration\n'
       fi
       ;;
+    *'pr ready 360 '*) : ;;
+    *'pr merge 360 '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-gh-args" ;;
+    *'api -X DELETE '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-deletes" ;;
     *'api graphql'*) : ;;
     *'pulls/360'*) printf '0123456789abcdef0123456789abcdef01234567\n' ;;
     *'api -X DELETE '*) : ;;
@@ -339,7 +478,8 @@ git() {
   case "$*" in
     'rev-parse --path-format=absolute --git-common-dir') printf '%s/.git\n' "$ROOT" ;;
     'rev-parse --abbrev-ref HEAD') printf 'dev\n' ;;
-    'status --porcelain --untracked-files=no') : ;;
+    rev-parse\ origin/*) printf '0123456789abcdef0123456789abcdef01234567\n' ;;
+    'status --porcelain --untracked-files=no') [[ "${MERGE_CASE:-}" == *-open ]] && printf ' M mocked\n' ;;
     *' fetch -q '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-fetches" ;;
     *' update-ref '*) : ;;
     *' merge '*) printf '%s\n' "$*" >> "$TEST_DIR/merge-git-merges" ;;
@@ -364,6 +504,33 @@ check grep -q '+integration:refs/remotes/origin/integration' "$TEST_DIR/merge-fe
 check test "$(grep -c '+dev:refs/remotes/origin/dev' "$TEST_DIR/merge-fetches" || true)" = 0
 check test ! -s "$TEST_DIR/merge-git-merges"
 check grep -q 'main checkout left alone (PR base is integration)' "$TEST_DIR/merge-success"
+: > "$TEST_DIR/merge-deletes"
+: > "$TEST_DIR/merge-gh-args"
+VECS_TRACK=mcp VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/merge-commit-state" MERGE_CASE=merge-open ROOT="$ROOT" \
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT" \
+  bash scripts/orchestrator/merge-task.sh 360 --merge-commit > "$TEST_DIR/merge-commit" 2>&1
+check grep -q -- '--merge ' "$TEST_DIR/merge-gh-args"
+check grep -q 'kept integration branch pack/idle-keepalive' "$TEST_DIR/merge-commit"
+check test ! -s "$TEST_DIR/merge-deletes"
+: > "$TEST_DIR/merge-gh-args"
+: > "$TEST_DIR/merge-deletes"
+VECS_TRACK=mcp VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/squash-state" MERGE_CASE=squash-open ROOT="$ROOT" \
+  GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$ROOT" \
+  bash scripts/orchestrator/merge-task.sh 360 > "$TEST_DIR/squash-default" 2>&1
+check grep -q -- '--squash ' "$TEST_DIR/merge-gh-args"
+check grep -q 'deleted branch 360-track-task' "$TEST_DIR/squash-default"
+: > "$TEST_DIR/merge-deletes"
+: > "$TEST_DIR/merge-gh-args"
+for attempt in 1 2; do
+  VECS_TRACK=mcp VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/pack-merged-state" MERGE_CASE=pack-merged ROOT="$ROOT" \
+    bash scripts/orchestrator/merge-task.sh 360 > "$TEST_DIR/pack-merged" 2>&1
+done
+check grep -q 'kept integration branch pack/idle-keepalive' "$TEST_DIR/pack-merged"
+check test ! -s "$TEST_DIR/merge-deletes"
+check test ! -s "$TEST_DIR/merge-gh-args"
+VECS_TRACK=mcp VECS_BOARD=off XDG_STATE_HOME="$TEST_DIR/pack-merged-state" MERGE_CASE=pack-merged ROOT="$ROOT" \
+  bash scripts/orchestrator/merge-task.sh 360 --delete-branch > "$TEST_DIR/pack-delete" 2>&1
+check grep -q 'deleted branch pack/idle-keepalive' "$TEST_DIR/pack-delete"
 unset -f gh git
 export VECS_TRACK=mcp
 unset -f gh
@@ -490,6 +657,17 @@ check grep -q 'COMMENT #42 by worker: \[worker\] READY FOR REVIEW' "$TEST_DIR/bl
 check test ! -s "$TEST_DIR/blind-graphql"
 
 # A missing task PR needs confirmation; even a partial GraphQL answer can be valid JSON.
+# Copy the watcher into a fixture tree: all merge follow-up is a local stub, never a real merge.
+mkdir -p "$TEST_DIR/watcher/scripts/orchestrator"
+cp scripts/orchestrator/watch-prs.sh "$TEST_DIR/watcher/scripts/orchestrator/"
+ln -s "$ROOT/scripts/lib" "$TEST_DIR/watcher/scripts/lib"
+cat > "$TEST_DIR/watcher/scripts/orchestrator/merge-task.sh" << 'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TEST_DIR/owner-merge-calls"
+[ "${OWNER_MERGE_EXIT:-0}" = 0 ] || printf '%s\n' "${OWNER_MERGE_ERROR:-offline follow-up error}" >&2
+exit "${OWNER_MERGE_EXIT:-0}"
+EOF
+chmod +x "$TEST_DIR/watcher/scripts/orchestrator/merge-task.sh"
 gh() {
   printf '%s\n' "$*" >> "$TEST_DIR/missing-calls"
   case "$*" in
@@ -497,7 +675,7 @@ gh() {
       printf 'HTTP/2.0 200 OK\n\n'
       cat "$TEST_DIR/pr-answer.json"
       ;;
-    *'issues?state=open&per_page=100'*) printf '[]\n' ;;
+    *'issues?state=open&per_page=100'*) printf '%s\n' "${MISSING_TRACKS:-[]}" ;;
     'api repos/vworlds/vecs/pulls/42 '*)
       [ "$MISSING_STATE" != failure ] || return 1
       jq -r "$4" "$TEST_DIR/pr-state.json"
@@ -522,8 +700,9 @@ for scenario in OPEN MERGED CLOSED failure unreadable errors; do
     mv "$TEST_DIR/partial.json" "$TEST_DIR/pr-answer.json"
   fi
   : > "$TEST_DIR/missing-calls"
+  : > "$TEST_DIR/owner-merge-calls"
   XDG_STATE_HOME="${missing_state%/vecs-watch}" VECS_BOARD=off MAX_MINUTES=0 \
-    bash scripts/orchestrator/watch-prs.sh > "$TEST_DIR/missing-events"
+    bash "$TEST_DIR/watcher/scripts/orchestrator/watch-prs.sh" > "$TEST_DIR/missing-events"
   check test "$(grep -c 'api graphql' "$TEST_DIR/missing-calls")" = 1
   if [ "$scenario" = errors ]; then
     check test "$(grep -c '/pulls/42' "$TEST_DIR/missing-calls" || true)" = 0
@@ -532,7 +711,13 @@ for scenario in OPEN MERGED CLOSED failure unreadable errors; do
   fi
   case "$scenario" in
     MERGED | CLOSED)
-      check grep -qx "PR #42 is now $scenario" "$TEST_DIR/missing-events"
+      if [ "$scenario" = MERGED ]; then
+        check grep -qx 'PR #42 is now MERGED: finished owner-merge follow-up' "$TEST_DIR/missing-events"
+        check test "$(cat "$TEST_DIR/owner-merge-calls")" = 42
+      else
+        check grep -qx "PR #42 is now $scenario" "$TEST_DIR/missing-events"
+        check test ! -s "$TEST_DIR/owner-merge-calls"
+      fi
       check test ! -e "$missing_state/open-42"
       check test -e "$missing_state/.recheck-next"
       ;;
@@ -549,7 +734,73 @@ for scenario in OPEN MERGED CLOSED failure unreadable errors; do
   esac
 done
 
+# Owner follow-up runs once, ignores our merge marker, throttles retries, and respects tracks.
+date() { if [ "${1:-}" = +%s ]; then printf '%s\n' "$WATCH_TEST_NOW"; else command date "$@"; fi; }
+export -f date
+watch_now="$(command date +%s)"
+export MISSING_STATE=MERGED
+printf '{"data":{"repository":{"pullRequests":{"nodes":[]}}}}\n' > "$TEST_DIR/pr-answer.json"
+printf '{"state":"closed","merged":true}\n' > "$TEST_DIR/pr-state.json"
+for scenario in owner ours failed track-own track-other main-track; do
+  home="$TEST_DIR/owner-$scenario"
+  track='' labels='[]' watch_dir=vecs-watch
+  case "$scenario" in
+    track-own)
+      track=mcp
+      labels='[{"number":42,"pull_request":{},"labels":[{"name":"track:mcp"}]}]'
+      ;;
+    track-other)
+      track=mcp
+      labels='[{"number":42,"pull_request":{},"labels":[{"name":"track:other"}]}]'
+      ;;
+    main-track) labels='[{"number":42,"pull_request":{},"labels":[{"name":"track:mcp"}]}]' ;;
+  esac
+  [ -z "$track" ] || watch_dir="vecs-watch-$track"
+  marker="$home/$watch_dir"
+  mkdir -p "$marker"
+  touch "$marker/open-42"
+  [ "$scenario" != ours ] || touch "$marker/merged-42"
+  : > "$TEST_DIR/owner-merge-calls"
+  status=0
+  [ "$scenario" != failed ] || status=1
+  for turn in 1 2; do
+    WATCH_TEST_NOW="$((watch_now + (turn - 1) * 599))" XDG_STATE_HOME="$home" VECS_TRACK="$track" MISSING_TRACKS="$labels" OWNER_MERGE_EXIT="$status" VECS_BOARD=off MAX_MINUTES=0 \
+      bash "$TEST_DIR/watcher/scripts/orchestrator/watch-prs.sh" >> "$TEST_DIR/owner-$scenario-events"
+  done
+  case "$scenario" in
+    owner | track-own) check test "$(cat "$TEST_DIR/owner-merge-calls")" = 42 ;;
+    failed)
+      check test "$(wc -l < "$TEST_DIR/owner-merge-calls")" = 1
+      check test -e "$marker/open-42"
+      check test "$(wc -l < "$TEST_DIR/owner-$scenario-events")" = 1
+      check grep -q 'failed: offline follow-up error; retry in 10 minutes' "$TEST_DIR/owner-$scenario-events"
+      for elapsed in 600 1200; do
+        WATCH_TEST_NOW="$((watch_now + elapsed))" OWNER_MERGE_EXIT=1 XDG_STATE_HOME="$home" VECS_BOARD=off MAX_MINUTES=0 \
+          bash "$TEST_DIR/watcher/scripts/orchestrator/watch-prs.sh" >> "$TEST_DIR/owner-$scenario-events"
+      done
+      check test "$(wc -l < "$TEST_DIR/owner-merge-calls")" = 3
+      check test "$(wc -l < "$TEST_DIR/owner-$scenario-events")" = 1
+      WATCH_TEST_NOW="$((watch_now + 1800))" OWNER_MERGE_EXIT=1 OWNER_MERGE_ERROR='changed offline error' XDG_STATE_HOME="$home" VECS_BOARD=off MAX_MINUTES=0 \
+        bash "$TEST_DIR/watcher/scripts/orchestrator/watch-prs.sh" >> "$TEST_DIR/owner-$scenario-events"
+      check test "$(wc -l < "$TEST_DIR/owner-$scenario-events")" = 2
+      check grep -q 'failed: changed offline error; retry in 10 minutes' "$TEST_DIR/owner-$scenario-events"
+      WATCH_TEST_NOW="$((watch_now + 2400))" XDG_STATE_HOME="$home" VECS_BOARD=off MAX_MINUTES=0 \
+        bash "$TEST_DIR/watcher/scripts/orchestrator/watch-prs.sh" >> "$TEST_DIR/owner-$scenario-events"
+      check test ! -e "$marker/open-42"
+      check test ! -e "$marker/merge-attempt-42"
+      check test ! -e "$marker/merge-error-42"
+      check test "$(wc -l < "$TEST_DIR/owner-$scenario-events")" = 3
+      ;;
+    *)
+      check test ! -s "$TEST_DIR/owner-merge-calls"
+      check test ! -s "$TEST_DIR/owner-$scenario-events"
+      ;;
+  esac
+done
+unset -f date
+
 # Conflicts share the existing query, fire once per head, and ignore UNKNOWN/mergeable heads.
+: > "$TEST_DIR/missing-calls"
 for turn in 'UNKNOWN sha1' 'CONFLICTING sha1' 'CONFLICTING sha1' 'CONFLICTING sha2' 'MERGEABLE sha3'; do
   read -r mergeable head <<< "$turn"
   jq -nc --arg mergeable "$mergeable" --arg head "$head" '{data:{repository:{pullRequests:{nodes:[
@@ -565,7 +816,7 @@ for turn in 'UNKNOWN sha1' 'CONFLICTING sha1' 'CONFLICTING sha1' 'CONFLICTING sh
   esac
 done
 check test "$(grep -cx 'CONFLICT #42 (42-work): its worker must merge origin/dev and push' "$TEST_DIR/conflict-events")" = 2
-check test "$(grep -c 'api graphql' "$TEST_DIR/missing-calls")" = 6
+check test "$(grep -c 'api graphql' "$TEST_DIR/missing-calls")" = 5
 check test "$(grep -c '/pulls/42' "$TEST_DIR/missing-calls" || true)" = 0
 check grep -q 'mergeable' "$TEST_DIR/missing-calls"
 

@@ -113,7 +113,7 @@ it("lists only announced clients, executes node tools through the tunnel, and re
   };
   await expect.poll(() => clientTargets(server).length).toBe(2);
   const listing = await call("vecs_targets");
-  expect(listing.data.targets).toEqual([
+  expect(listing.data.targets).toMatchObject([
     expect.objectContaining({ path: "node/main", kind: "world" }),
     {
       path: "node/main/browser",
@@ -164,6 +164,78 @@ it("lists only announced clients, executes node tools through the tunnel, and re
     error: true,
     data: { message: expect.stringContaining("Unknown target") },
   });
+});
+
+it("advertises client lifecycle through a mounting hub and routes client tools and error hops through a cascade", async () => {
+  const server = new ServerWorld();
+  cleanup.push(() => server.dispose());
+  const node = new VecsMcpServer({ name: "node" });
+  const hub = new VecsMcpServer({ name: "hub" });
+  const outer = new VecsMcpServer({ name: "outer" });
+  cleanup.push(
+    () => node.close(),
+    () => hub.close(),
+    () => outer.close()
+  );
+  node.registerWorld(server);
+  const nodePort = await node.listen(0);
+  const hubPort = await hub.listen(0);
+  const outerPort = await outer.listen(0);
+  hub.mount(`ws://127.0.0.1:${nodePort}/link`);
+  outer.mount(`ws://127.0.0.1:${hubPort}/link`);
+  const connect = async (port: number) => {
+    const sdk = new Client({ name: "tunnel-hub-test", version: "1" });
+    cleanup.push(() => sdk.close());
+    await sdk.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
+    return async (name: string, args = {}) => {
+      const result = await sdk.callTool({ name, arguments: args });
+      return {
+        error: result.isError === true,
+        data: JSON.parse((result.content as { text: string }[])[0].text),
+      };
+    };
+  };
+  const atHub = await connect(hubPort);
+  const atOuter = await connect(outerPort);
+  const paths = async (call: typeof atHub) =>
+    (await call("vecs_targets")).data.targets.map((entry: { path: string }) => entry.path);
+  await expect.poll(() => paths(atHub)).toEqual(["node/main"]);
+  await expect.poll(() => paths(atOuter)).toEqual(["hub/node/main"]);
+  // Establish a client after link tables have settled. No world/peer changes follow.
+  const client = pair(server, "browser", false);
+  drive(server, [client]);
+  expect(await paths(atHub)).toEqual(["node/main"]);
+  installBridge(client);
+  await expect.poll(() => paths(atHub)).toEqual(["node/main", "node/main/browser"]);
+  await expect.poll(() => paths(atOuter)).toEqual(["hub/node/main", "hub/node/main/browser"]);
+  const entries = (await atOuter("vecs_targets")).data.targets;
+  expect(entries[1]).toMatchObject({
+    path: "hub/node/main/browser",
+    kind: "client",
+    client: { id: "browser", eid: expect.any(Number) },
+    node: { name: "node" },
+  });
+  expect(
+    await atHub("vecs_entity", { target: "node/main/browser", entity: "sample" })
+  ).toMatchObject({ error: false, data: { components: { Position: { x: 1 } } } });
+  const target = "hub/node/main/browser";
+  expect(
+    await atOuter("vecs_mutate", {
+      target,
+      ops: [{ set: true, entity: "sample", component: "Position", value: { x: 42 } }],
+    })
+  ).toMatchObject({ error: false, data: { applied: [{ eid: expect.any(Number) }] } });
+  expect(await atOuter("vecs_entity", { target, entity: "sample" })).toMatchObject({
+    error: false,
+    data: { components: { Position: { x: 42 } } },
+  });
+  expect(await atOuter("vecs_entity", { target, entity: "missing" })).toMatchObject({
+    error: true,
+    data: { code: "VECS_ERROR", hops: ["outer", "hub", "node", "browser"] },
+  });
+  client.close();
+  await expect.poll(() => paths(atHub)).toEqual(["node/main"]);
+  await expect.poll(() => paths(atOuter)).toEqual(["hub/node/main"]);
 });
 
 it("enforces node readOnly before forwarding a mutation", async () => {

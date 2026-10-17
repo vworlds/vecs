@@ -42,9 +42,13 @@ board_meta() {
   printf '%s\n' "$_BOARD_META"
 }
 
+# GitHub answers whole number fields as floats (5.0); keep scale spelling, including 0 and 0.5.
+BOARD_JQ_POINTS='def points: if . == floor then floor | tostring else tostring end;'
+
 # board_items [filter]: every card in board order (top to bottom), as TSV:
-#   itemId, column, kind (PR, ISSUE or DRAFT), repo, number, state, title, assignees
-# Assignees are logins joined by commas, or "-". <filter> is a project filter such as
+#   itemId, column, kind (PR, ISSUE or DRAFT), repo, number, state, title, assignees, estimate, model
+# Empty fields use "-" so Bash tab splitting cannot shift columns. Assignees are comma-joined.
+# <filter> is a project filter such as
 # "-status:Done": whoever doesn't need the Done column leaves it out, because it only grows and
 # every 100 cards cost another request.
 board_items() {
@@ -57,6 +61,10 @@ board_items() {
           nodes { id
             status: fieldValueByName(name: "Status") {
               ... on ProjectV2ItemFieldSingleSelectValue { name } }
+            estimate: fieldValueByName(name: "Estimate") {
+              ... on ProjectV2ItemFieldNumberValue { number } }
+            model: fieldValueByName(name: "Model") {
+              ... on ProjectV2ItemFieldSingleSelectValue { name } }
             content { __typename
               ... on DraftIssue { title }
               ... on Issue { number title state repository { nameWithOwner }
@@ -64,11 +72,12 @@ board_items() {
               ... on PullRequest { number title state repository { nameWithOwner }
                 assignees(first: 10) { nodes { login } } } } } } } } }')" \
       || return 1
-    jq -r '.data.node.items.nodes[] | [ .id, (.status.name // "-"),
+    jq -r "$BOARD_JQ_POINTS"' .data.node.items.nodes[] | [ .id, (.status.name // "-"),
         ({"PullRequest": "PR", "Issue": "ISSUE", "DraftIssue": "DRAFT"}[.content.__typename // ""] // "?"),
         (.content.repository.nameWithOwner // "-"), ((.content.number // "-") | tostring),
-        (.content.state // "-"), ((.content.title // "") | gsub("[\t\r\n]"; " ")),
-        ([.content.assignees.nodes[]?.login] | if length == 0 then "-" else join(",") end) ] | @tsv' <<< "$page"
+        (.content.state // "-"), ((.content.title // "") | gsub("[\t\r\n]"; " ") | if test("^ *$") then "-" else . end),
+        ([.content.assignees.nodes[]?.login] | if length == 0 then "-" else join(",") end),
+        (.estimate.number | if . == null then "-" else points end), (.model.name // "-") ] | @tsv' <<< "$page"
     [ "$(jq -r '.data.node.items.pageInfo.hasNextPage' <<< "$page")" = true ] || break
     cursor="$(jq -r '.data.node.items.pageInfo.endCursor' <<< "$page")"
   done
@@ -420,6 +429,142 @@ board_progress() {
   log "board: $ref progress ${new:-cleared}"
 }
 board_progress_clear() { board_progress "$1" state=- round=- ci=ok; }
+
+# Action-only Estimate/Model access. Polling uses board_items, never these lookups or mutations.
+# board_field <name>: field id, with single-select options cached for this shell.
+board_field() {
+  [ -n "${_BOARD_FIELDS[$1]:-}" ] || _board_field_load "$1" || return 1
+  printf '%s\n' "${_BOARD_FIELDS[$1]}"
+}
+board_field_option() {
+  board_field "$1" > /dev/null || return 1
+  local key="$1/$2"
+  [ -n "${_BOARD_OPTIONS[$key]:-}" ] || {
+    log "board: the $1 field has no option '$2'"
+    return 1
+  }
+  printf '%s\n' "${_BOARD_OPTIONS[$key]}"
+}
+declare -A _BOARD_FIELDS=() _BOARD_OPTIONS=()
+_board_field_load() {
+  local rows id option label
+  rows="$(_board_gql -f name="$1" -f query='
+    query($p: ID!, $name: String!) { node(id: $p) { ... on ProjectV2 { field(name: $name) {
+      ... on ProjectV2Field { id }
+      ... on ProjectV2SingleSelectField { id options { id name } } } } } }' \
+    --jq '.data.node.field | select(. != null) | .id, (.options[]? | [.id, .name] | @tsv)')" || return 1
+  id="$(head -1 <<< "$rows")"
+  [ -n "$id" ] || {
+    log "board: the project has no $1 field"
+    return 1
+  }
+  _BOARD_FIELDS[$1]="$id"
+  while IFS=$'\t' read -r option label; do
+    [ -z "${label:-}" ] || _BOARD_OPTIONS["$1/$label"]="$option"
+  done < <(tail -n +2 <<< "$rows")
+}
+# board_field_get <ref> <field>: text, normalized points, or option name; empty when unset.
+board_field_get() {
+  board_enabled || return 0
+  local item
+  item="$(board_item "$1")" && [ -n "$item" ] || return 1
+  _board_gql -f i="$item" -f name="$2" -f query='
+    query($i: ID!, $name: String!) { node(id: $i) { ... on ProjectV2Item { fieldValueByName(name: $name) {
+      ... on ProjectV2ItemFieldTextValue { text }
+      ... on ProjectV2ItemFieldNumberValue { number }
+      ... on ProjectV2ItemFieldSingleSelectValue { name } } } } }' \
+    --jq "$BOARD_JQ_POINTS"' .data.node.fieldValueByName
+      | if . == null then "" elif .number != null then (.number | points) else (.text // .name // "") end'
+}
+# _board_field_write <ref> <Estimate|Model> <points|option id|empty to clear>
+_board_field_write() {
+  local item field
+  item="$(board_item "$1")" && [ -n "$item" ] || return 1
+  field="$(board_field "$2")" || return 1
+  if [ -z "$3" ]; then
+    _board_gql -f i="$item" -f f="$field" -f query='
+      mutation($p: ID!, $i: ID!, $f: ID!) { clearProjectV2ItemFieldValue(input: {
+        projectId: $p, itemId: $i, fieldId: $f}) { projectV2Item { id } } }' > /dev/null
+  else
+    # gh -F infers integers, not floats: a JSON input preserves the half-point number as well.
+    local input result=0 query='mutation($p: ID!, $i: ID!, $f: ID!, $value: ProjectV2FieldValue!) {
+      updateProjectV2ItemFieldValue(input: {projectId: $p, itemId: $i, fieldId: $f, value: $value}) {
+        projectV2Item { id } } }'
+    input="$(mktemp)" || return 1
+    jq -nc --arg query "$query" --arg p "$BOARD_PROJECT" --arg i "$item" --arg f "$field" \
+      --arg field "$2" --arg v "$3" '{query:$query,variables:{p:$p,i:$i,f:$f,
+        value:(if $field == "Estimate" then {number:($v|tonumber)} else {singleSelectOptionId:$v} end)}}' > "$input"
+    retry 3 gh api graphql --input "$input" > /dev/null || result=$?
+    rm -f "$input"
+    return "$result"
+  fi
+}
+
+ESTIMATE_POINTS="0 0.5 1 2 3 5 8 13 20 40 100 999"
+# board_estimate <ref> <points|none>: validate even when offline; no API for invalid points.
+board_estimate() {
+  case " $ESTIMATE_POINTS none " in
+    *" $2 "*) ;;
+    *)
+      log "board: an estimate is one of $ESTIMATE_POINTS, or none"
+      return 2
+      ;;
+  esac
+  board_enabled || return 0
+  if [ "$2" = none ]; then _board_field_write "$1" Estimate ""; else
+    _board_field_write "$1" Estimate "$2"
+  fi || return 1
+  log "board: $1 estimate ${2/none/cleared}"
+}
+
+# Model resolution is shared by open-task and worker start/switch. Unknown explicit ids map to other.
+MODELS_FILE="${VECS_MODELS:-$(dirname "${BASH_SOURCE[0]}")/../orchestrator/models.tsv}"
+model_row() {
+  awk -v f="$1" '!/^#/ && NF == 4 && $1 == f { print $1 "\t" $2 "\t" $3 "\t" $4; found=1; exit } END { exit !found }' "$MODELS_FILE"
+}
+model_family() {
+  awk -v m="$1" '!/^#/ && NF == 4 && ($1 == m || $2 == m) { print $1; found=1; exit } END { if (!found) print "other" }' "$MODELS_FILE"
+}
+model_gate_ok() {
+  local gate
+  gate="$(model_row "$1" | cut -f4)" || return 0
+  [ "$gate" != owner ] || [ "$2" = true ] || {
+    log "the $1 model needs the owner's explicit authorization: pass --owner-approved only when they gave it"
+    return 1
+  }
+}
+# model_resolve <family|id> <owner-approved>: family, id, kind (TSV), or fail before any action.
+model_resolve() {
+  local family id kind gate
+  family="$(model_family "$1")"
+  if [ "$family" = other ]; then
+    [[ "$1" =~ ^[^/[:space:]]+/[^/[:space:]]+$ ]] || {
+      log "unknown model $1: use a family or provider/id"
+      return 1
+    }
+    id="$1" kind=opencode
+  else
+    IFS=$'\t' read -r family id kind gate < <(model_row "$family")
+  fi
+  model_gate_ok "$family" "$2" || return 1
+  printf '%s\t%s\t%s\n' "$family" "$id" "$kind"
+}
+# board_model <ref> <family|none>: scripts maintain PR families; suggest-model sets issue hints.
+board_model() {
+  board_enabled || return 0
+  local option
+  if [ "$2" = none ]; then _board_field_write "$1" Model ""; else
+    option="$(board_field_option Model "$2")" || return 1
+    _board_field_write "$1" Model "$option"
+  fi || return 1
+  log "board: $1 model ${2/none/cleared}"
+}
+
+# board_blocking <issue>: open same-repository issues whose estimates may shrink on its closure.
+board_blocking() {
+  retry 3 gh api --paginate "repos/$REPO_SLUG/issues/$1/dependencies/blocking" \
+    --jq '.[] | select(.state == "open" and .repository_url == "https://api.github.com/repos/'"$REPO_SLUG"'") | .number'
+}
 
 # board_where <ref>: the column an issue's or PR's card is in; nothing if it has no card.
 board_where() {

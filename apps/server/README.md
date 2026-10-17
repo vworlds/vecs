@@ -19,6 +19,7 @@ but keep the client in sync because the demo client connects to port `3000`.
 Set `VECS_MCP_PORT` to opt into a separate loopback MCP listener for the `main`
 world. Without it, no MCP server starts and the tick loop is unchanged. See
 [MCP setup and security](../../lib/vecs-mcp/docs/getting-started.md#demo-server).
+Set `VECS_MCP_HUB=ws://127.0.0.1:4000/link` alongside `VECS_MCP_PORT` to join a hub.
 
 For browser client targets, the demo installs the bridge in Vite development
 builds or when the page URL includes `?mcp` (also `&mcp` with other parameters).

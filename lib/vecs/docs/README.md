@@ -74,3 +74,4 @@ sessions, and the client world) lives in the `@vworlds/vecs-wire`, `@vworlds/vec
   `invoke`/`listen`, and disposal.
 - [Browser client targets](../../vecs-mcp/docs/clients.md) — opt-in MCP access through
   the vecs connection, macrotask execution and replication caveats.
+- [MCP nodes and links](../../vecs-mcp/docs/topology.md) — join worlds to a hub or mount remote nodes.

@@ -67,7 +67,10 @@ npm run test
 npm run build
 ```
 
-Workspace-wide formatting uses Prettier (`npm run format` / `npm run format:check`). Repo
+Workspace-wide formatting uses Prettier (`npm run format` / `npm run format:check`). Both commands
+exclude `.worktrees/` and `.tmp/` during traversal, so unreadable worker files cannot block checks
+or releases. Run the offline regression with `node --test scripts/tests/format-worktrees.test.mjs`
+as a non-root user so directory permissions are enforced. Repo
 conventions for commits, formatting, testing, and documentation live in [`.agents/`](./.agents/README.md).
 Performance benchmarks that run against the built packages, with instructions for profiling and
 comparing two builds, live in [`bench/`](./bench/README.md).
