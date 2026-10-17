@@ -45,7 +45,7 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
 }
 
 describe("Streamable HTTP MCP", () => {
-  it("lists exactly seven tools and invokes every tool through the SDK client", async () => {
+  it("lists ten tools and invokes the original seven through the SDK client", async () => {
     const { url } = await start();
     const client = await connect(url);
     expect(client.getServerVersion()).toEqual({
@@ -56,11 +56,14 @@ describe("Streamable HTTP MCP", () => {
     expect(listing.tools.map((tool) => tool.name).sort()).toEqual([
       "vecs_components",
       "vecs_entity",
+      "vecs_events",
       "vecs_find",
       "vecs_mutate",
       "vecs_stats",
       "vecs_systems",
       "vecs_targets",
+      "vecs_unwatch",
+      "vecs_watch",
     ]);
     expect(listing.tools.every((tool) => (tool.description?.length ?? 0) > 30)).toBe(true);
     expect(await call(client, "targets")).toMatchObject({

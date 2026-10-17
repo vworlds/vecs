@@ -45,7 +45,7 @@ export interface Destination {
   targets?(): TargetEntry[];
 }
 
-/** @internal Pull-only routing; no tick hooks or live queries. */
+/** @internal Command routing; worlds install reactive hooks only for explicitly requested watches. */
 export class Router {
   public readonly destinations = new Map<string, Destination>();
   public readonly worlds = new Map<string, LocalWorld>();

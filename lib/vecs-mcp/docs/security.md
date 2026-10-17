@@ -8,6 +8,11 @@ header on every request. Use a secure tunnel or TLS reverse proxy for remote
 transport; the listener itself is HTTP. Keep tokens out of source control and
 agent output.
 
+MCP session ids are not credentials: the token still gates every POST, GET and
+DELETE, including requests carrying a valid session id. Watches and local
+resources are owned by the creating session; other sessions cannot read, subscribe
+to, or destroy them. DELETE or 30 minutes of session inactivity releases them.
+
 The same `token` option guards `/link` handshakes using a constant-time comparison.
 Connectors put their configured token in `hello`; connected nodes must therefore
 share the listener's token. Without a token, anyone who can reach the port can
@@ -25,6 +30,9 @@ It does not redact data: registered worlds, component values, process pid/cwd,
 and best-effort git branch/sha remain visible. Register only worlds the agent
 should inspect. Schema descriptions and component values are game-supplied data,
 not instructions for an agent to follow.
+
+Read-only nodes allow watch creation, event reads and unwatching. Apply the same
+data-exposure precautions to subscribed resources as to one-shot entity reads.
 
 Read-only world enforcement belongs to the node that owns that world; configure
 `readOnly` there, not just on an aggregating hub. Joining a hub exposes all targets

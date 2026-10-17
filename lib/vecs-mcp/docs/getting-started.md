@@ -29,6 +29,19 @@ the informational version is `"unknown"`; no manifest copying is required and
 version discovery never prevents import or use. This fallback is expected for
 the bundled demo.
 
+## MCP sessions
+
+Initialize once, then reuse the returned `Mcp-Session-Id` on subsequent requests;
+the MCP SDK does this automatically. Each session has its own MCP server and
+transport. POST keeps JSON responses; GET opens the notification stream used by
+[watch subscriptions](./watches.md). DELETE closes a session and releases its
+watches. Sessions also close after 30 minutes without an HTTP request; an open
+GET stream alone does not keep a session alive. SDK clients should call their
+transport's `terminateSession()` before closing when finished.
+
+Session ids are routing identifiers, not credentials. Include the bearer token on
+every request, including GET and DELETE, when the listener requires one.
+
 ## Demo server
 
 From the repo root, opt in with a free non-default port:

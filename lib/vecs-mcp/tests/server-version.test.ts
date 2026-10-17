@@ -37,11 +37,14 @@ it.each(["missing", "wrong package", "malformed", "loader unavailable"])(
         new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`))
       );
       expect(client.getServerVersion()).toEqual({ name: "fallback", version: "unknown" });
-      expect((await client.listTools()).tools).toHaveLength(7);
+      expect((await client.listTools()).tools).toHaveLength(10);
       expect(lookup.create).toHaveBeenCalledTimes(1);
     } finally {
       await client.close();
       await server.close();
     }
-  }
+  },
+  // Each case reloads the SDK/module graph and performs a real HTTP handshake.
+  // Allow for contended shared builders without overlapping timed-out cases.
+  30_000
 );

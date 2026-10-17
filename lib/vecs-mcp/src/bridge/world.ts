@@ -11,16 +11,29 @@ import {
 import { componentSchema } from "../schema/index.js";
 import { componentValue } from "./serialize.js";
 import { mutate } from "./mutate.js";
+import { WatchSet } from "./watch.js";
 
 /** @internal Local-world command executor, shared by transports. */
 export class LocalWorld {
+  /** Live, session-owned watches; inert until explicitly created. */
+  public readonly watches: WatchSet;
+
   public constructor(
     public readonly world: World,
     private readonly readOnly = false
-  ) {}
+  ) {
+    this.watches = new WatchSet(world);
+  }
 
+  /** Execute a world tool; watch tools require the bridge-injected session owner. */
   public command(command: string, params: Record<string, unknown>): unknown {
     switch (command) {
+      case "vecs_watch":
+        return this.watches.create(params, this.registry());
+      case "vecs_events":
+        return this.watches.read(params);
+      case "vecs_unwatch":
+        return this.watches.remove(params);
       case "vecs_components":
         return this._components(params.filter as string | undefined);
       case "vecs_find":
@@ -227,7 +240,8 @@ export function resolveEntity(world: World, ref: unknown): Entity {
   return entity;
 }
 
-function query(value: unknown, registry: Map<string, Component>): QueryDSL {
+/** @internal Translate JSON queries; watch mode rejects filter-only operators at any depth. */
+export function query(value: unknown, registry: Map<string, Component>, watch = false): QueryDSL {
   const component = (name: unknown): Component => {
     if (typeof name !== "string" || !registry.has(name)) {
       throw new Error(`Unknown component ${String(name)}`);
@@ -241,7 +255,7 @@ function query(value: unknown, registry: Map<string, Component>): QueryDSL {
     return component(value);
   }
   if (Array.isArray(value)) {
-    return { all: value.map((v) => query(v, registry)) };
+    return { all: value.map((v) => query(v, registry, watch)) };
   }
   if (typeof value !== "object" || value === null) {
     throw new Error("where must be a query DSL expression");
@@ -254,6 +268,9 @@ function query(value: unknown, registry: Map<string, Component>): QueryDSL {
     throw new Error("A query expression must have exactly one operator");
   }
   const [operator, term] = entries[0];
+  if (watch && (operator === "source" || operator === "children")) {
+    throw new Error(`${operator} is filter-only: vecs_find supports it, vecs_watch does not`);
+  }
   switch (operator) {
     case "all":
     case "any":
@@ -261,12 +278,12 @@ function query(value: unknown, registry: Map<string, Component>): QueryDSL {
         throw new Error(`${operator} requires an array`);
       }
       return operator === "all"
-        ? { all: term.map((v) => query(v, registry)) }
-        : { any: term.map((v) => query(v, registry)) };
+        ? { all: term.map((v) => query(v, registry, watch)) }
+        : { any: term.map((v) => query(v, registry, watch)) };
     case "not":
     case "parent":
     case "children":
-      return { [operator]: query(term, registry) } as QueryDSL;
+      return { [operator]: query(term, registry, watch) } as QueryDSL;
     case "only":
       return { only: Array.isArray(term) ? term.map(component) : component(term) };
     case "target":
@@ -279,8 +296,8 @@ function query(value: unknown, registry: Map<string, Component>): QueryDSL {
         throw new Error(`${term[0]} is not a relationship`);
       }
       return operator === "target"
-        ? { target: [rel, query(term[1], registry)] }
-        : { source: [rel, query(term[1], registry)] };
+        ? { target: [rel, query(term[1], registry, watch)] }
+        : { source: [rel, query(term[1], registry, watch)] };
     }
     default:
       throw new Error(`Unknown query operator ${operator}`);

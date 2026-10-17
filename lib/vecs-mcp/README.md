@@ -17,13 +17,14 @@ await mcp.listen(3210); // http://127.0.0.1:3210/mcp
 // Later: await mcp.close();
 ```
 
-Nothing runs per tick: tools perform pull-only reads or synchronous writes between
-ticks. The browser-safe `/client` entry exports `installBridge` to reach a
+Nothing runs per tick: tools perform reads or synchronous writes between ticks.
+[Watches](./docs/watches.md) add session-owned reactive logs and subscribable local
+resources. Without watches, no watch queries or component hooks are registered.
+The browser-safe `/client` entry exports `installBridge` to reach a
 `ClientWorld` through its server connection; see [browser clients](./docs/clients.md).
 Client execution runs on a macrotask after the current tick.
 [Join or mount nodes](./docs/topology.md) to aggregate worlds through one
 hub; the [hub CLI](./docs/getting-started.md#hub-cli) is included as `vecs-mcp`.
-Watches are separate work.
 
 Start with the [documentation map](./docs/README.md).
 

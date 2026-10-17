@@ -21,6 +21,11 @@ All world tools accept those paths too.
 | `vecs_mutate`     | `target?`, `ops`                                                                                             | `{ applied, error?: { index, message } }`; each completed op returns `{ eid }`                                                                            |
 | `vecs_systems`    | `target?`, `enable?`, `disable?` (system names)                                                              | Pipeline-order array of `{ name, phase, enabled, callbacks, watched, timing }`                                                                            |
 | `vecs_stats`      | `target?`                                                                                                    | `{ systems, operations }`; system identities are names, not live instances                                                                                |
+| `vecs_watch`      | `target?`, `where`, `include?`, `maxEvents?` (1000)                                                          | `{ watch, members }`; no backfill events                                                                                                                  |
+| `vecs_events`     | `target?`, `watch`, `since?` (0), `limit?` (100)                                                             | `{ events, latest, dropped }`                                                                                                                             |
+| `vecs_unwatch`    | `target?`, `watch`                                                                                           | `{ watch }`; releases query, hooks and log                                                                                                                |
+
+See [watches](./watches.md) for event shape, lifetime, costs and resource subscriptions.
 
 Component `kind` is `module` for module definitions, `relationship` for relationship
 types, `trait` for other types attached to component definitions, and `component`
@@ -40,6 +45,10 @@ counts live instances, including infrastructure. Stats tools read existing
 - `{ "parent": expression }` and `{ "children": expression }` through `ChildOf`.
 
 `test` predicates are not expressible in JSON and are explicitly rejected.
+`vecs_watch` shares this translator but rejects `source` and `children` at any
+depth because they are filter-only, non-reactive operators. Use `vecs_find` for
+those expressions; watches still support `parent`, `target` and the other reactive
+operators. See [watches](./watches.md) for their live-query semantics.
 Only `include`d component values are projected; omitted `include` produces an
 empty components object. Pagination uses nonnegative integer `limit` and `offset`.
 

@@ -1,15 +1,33 @@
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { hostname } from "node:os";
 import { execFileSync } from "node:child_process";
-import { timingSafeEqual } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { createRequire } from "node:module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
+import {
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  SubscribeRequestSchema,
+  UnsubscribeRequestSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import type { World } from "@vworlds/vecs";
 import { Router } from "./bridge/router.js";
+import { WATCH_IDLE_MS } from "./bridge/watch.js";
 import { Link } from "./links/link.js";
 import { listenLinks } from "./links/listener.js";
+
+interface Session {
+  owner: string;
+  server: McpServer;
+  transport: StreamableHTTPServerTransport;
+  timer?: ReturnType<typeof setTimeout>;
+  subscriptions: Map<string, ReturnType<typeof setTimeout> | undefined>;
+  listeners: Map<string, () => void>;
+  watches: Map<string, { watch: string; target: string | undefined }>;
+  closing?: Promise<void>;
+}
 
 /** Node-level MCP configuration. Listening is always explicitly opt-in. */
 export interface VecsMcpServerOptions {
@@ -22,7 +40,7 @@ export interface VecsMcpServerOptions {
 }
 
 /**
- * Pull-only MCP access to local and linked worlds over Streamable HTTP.
+ * Session-based MCP access to local, linked and tunneled worlds over Streamable HTTP.
  * The informational package version is resolved lazily, falling back to "unknown"
  * if bundling or unavailable metadata prevents discovery.
  */
@@ -31,7 +49,7 @@ export class VecsMcpServer {
   private readonly _token: string | undefined;
   private _http: Server | undefined;
   private _version: string | undefined;
-  private readonly _active = new Set<McpServer>();
+  private readonly _sessions = new Map<string, Session>();
   private readonly _links = new Set<Link>();
   private _closeLinks?: () => void;
 
@@ -55,18 +73,17 @@ export class VecsMcpServer {
     );
   }
 
-  /** Stop HTTP, MCP and all links, including connector retries. Safe to call repeatedly. */
+  /** Stop HTTP, MCP sessions and links, releasing session watches before routes. Safe to repeat. */
   public async close(): Promise<void> {
     const http = this._http;
     this._http = undefined;
+    await Promise.all([...this._sessions.values()].map((session) => this._closeSession(session)));
     for (const link of this._links) {
       link.close();
     }
     this._links.clear();
     this._closeLinks?.();
     this._closeLinks = undefined;
-    await Promise.all([...this._active].map((server) => server.close()));
-    this._active.clear();
     if (http) {
       const closed = new Promise<void>((resolve, reject) =>
         http.close((error) => (error ? reject(error) : resolve()))
@@ -142,42 +159,176 @@ export class VecsMcpServer {
       res.writeHead(404).end("Not found");
       return;
     }
-    const server = this._adapter();
-    this._active.add(server);
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true,
-    });
-    res.once("close", () => {
-      this._active.delete(server);
-      void server.close();
-    });
+    const id = req.headers["mcp-session-id"];
+    if (id !== undefined && (typeof id !== "string" || !this._sessions.has(id))) {
+      res.writeHead(404).end("Unknown MCP session");
+      return;
+    }
+    if (id === undefined && req.method !== "POST") {
+      res.writeHead(400).end("MCP session required");
+      return;
+    }
+    const session = typeof id === "string" ? this._sessions.get(id)! : this._newSession();
+    this._touch(session);
     try {
-      await server.connect(transport);
-      await transport.handleRequest(req, res);
+      if (id === undefined) {
+        await session.server.connect(session.transport);
+      }
+      await session.transport.handleRequest(req, res);
+      if (!session.transport.sessionId) {
+        await this._closeSession(session);
+      }
     } catch {
       if (!res.headersSent) {
         res.writeHead(500).end("MCP request failed");
       } else {
         res.end();
       }
+      if (id === undefined) {
+        await this._closeSession(session);
+      }
     }
   }
 
-  private _adapter(): McpServer {
+  private _closeSession(session: Session): Promise<void> {
+    return (session.closing ??= this._disposeSession(session));
+  }
+
+  private async _disposeSession(session: Session): Promise<void> {
+    const id = session.transport.sessionId;
+    if (id) {
+      this._sessions.delete(id);
+    }
+    clearTimeout(session.timer);
+    for (const timer of session.subscriptions.values()) {
+      clearTimeout(timer);
+    }
+    session.subscriptions.clear();
+    for (const off of session.listeners.values()) {
+      off();
+    }
+    session.listeners.clear();
+    for (const local of this._router.worlds.values()) {
+      local.watches.close(session.owner);
+    }
+    const watches = [...session.watches.values()].filter(({ target }) => {
+      const segments = target?.split("/");
+      return !(
+        segments?.length === 2 &&
+        segments[0] === this._router.name &&
+        this._router.worlds.has(segments[1])
+      );
+    });
+    session.watches.clear();
+    await Promise.all(
+      watches.map(({ watch, target }) =>
+        this._router.dispatch({
+          id: "session-close",
+          target,
+          command: "vecs_unwatch",
+          params: { watch, _session: session.owner },
+        })
+      )
+    );
+    await session.server.close();
+  }
+
+  private _newSession(): Session {
     const version = (this._version ??= packageVersion());
-    const server = new McpServer({ name: this._router.name, version });
+    const server = new McpServer(
+      { name: this._router.name, version },
+      { capabilities: { resources: { subscribe: true } } }
+    );
+    const session: Session = {
+      owner: randomUUID(),
+      server,
+      transport: new StreamableHTTPServerTransport({
+        sessionIdGenerator: randomUUID,
+        enableJsonResponse: true,
+        onsessioninitialized: (id) => {
+          this._sessions.set(id, session);
+        },
+        onsessionclosed: () => {
+          void this._closeSession(session);
+        },
+      }),
+      subscriptions: new Map(),
+      listeners: new Map(),
+      watches: new Map(),
+    };
+    server.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+      resources: [...this._router.worlds].flatMap(([name, local]) =>
+        local.watches.ids(session.owner).map((id) => ({
+          uri: this._uri(name, id),
+          name: `Watch ${id}`,
+          mimeType: "application/json",
+        }))
+      ),
+    }));
+    server.server.setRequestHandler(ReadResourceRequestSchema, async ({ params }) => {
+      const { local, id } = this._resource(session, params.uri, true);
+      return {
+        contents: [
+          {
+            uri: params.uri,
+            mimeType: "application/json",
+            text: JSON.stringify(local.watches.read({ watch: id, _session: session.owner })),
+          },
+        ],
+      };
+    });
+    server.server.setRequestHandler(SubscribeRequestSchema, async ({ params }) => {
+      const { name, local } = this._resource(session, params.uri);
+      session.subscriptions.set(params.uri, session.subscriptions.get(params.uri));
+      if (!session.listeners.has(name)) {
+        session.listeners.set(
+          name,
+          local.watches.listen((id) => {
+            const uri = this._uri(name, id);
+            if (!session.subscriptions.has(uri) || session.subscriptions.get(uri)) {
+              return;
+            }
+            session.subscriptions.set(
+              uri,
+              setTimeout(() => {
+                session.subscriptions.set(uri, undefined);
+                if (local.watches.owns(id, session.owner)) {
+                  void server.server
+                    .notification({ method: "notifications/resources/updated", params: { uri } })
+                    .catch(() => {});
+                } else {
+                  session.subscriptions.delete(uri);
+                }
+              }, 100).unref()
+            );
+          })
+        );
+      }
+      return {};
+    });
+    server.server.setRequestHandler(UnsubscribeRequestSchema, async ({ params }) => {
+      clearTimeout(session.subscriptions.get(params.uri));
+      session.subscriptions.delete(params.uri);
+      return {};
+    });
     for (const [name, tool] of Object.entries(tools)) {
       server.registerTool(
         name,
         { description: tool.description, inputSchema: tool.schema },
         async (params: Record<string, unknown>) => {
           const { target, ...rest } = params;
+          // Remember the actual route at creation; adding another target later must
+          // not make session-close cleanup ambiguous for an omitted target.
+          const paths = ["vecs_watch", "vecs_events", "vecs_unwatch"].includes(name)
+            ? [...this._router.destinations.values()].flatMap((destination) => destination.paths())
+            : [];
+          const route =
+            (target as string | undefined) ?? (paths.length === 1 ? paths[0] : undefined);
           const response = await this._router.dispatch({
             id: "mcp",
-            target: target as string | undefined,
+            target: route,
             command: name,
-            params: rest,
+            params: { ...rest, _session: session.owner },
           });
           if ("error" in response) {
             return {
@@ -185,11 +336,65 @@ export class VecsMcpServer {
               content: [{ type: "text" as const, text: JSON.stringify(response.error) }],
             };
           }
+          if (name === "vecs_watch") {
+            if (session.closing) {
+              await this._router.dispatch({
+                id: "session-close",
+                target: route,
+                command: "vecs_unwatch",
+                params: {
+                  watch: (response.result as { watch: string }).watch,
+                  _session: session.owner,
+                },
+              });
+            } else {
+              const watch = (response.result as { watch: string }).watch;
+              session.watches.set(JSON.stringify([route, watch]), { watch, target: route });
+            }
+          }
+          if (name === "vecs_unwatch") {
+            session.watches.delete(JSON.stringify([route, rest.watch]));
+            for (const uri of session.subscriptions.keys()) {
+              const segments = route?.split("/");
+              if (
+                segments?.length === 2 &&
+                segments[0] === this._router.name &&
+                uri === this._uri(segments[1], String(rest.watch))
+              ) {
+                clearTimeout(session.subscriptions.get(uri));
+                session.subscriptions.delete(uri);
+              }
+            }
+          }
           return { content: [{ type: "text" as const, text: JSON.stringify(response.result) }] };
         }
       );
     }
-    return server;
+    return session;
+  }
+
+  private _resource(session: Session, uri: string, expired = false) {
+    for (const [name, local] of this._router.worlds) {
+      const prefix = this._uri(name, "");
+      if (uri.startsWith(prefix)) {
+        const id = uri.slice(prefix.length);
+        if (local.watches.owns(id, session.owner, expired)) {
+          return { name, local, id };
+        }
+      }
+    }
+    throw new Error(`Unknown watch resource ${uri}`);
+  }
+
+  private _touch(session: Session): void {
+    clearTimeout(session.timer);
+    session.timer = setTimeout(() => {
+      void this._closeSession(session);
+    }, WATCH_IDLE_MS).unref();
+  }
+
+  private _uri(world: string, id: string): string {
+    return `vecs://${encodeURIComponent(this._router.name)}/${encodeURIComponent(world)}/watch/${id}`;
   }
 }
 
@@ -242,6 +447,31 @@ const target = z
   );
 const entity = z.union([z.number().int().positive(), z.string()]);
 const tools = {
+  vecs_watch: {
+    description:
+      "Create a session-owned reactive query using vecs_find's JSON DSL except filter-only source/children, rejected even when nested; parent/target remain supported. include selects optional component values and update hooks, never narrows membership. maxEvents bounds the event ring (default 1000). Returns watch id and current members, without backfill events.",
+    schema: {
+      target,
+      where: z.unknown(),
+      include: z.array(z.string()).optional(),
+      maxEvents: z.number().int().positive().default(1000),
+    },
+  },
+  vecs_events: {
+    description:
+      "Read a session-owned watch log oldest first with seq > since (default 0), limit default 100. Returns events, latest sequence and cumulative dropped count; dropped -1 reports idle expiry once. Refreshes the watch's 30-minute idle deadline.",
+    schema: {
+      target,
+      watch: z.string(),
+      since: z.number().int().nonnegative().default(0),
+      limit: z.number().int().nonnegative().default(100),
+    },
+  },
+  vecs_unwatch: {
+    description:
+      "Destroy a session-owned watch's membership query, remove its component hooks and free its event ring. Works on readOnly nodes; remote watches route through the same bridge as local tools.",
+    schema: { target, watch: z.string() },
+  },
   vecs_targets: {
     description:
       "List the cached aggregate of local and linked world/client targets with originating process/git metadata, via node IDs, world counts and client connection metadata. No parameters; no remote requests.",

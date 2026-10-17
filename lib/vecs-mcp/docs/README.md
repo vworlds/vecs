@@ -11,3 +11,4 @@ Read in this order:
 5. [Security](./security.md): bind addresses, tokens and read-only access.
 6. [Nodes and links](./topology.md): join, mount, cascade paths and reconnects.
 7. [Browser clients](./clients.md): install, discover client targets, execution and replication.
+8. [Watches](./watches.md): reactive event logs, session lifetime and resource subscriptions.
