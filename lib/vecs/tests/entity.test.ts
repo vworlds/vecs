@@ -505,6 +505,28 @@ describe("Entity — lifecycle and relationships", () => {
     expect(() => w.entity(parent.eid)).toThrow();
   });
 
+  it("destroy cascades through a deep Delete-policy relationship chain", () => {
+    // The cascade recurses per level (each buffered destroy owns and drains
+    // its own deletion scope), so usable depth is bounded by the call stack:
+    // this chain overflows past ~4000 levels on Node's default stack, with a
+    // threshold that varies between runs. 2000 stays reliably below the limit
+    // while still failing if a change roughly doubles the per-level stack
+    // cost; shallower depths only repeat the 3-level cascade test above. A
+    // plain relationship is used instead of ChildOf because Traversable depth
+    // recomputation makes deep ChildOf teardown quadratic (~600ms at this
+    // depth versus ~10ms here).
+    const w = new World();
+    w.component(Guards).meta.onDeleteTarget = CleanupPolicy.Delete;
+    const chain = [w.entity()];
+    for (let i = 1; i < 2000; i++) {
+      chain.push(w.entity().add(Guards, chain[i - 1]));
+    }
+
+    chain[0].destroy();
+
+    expect(chain.every((e) => e.destroyed)).toBe(true);
+  });
+
   it("default relationship cleanup removes the component when the target is destroyed", () => {
     const w = new World();
     w.component(FriendOf);

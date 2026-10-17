@@ -41,11 +41,13 @@ export class Lifecycle extends Components {
     if (this._destroyed) {
       return;
     }
-    // The outermost _destroy in a cascade owns the deletion scope. Recursive
-    // _destroy calls (triggered by _applyOnDelete below, or by the scope flush)
-    // find the field already set and append to it, deferring their own incoming
-    // cleanup to the outer flush. This keeps _cleanupIncoming's read-only scan
-    // free of mid-iteration mutation, see issue #155.
+    // The outermost _destroy in a teardown scan owns the deletion scope.
+    // Recursive _destroy calls triggered during teardown (the _applyOnDelete
+    // carrier cascade below) find the field already set and append to it,
+    // deferring their own incoming cleanup to the owner's flush. This keeps
+    // _cleanupIncoming's read-only scan free of mid-iteration mutation, see
+    // issue #155. Destroys triggered while an owner drains its scope run with
+    // the field detached, so each owns and drains a scope of its own.
     const ownsDeletionScope = !this.world._deletionScope;
     if (ownsDeletionScope) {
       this.world._deletionScope = [];
@@ -97,11 +99,7 @@ export class Lifecycle extends Components {
       this._cleanupIncoming();
     } finally {
       if (ownsDeletionScope) {
-        try {
-          this._flushDeletionScope();
-        } finally {
-          this.world._deletionScope = undefined;
-        }
+        this._flushDeletionScope();
       }
     }
   }
@@ -200,23 +198,23 @@ export class Lifecycle extends Components {
   }
 
   /**
-   * Drain the deletion scope to empty.
+   * Drain the deletion scope buffered by this cascade's scans.
    *
-   * Called by the outermost `Entity._destroy` after its own teardown. Each pass
-   * detaches the current scope so recursive destroys triggered by the ops
-   * buffer into a fresh scope, which the `while` loop drains in the next
-   * iteration. Exits when a full pass appended nothing new.
+   * Called by the outermost `Entity._destroy` after its own teardown. The
+   * scope is detached before the ops run, so a destroy triggered by an op
+   * finds no scope, owns a fresh one, and fully drains it before returning
+   * (`_removeTarget` never touches the scope). The world's scope is therefore
+   * `undefined` again after every op, one pass over the buffered ops is
+   * exhaustive, and the scope stays detached even when an op throws.
    */
   private _flushDeletionScope(): void {
-    while (this.world._deletionScope && this.world._deletionScope.length > 0) {
-      const ops = this.world._deletionScope as DeletionOp[];
-      this.world._deletionScope = undefined;
-      for (const op of ops) {
-        if (op[0] === DeletionOpKind.Destroy) {
-          op[1]._destroy();
-        } else {
-          op[1]._removeTarget(op[2], op[3]);
-        }
+    const ops = this.world._deletionScope as DeletionOp[];
+    this.world._deletionScope = undefined;
+    for (const op of ops) {
+      if (op[0] === DeletionOpKind.Destroy) {
+        op[1]._destroy();
+      } else {
+        op[1]._removeTarget(op[2], op[3]);
       }
     }
   }
