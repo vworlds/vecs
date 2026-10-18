@@ -219,6 +219,36 @@ STATE="$TEST_DIR/comment-main"
 mkdir -p "$STATE"
 printf '2026-01-01T00:00:00Z\n' > "$STATE/.comments-since"
 check test "$(watch_comments | sed -nE 's/^COMMENT #([0-9]+).*/\1/p' | tr '\n' ' ')" = '350 '
+# A delayed comment absent from poll one is recovered by the overlapping poll; the already-seen
+# comment returned in both answers is emitted only once.
+STATE="$TEST_DIR/comment-lookback"
+mkdir -p "$STATE"
+VECS_TRACK=mcp
+printf '2026-01-01T00:00:00Z\n' > "$STATE/.comments-since"
+printf '0\n' > "$TEST_DIR/lookback-call"
+gh() {
+  case "$*" in
+    *'/issues/comments?'*)
+      LOOKBACK_CALL=$(($(cat "$TEST_DIR/lookback-call") + 1))
+      printf '%s\n' "$LOOKBACK_CALL" > "$TEST_DIR/lookback-call"
+      printf '%s\n' "$*" >> "$TEST_DIR/lookback-requests"
+      if [ "$LOOKBACK_CALL" = 1 ]; then
+        printf '339\tworker\thttps://example/already-seen\tfirst\n'
+      else
+        printf '339\tworker\thttps://example/already-seen\tfirst\n339\tworker\thttps://example/delayed\tlate\n'
+      fi
+      ;;
+    *) return 1 ;;
+  esac
+}
+first_events="$(watch_comments)"
+second_events="$(watch_comments)"
+check test "$(grep -c '^COMMENT #339' <<< "$first_events")" = 1
+check test "$(grep -c '^COMMENT #339' <<< "$second_events")" = 1
+check grep -q 'COMMENT #339 by worker: late' <<< "$second_events"
+check grep -q 'since=2025-12-31T23:50:00Z' "$TEST_DIR/lookback-requests"
+second_cursor="$(date -u -d "$(cat "$STATE/.comments-since") 10 minutes ago" +%Y-%m-%dT%H:%M:%SZ)"
+check grep -q "since=$second_cursor" "$TEST_DIR/lookback-requests"
 unset -f board_me
 VECS_TRACK=mcp
 declare -f board_items > "$TEST_DIR/board-items-original.sh"

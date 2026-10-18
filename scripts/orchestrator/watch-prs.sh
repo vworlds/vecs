@@ -294,7 +294,6 @@ watch_comments() {
     report_comment "$number" "$first" "COMMENT #$number by $login: $first"
   done <<< "$lines"
   printf '%s\n' "$now" > "$STATE/.comments-since"
-  find "$STATE" -type f -name 'c-*' -mmin +1440 -delete
 }
 # A worker that waits for a permission, or whose turn failed, says nothing on its PR. Ask the
 # worker server about the task PRs that are In progress. <lines> are the PR query's lines.
