@@ -269,18 +269,20 @@ watch_assigned() {
     case "$theirs" in *" ${f##*/theirs-} "*) ;; *) rm -f "$f" ;; esac
   done
 }
-# Comments anywhere in the repo since the last poll, one REST call. Task-PR comments already
-# reported above share the same key, so they are not repeated. The first run starts from now.
+# Comments anywhere in the repo since the last poll, with a ten-minute overlap for eventual
+# consistency. Task-PR comments already reported above share the same key, so repeats are dropped.
+# The first run starts from now.
 watch_comments() {
-  local since now me lines number login url first
+  local since now lookback me lines number login url first
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   since="$(cat "$STATE/.comments-since" 2> /dev/null || true)"
   if [ -z "$since" ]; then
     printf '%s\n' "$now" > "$STATE/.comments-since"
     return 0
   fi
+  lookback="$(date -u -d "$since 10 minutes ago" +%Y-%m-%dT%H:%M:%SZ)" || return 0
   me="$(board_me 2> /dev/null)" || return 0
-  lines="$(gh api "repos/$REPO_SLUG/issues/comments?since=$since&sort=created&direction=asc&per_page=100" --jq '
+  lines="$(gh api "repos/$REPO_SLUG/issues/comments?since=$lookback&sort=created&direction=asc&per_page=100" --jq '
       .[] | select(.user.type != "Bot") | select(.user.login != "'"$me"'")
       | select(.body | startswith("[orchestrator]") | not)
       | [(.issue_url | split("/") | last), .user.login, .html_url,
@@ -292,6 +294,7 @@ watch_comments() {
     report_comment "$number" "$first" "COMMENT #$number by $login: $first"
   done <<< "$lines"
   printf '%s\n' "$now" > "$STATE/.comments-since"
+  find "$STATE" -type f -name 'c-*' -mmin +1440 -delete
 }
 # A worker that waits for a permission, or whose turn failed, says nothing on its PR. Ask the
 # worker server about the task PRs that are In progress. <lines> are the PR query's lines.

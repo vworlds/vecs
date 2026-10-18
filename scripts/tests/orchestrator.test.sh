@@ -183,6 +183,7 @@ gh() {
       ]'
       ;;
     *'/issues/comments?'*)
+      printf '%s\n' "$*" > "$TEST_DIR/comments-request"
       printf '339\tworker\thttps://example/339\tcomment\n340\tworker\thttps://example/340\tcomment\n350\tworker\thttps://example/350\tcomment\n'
       ;;
     *'/issues/343'*) printf '%s\n' '{"number":343,"pull_request":{},"labels":[],"body":"Closes #339"}' ;;
@@ -209,6 +210,7 @@ STATE="$TEST_DIR/comment-track"
 mkdir -p "$STATE"
 printf '2026-01-01T00:00:00Z\n' > "$STATE/.comments-since"
 check test "$(watch_comments | sed -nE 's/^COMMENT #([0-9]+).*/\1/p' | tr '\n' ' ')" = '339 340 '
+check grep -q 'since=2025-12-31T23:50:00Z' "$TEST_DIR/comments-request"
 VECS_TRACK=
 check test ! "$(board_ours 339 && echo yes)"
 check test "$(watch_filter_pr_lines "$watch_lines" | cut -f1-2 | tr '\t\n' '  ')" = 'F 350 '
