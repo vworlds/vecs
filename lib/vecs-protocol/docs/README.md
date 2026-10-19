@@ -9,7 +9,7 @@ JSDoc on the source in `lib/vecs-protocol/src/` — read it in your IDE.
 1. [Frames](./frames.md) — the `Server2Client` and `Client2Server` messages, their fields and tags,
    how a diff is labelled, and the optimistic marker and gap report.
 2. [Remote procedure calls](./rpc.md) — the call/answer channel, once-per-call handlers and the
-   settled watermark, typed errors, reserved error and close codes, timeouts, and aborts.
+   settled watermark, typed errors, reserved error and close codes, deadline timeouts, and aborts.
 3. [State diffs](./state-diffs.md) — what a diff and a baseline carry, the order a diff means
    (resets, then snapshots, then single removals), why a reset carries its frame and applies once,
    and how a reused entity id stays unambiguous.
@@ -22,12 +22,12 @@ built on top of it.
 
 ## Map
 
-| Guide                                  | Covers                                                                                                                                         |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| [frames.md](./frames.md)               | `Server2Client`, `Client2Server`, `StateDiff`, field tags, baselines and deltas, `optimistic`, `gap`, `CLOSE_PROTOCOL_ERROR_CODE`.             |
-| [rpc.md](./rpc.md)                     | `SessionRPC`, `RPCHandler`, `RPCError`, reserved error and close codes, `settledBelow` / `setPeerSettledBelow`, `timeoutTick`, `abortPending`. |
-| [state-diffs.md](./state-diffs.md)     | `StateDiff`, `EntityReset`, baselines, the order within a diff, idempotent resets, the wire format, and the id quarantine behind them.         |
-| [network-world.md](./network-world.md) | `NetworkWorld` id ranges, `entityIdStart`, and process-local `moduleIdCount`.                                                                  |
+| Guide                                  | Covers                                                                                                                                              |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [frames.md](./frames.md)               | `Server2Client`, `Client2Server`, `StateDiff`, field tags, baselines and deltas, `optimistic`, `gap`, `CLOSE_PROTOCOL_ERROR_CODE`.                  |
+| [rpc.md](./rpc.md)                     | `SessionRPC` clock injection, `RPCHandler`, `RPCError`, reserved codes, `settledBelow` / `setPeerSettledBelow`, `timeoutTick(now)`, `abortPending`. |
+| [state-diffs.md](./state-diffs.md)     | `StateDiff`, `EntityReset`, baselines, the order within a diff, idempotent resets, the wire format, and the id quarantine behind them.              |
+| [network-world.md](./network-world.md) | `NetworkWorld` id ranges, `entityIdStart`, and process-local `moduleIdCount`.                                                                       |
 
 ## See also
 

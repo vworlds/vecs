@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { ClientWorld } from "@vworlds/vecs-client";
 import { ServerWorld } from "@vworlds/vecs-server";
 import { World } from "@vworlds/vecs";
@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { VecsMcpServer } from "../../src/server.js";
 import { installBridge } from "../../src/client.js";
 import { Router } from "../../src/bridge/router.js";
-import { BridgeClient, clientTargets } from "../../src/tunnel/index.js";
+import { BridgeClient, clientTargets, dispatchClient } from "../../src/tunnel/index.js";
 
 type Handler = (arg?: unknown) => void;
 class MemorySocket implements VecsSocket {
@@ -46,6 +46,7 @@ afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) {
     await fn();
   }
+  vi.useRealTimers();
 });
 
 function pair(server: ServerWorld, id: string, bridge = true, readOnly = false) {
@@ -80,7 +81,102 @@ function drive(server: ServerWorld, clients: ClientWorld[]) {
     }
   }, 2);
   cleanup.push(() => clearInterval(timer));
+  return () => clearInterval(timer);
 }
+
+it("bounds a client tool by wall clock when the game loop never sends", async () => {
+  const server = new ServerWorld();
+  cleanup.push(() => server.dispose());
+  const router = new Router("node", {});
+  router.register(server, "main");
+  const client = pair(server, "browser");
+  client.send();
+  expect(clientTargets(server).map((target) => target.id)).toEqual(["browser"]);
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  let result: unknown;
+  const call = router
+    .dispatch({
+      id: "paused",
+      target: "node/main/browser",
+      command: "vecs_entity",
+      params: { entity: "sample" },
+    })
+    .then((response) => {
+      result = response;
+    });
+  await vi.advanceTimersByTimeAsync(9_999);
+  expect(result).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(result).toMatchObject({
+    error: { code: "VECS_ERROR", message: "Timeout", hops: ["node", "browser"] },
+  });
+  await call;
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it.each([false, true])("clears the call timer on early settlement (error=%s)", async (fails) => {
+  const server = new ServerWorld();
+  cleanup.push(() => server.dispose());
+  const invoke = vi.spyOn(server, "invoke");
+  if (fails) {
+    invoke.mockRejectedValue(new Error("gone"));
+  } else {
+    invoke.mockResolvedValue([{ id: "fast", result: 42 }]);
+  }
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  try {
+    const call = dispatchClient(server, "browser", {
+      id: "fast",
+      command: "vecs_stats",
+      params: {},
+    });
+    if (fails) {
+      await expect(call).rejects.toMatchObject({ message: "gone" });
+    } else {
+      await expect(call).resolves.toBe(42);
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    invoke.mockRestore();
+  }
+});
+
+it("closes with a tunneled watch open after the game loop stops", async () => {
+  const server = new ServerWorld();
+  cleanup.push(() => server.dispose());
+  const node = new VecsMcpServer({ name: "node" });
+  cleanup.push(() => node.close());
+  node.registerWorld(server);
+  const client = pair(server, "browser");
+  const stop = drive(server, [client]);
+  const sdk = new Client({ name: "paused-close", version: "1" });
+  cleanup.push(() => sdk.close());
+  const port = await node.listen(0);
+  await sdk.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
+  await expect.poll(() => clientTargets(server).length).toBe(1);
+  const watch = await sdk.callTool({
+    name: "vecs_watch",
+    arguments: { target: "node/main/browser", where: "Position" },
+  });
+  expect(watch.isError).not.toBe(true);
+  expect(JSON.parse((watch.content as { text: string }[])[0].text)).toMatchObject({
+    watch: expect.any(String),
+    members: 1,
+  });
+  stop();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  let closed = false;
+  const closing = node.close().then(() => {
+    closed = true;
+  });
+  await vi.advanceTimersByTimeAsync(9_999);
+  expect(closed).toBe(false);
+  await vi.advanceTimersByTimeAsync(1);
+  // HTTP shutdown still uses real IO; do not virtualize its scheduling.
+  vi.useRealTimers();
+  await closing;
+  expect(closed).toBe(true);
+});
 
 it("registers no tunnel component or hook in a plain World", () => {
   const world = new World();

@@ -1,5 +1,9 @@
 import type { World } from "@vworlds/vecs";
-import { BRIDGE_ANNOUNCE_RPC_ID, BRIDGE_CALL_RPC_ID } from "@vworlds/vecs-protocol";
+import {
+  BRIDGE_ANNOUNCE_RPC_ID,
+  BRIDGE_CALL_RPC_ID,
+  RPC_TIMEOUT_ERROR,
+} from "@vworlds/vecs-protocol";
 import type { ServerWorld } from "@vworlds/vecs-server";
 import { BridgeError, type BridgeRequest, type BridgeResponse } from "../bridge/router.js";
 
@@ -13,6 +17,8 @@ const server = await import("@vworlds/vecs-server").catch((error: unknown) => {
 
 /** @internal Local-only capability tag; connection entity destruction removes the target. */
 export class BridgeClient {}
+
+const CLIENT_CALL_TTL_MS = 10_000;
 
 /** @internal Install per-connection topology hooks only on actual ServerWorld instances. */
 export function registerTunnel(world: World, changed: () => void): ServerWorld | undefined {
@@ -44,10 +50,15 @@ export async function dispatchClient(
   segment: string,
   request: BridgeRequest
 ): Promise<unknown> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const [response] = (await world.invoke(segment, BRIDGE_CALL_RPC_ID, [request], 10_000)) as [
-      BridgeResponse,
-    ];
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(RPC_TIMEOUT_ERROR), CLIENT_CALL_TTL_MS);
+    });
+    const [response] = (await Promise.race([
+      world.invoke(segment, BRIDGE_CALL_RPC_ID, [request], CLIENT_CALL_TTL_MS),
+      timeout,
+    ])) as [BridgeResponse];
     if ("error" in response) {
       throw new BridgeError({ ...response.error, hops: [...response.error.hops, segment] });
     }
@@ -61,5 +72,7 @@ export async function dispatchClient(
       message: error instanceof Error ? error.message : String(error),
       hops: [segment],
     });
+  } finally {
+    clearTimeout(timer);
   }
 }

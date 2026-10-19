@@ -63,7 +63,7 @@ Networking (wire encoding with `@wireType`, protocol component ordering, replica
 sessions, and the client world) lives in the `@vworlds/vecs-wire`, `@vworlds/vecs-protocol`,
 `@vworlds/vecs-server`, and `@vworlds/vecs-client` packages:
 
-- [Remote procedure calls](../../vecs-protocol/docs/rpc.md) — the call channel and typed errors.
+- [Remote procedure calls](../../vecs-protocol/docs/rpc.md) — the call channel, typed errors, injected clocks and absolute deadlines.
 - [State diffs](../../vecs-protocol/docs/state-diffs.md) — what a diff carries, the order a client
   applies it in, and how a reused entity id stays unambiguous.
 - [Sessions and caller context](../../vecs-server/docs/sessions.md) — per-connection RPC context,

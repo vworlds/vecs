@@ -66,8 +66,14 @@ than hanging or mutating a torn-down world.
 
 Replies leave with the next client ack. Expect roughly two frames plus transport
 and ack scheduling latency; a backgrounded browser can take longer. The node
-limits each forwarded call to 10 seconds, driven by server sends. A timeout does
-not cancel an envelope already delivered to the browser.
+limits each forwarded call to 10 seconds with a wall-clock timer, even when the
+server loop is paused or the session has no view. The timer is cleared when the
+call settles. Shutdown unwatches use the same bound, so `mcp.close()` can finish
+with a tunneled watch open and the game loop stopped; failed unwatches do not
+block closing. A timeout does not cancel an envelope already delivered to the
+browser or remove the underlying RPC call: the next server send expires it, or
+session teardown aborts it. Remote watches not reached by an unwatch still expire
+through their normal idle cleanup.
 
 Changes affect only the client replica, not the authoritative server. Subsequent
 replicated snapshots overwrite networked component fields; removals and baseline

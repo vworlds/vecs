@@ -195,19 +195,25 @@ server sent
 
 ## Timeouts and aborts
 
-`invoke` accepts a `ttl` in milliseconds. `SessionRPC` never advances time on its own, so something
-has to tick it. `ClientWorld` does not run `timeoutTick`, so a client call has no timeout: it
+`invoke` accepts a `ttl` in milliseconds and records an absolute deadline: the invocation clock
+plus the TTL. Inject a monotonic millisecond clock as the second constructor argument when you
+need virtual time; the default is `performance.now()`. Pass absolute time from the same clock to
+`timeoutTick(now)`, not elapsed time. A call rejects with `RPC_TIMEOUT_ERROR` on the first tick at
+or after its deadline, in call-id order. Repeated ticks do not age calls again.
+
+`SessionRPC` installs no timer, so something has to tick it. `ClientWorld` does not run
+`timeoutTick`, so a client call has no timeout: it
 settles with its reply, or rejects with `RPC_CLOSED_CODE` when the connection is lost or the world
 is disposed. `ServerWorld.invoke` ticks only sessions with pending outgoing calls
-from its send path. A bare `SessionRPC` needs its own timer.
+from its send path, including sessions without a view. A bare `SessionRPC` needs its own tick driver.
 
 ```ts
 const pending = client.invoke(101, [], 5_000);
-// once per frame, with the milliseconds elapsed since the previous tick
-client.timeoutTick(16);
+// once per frame, with absolute time on the default clock
+client.timeoutTick(performance.now());
 ```
 
-`timeoutTick` ages and rejects pending calls only. It does not expire cached replies: those wait for
+`timeoutTick` checks and rejects pending calls only. It does not expire cached replies: those wait for
 the peer's watermark, as described above. A call that times out counts as settled, so `settledBelow`
 moves past it.
 
@@ -230,20 +236,20 @@ call ids are not reset, so `settledBelow` keeps moving forward.
 
 ## Reference
 
-| Symbol                         | Description                                                                                                                  |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| `new SessionRPC(defaultTtl?)`  | Create a session-local RPC channel. `defaultTtl` is the ttl of a call that names none, `5000` ms unless you pass otherwise.  |
-| `listen(rpcId, handler)`       | Register the handler for one rpc id. A later registration replaces the earlier one.                                          |
-| `unlisten(rpcId, handler)`     | Remove only the matching handler reference; return whether removed.                                                          |
-| `invoke(rpcId, params?, ttl?)` | Send a request and resolve with its reply. Rejects on timeout or handler error.                                              |
-| `process(incoming)`            | Dispatch inbound messages: replies settle calls, and each request runs its handler at most once.                             |
-| `setPeerSettledBelow(value)`   | Record the peer's `settledBelow`. Monotonic; drops cached and unsent replies below it and ignores requests below it.         |
-| `settledBelow`                 | This channel's watermark: every call below it has settled. Pass it to the peer's `setPeerSettledBelow` with every frame.     |
-| `timeoutTick(elapsed)`         | Age pending calls by `elapsed` ms, rejecting the ones that run out. Does not expire cached replies.                          |
-| `getOutgoing()`                | Return every pending request and the owed responses, emptying the response outbox. Pending requests come back on every call. |
-| `abortPending(reason)`         | Reject every pending call with `reason`, clear the queue, and forget the peer: watermark, cached replies, running handlers.  |
-| `pendingTotal`                 | Calls awaiting a response plus responses queued for the peer.                                                                |
-| `pendingCalls`                 | Constant-time number of outgoing calls awaiting a response, excluding queued replies.                                        |
+| Symbol                              | Description                                                                                                                  |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `new SessionRPC(defaultTtl?, now?)` | Create a channel with a default TTL of `5000` ms and an optional monotonic millisecond clock (default `performance.now`).    |
+| `listen(rpcId, handler)`            | Register the handler for one rpc id. A later registration replaces the earlier one.                                          |
+| `unlisten(rpcId, handler)`          | Remove only the matching handler reference; return whether removed.                                                          |
+| `invoke(rpcId, params?, ttl?)`      | Send a request and resolve with its reply. Rejects on timeout or handler error.                                              |
+| `process(incoming)`                 | Dispatch inbound messages: replies settle calls, and each request runs its handler at most once.                             |
+| `setPeerSettledBelow(value)`        | Record the peer's `settledBelow`. Monotonic; drops cached and unsent replies below it and ignores requests below it.         |
+| `settledBelow`                      | This channel's watermark: every call below it has settled. Pass it to the peer's `setPeerSettledBelow` with every frame.     |
+| `timeoutTick(now)`                  | Reject pending calls with deadlines at or before absolute `now`, in call-id order. Does not expire cached replies.           |
+| `getOutgoing()`                     | Return every pending request and the owed responses, emptying the response outbox. Pending requests come back on every call. |
+| `abortPending(reason)`              | Reject every pending call with `reason`, clear the queue, and forget the peer: watermark, cached replies, running handlers.  |
+| `pendingTotal`                      | Calls awaiting a response plus responses queued for the peer.                                                                |
+| `pendingCalls`                      | Constant-time number of outgoing calls awaiting a response, excluding queued replies.                                        |
 
 Per-symbol detail — including the wire shape of `RPC`, `Server2Client`, and `Client2Server` — lives
 in the JSDoc on `lib/vecs-protocol/src/rpc.ts` and `lib/vecs-protocol/src/messages.ts`.
