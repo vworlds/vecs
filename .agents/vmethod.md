@@ -95,6 +95,10 @@ rc.3 resolves the rc.1 gaps:
 SCOPE REVIEW but does not wait for owner scope approval. Delivery approval is
 unchanged.
 
+`.github/CODEOWNERS` names the owner for `vmethod.yaml`, `people.yaml`,
+`models.yaml`, `.claude/` and itself. It requests the owner's review only: by
+owner choice, `dev` has no rule requiring code-owner approval.
+
 After merge, report a task/review/merge cycle, an owner button-merge follow-up,
 the separate fresh track task and a release with the fixed check in CI to
 [vmethod#13](https://github.com/vworlds/vmethod/issues/13).
