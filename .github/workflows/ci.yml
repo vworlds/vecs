@@ -32,6 +32,11 @@ jobs:
       - name: Format
         run: npm run format:check
 
+      # Pilot only: rc releases accept the owner-approved permission deferral;
+      # drop the switch at vmethod 1.0, where it is rejected (vmethod#60).
+      - name: Methodology check
+        run: npm exec --no -- vmethod check --defer-permissions
+
       - name: Changelog fragments
         run: |
           scripts/agent/check-changelog.sh

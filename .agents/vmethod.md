@@ -69,12 +69,13 @@ deferred to owner/SpaceRocks coordination.
 
 ## Pilot gaps and remaining rollout
 
-- [vmethod#60](https://github.com/vworlds/vmethod/issues/60): rc.1's offline check
-  requires owner-installed permissions despite their approved deferral. Report the
-  finding locally; do not edit permissions or filter it into a pass. Add the CI
-  check with the fixing rc before merge (orchestrator amendment on PR #370).
+rc.3 resolves the rc.1 gaps:
 
-rc.3 resolves the remaining rc.1 gaps:
+- [vmethod#60](https://github.com/vworlds/vmethod/issues/60): CI runs
+  `vmethod check --defer-permissions`, which prereleases accept while the owner
+  defers installing `.claude/settings.json`. It still fails on invalid installed
+  settings and every other finding. Remove the switch and have the owner install
+  the permissions at 1.0, where it is rejected.
 
 - [vmethod#58](https://github.com/vworlds/vmethod/issues/58): `branches.worktreePrefix`
   is set to `auto-`, matching the existing `.worktrees/auto-<branch>` worktrees.
