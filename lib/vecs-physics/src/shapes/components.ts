@@ -93,7 +93,9 @@ export class Polygon extends SingleShape {
   radius = 0;
 }
 
-/** Chain geometry for static terrain. Needs at least four points. */
+/** Chain geometry for static terrain. Needs at least four points. For open chains,
+ * the first and last points are explicit ghost vertices, not collision segments;
+ * they determine the endpoint normals. */
 export class Chain extends Shape {
   /** @internal Engine-owned Box2D chain handle. Set by the chain lifecycle system. */
   _chainId: b2ChainId | undefined = undefined;

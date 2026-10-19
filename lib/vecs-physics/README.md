@@ -99,7 +99,7 @@ for (const entity of overlapping) {
 - No contact recycling.
 - No public sensor TOI hits queue.
 - Dynamic `Sensor` marker toggles require recreating the shape in v1.
-- Open-chain ghost vertices at sharp endpoints are deferred to v2 parity work.
+- Open chains use their first and last points as explicit Box2D 3.2 ghost vertices, not collision segments. Supply at least four points, including the ghosts; sharp endpoints use your supplied ghosts without a reflection approximation.
 
 ## Examples
 
