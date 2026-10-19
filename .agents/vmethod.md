@@ -46,6 +46,10 @@ owner authority comes only from `people.yaml`, never a legacy owner override.
 There are no old-prefix aliases. The local beta script accepts `VMETHOD_REPO`.
 Credential settings contain environment variable names only.
 
+The orchestrator and the workers run as the same OS account (`jm`), so
+`vmethod.yaml` sets neither `workerUser` nor `workerGroup`: either one switches
+vmethod to two-user worktree access, which requires a group shared by both users.
+
 Before switching watchers, the owner/orchestrator stops the old watchers, runs
 `npm ci`, supplies `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`,
 `GIT_COMMITTER_EMAIL` and configured credentials in its wrapper environment, then

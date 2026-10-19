@@ -49,7 +49,9 @@ test(
     assert.equal(config("repo"), "vworlds/vecs");
     assert.equal(config("stateName"), "vecs");
     assert.equal(config("legacyState"), "- vecs-watch");
-    assert.equal(config("workerUser"), "jm");
+    const workerUser = run(process.execPath, [cli, "config", "get", "workerUser"]);
+    assert.equal(workerUser.status, 1);
+    assert.match(workerUser.stderr, /Unknown config key: workerUser/);
     assert.equal(config("postMerge.trigger"), "package-lock.json");
     assert.equal(config("postMerge.install"), "HUSKY=0 npm ci --no-audit --no-fund");
     assert.equal(config("merge.requireCurrentBase"), "false");

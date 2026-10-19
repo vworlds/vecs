@@ -2,7 +2,8 @@ repo: vworlds/vecs
 org: vworlds
 baseBranch: dev
 releaseBranch: master
-workerUser: jm
+# Orchestrator and workers share the jm account: no workerUser/workerGroup, which
+# would switch vmethod to two-user worktree access.
 stateName: vecs
 legacyState: [vecs-watch]
 legacyWorkers:
