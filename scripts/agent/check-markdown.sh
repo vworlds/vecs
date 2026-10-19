@@ -1,14 +1,14 @@
-#!/usr/bin/env bash
-# Validate Markdown fences and Mermaid diagrams before publishing a GitHub body.
-set -euo pipefail
-file="${1:?usage: check-markdown.sh <file> }"
-[ -r "$file" ] || {
-  echo "cannot read $file" >&2
-  exit 2
-}
-root="$(cd "$(dirname "$0")/../.." && pwd)"
-if ! (cd "$root" && node --input-type=module -e "import.meta.resolve('jsdom')" > /dev/null 2>&1); then
-  echo "check-markdown: dependencies missing in $root; run HUSKY=0 npm ci there" >&2
+#!/bin/sh
+# vmethod stub
+root=${VMETHOD_ROOT:-}
+if [ -z "$root" ] && command -v git > /dev/null 2>&1; then
+  if ! root=$(git rev-parse --show-toplevel); then
+    echo "vmethod: git could not find a repository; set VMETHOD_ROOT" >&2
+    root=
+  fi
+fi
+if [ -z "$root" ] || [ ! -x "$root/node_modules/.bin/vmethod" ]; then
+  echo "vmethod: run npm ci (set VMETHOD_ROOT when no repository is available)" >&2
   exit 2
 fi
-node "$(dirname "$0")/check-markdown.mjs" "$file"
+exec "$root/node_modules/.bin/vmethod" check-markdown "$@"

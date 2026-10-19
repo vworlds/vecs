@@ -1,0 +1,7 @@
+# Owner-only methodology configuration and permissions. Entries request the
+# owner's review; dev has no rule requiring code-owner approval.
+/vmethod.yaml @jpeletier
+/people.yaml @jpeletier
+/models.yaml @jpeletier
+/.claude/ @jpeletier
+/.github/CODEOWNERS @jpeletier

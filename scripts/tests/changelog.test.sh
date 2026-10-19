@@ -3,7 +3,8 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 . "$root/scripts/lib/changelog.sh"
-temporary="$(mktemp -d "$root/.changelog-test.XXXXXX")"
+mkdir -p "$root/.tmp"
+temporary="$(mktemp -d "$root/.tmp/changelog-test.XXXXXX")"
 trap 'rm -rf "$temporary"' EXIT
 cd "$temporary"
 git init -q

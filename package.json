@@ -16,8 +16,8 @@
     "build": "npm run build -w @vworlds/vecs && npm run build -w @vworlds/vecs-wire && npm run build -w @vworlds/vecs-protocol && npm run build -w @vworlds/vecs-client && npm run build -w @vworlds/vecs-server && npm run build -w @vworlds/vecs-mcp && npm run clean -w @vworlds/vecs-physics && npm run compile -w @vworlds/vecs-physics && npm run build -w @vworlds/vecs-phaser && npm run build -w @vworlds/vecs-phaser-server && npm run build -w @vworlds/vecs-phaser-client && npm run build -w @vworlds/vecs-demo-client --if-present && npm run build -w @vworlds/vecs-demo-server --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc -p bench",
     "lint": "npm run lint --workspaces --if-present && eslint bench",
-    "format": "prettier --write . \"!**/.worktrees/**\" \"!**/.tmp/**\" --ignore-unknown && prettier --write --plugin=prettier-plugin-sh \"scripts/**/*.sh\" \".agents/skills/release/release.sh\" \"apps/*/docker/*.sh\" && prettier --write --plugin=prettier-plugin-nginx --parser nginx \"apps/*/docker/nginx.conf\" && dockerfmt -w -n apps/*/docker/Dockerfile",
-    "format:check": "prettier --check . \"!**/.worktrees/**\" \"!**/.tmp/**\" --ignore-unknown && prettier --check --plugin=prettier-plugin-sh \"scripts/**/*.sh\" \".agents/skills/release/release.sh\" \"apps/*/docker/*.sh\" && prettier --check --plugin=prettier-plugin-nginx --parser nginx \"apps/*/docker/nginx.conf\" && dockerfmt -c -n apps/*/docker/Dockerfile",
+    "format": "prettier --write . \"!**/.worktrees/**\" \"!**/.tmp/**\" --ignore-unknown && prettier --write --plugin=prettier-plugin-sh \"scripts/**/*.sh\" \".agents/skills/release/release.sh\" \"apps/*/docker/*.sh\" && prettier --write --plugin=prettier-plugin-sh --parser sh scripts/vmethod-hooks/verify && prettier --write --plugin=prettier-plugin-nginx --parser nginx \"apps/*/docker/nginx.conf\" && dockerfmt -w -n apps/*/docker/Dockerfile",
+    "format:check": "prettier --check . \"!**/.worktrees/**\" \"!**/.tmp/**\" --ignore-unknown && prettier --check --plugin=prettier-plugin-sh \"scripts/**/*.sh\" \".agents/skills/release/release.sh\" \"apps/*/docker/*.sh\" && prettier --check --plugin=prettier-plugin-sh --parser sh scripts/vmethod-hooks/verify && prettier --check --plugin=prettier-plugin-nginx --parser nginx \"apps/*/docker/nginx.conf\" && dockerfmt -c -n apps/*/docker/Dockerfile",
     "test": "VITEST_MAX_WORKERS=${VITEST_MAX_WORKERS:-2} npm run test --workspaces --if-present",
     "test:stress": "VITEST_MAX_WORKERS=${VITEST_MAX_WORKERS:-2} npm run test:stress --workspaces --if-present",
     "bench:vecs": "npm run bench:ecs -w @vworlds/vecs",
@@ -25,13 +25,16 @@
     "bench:dr-bandwidth": "node --import ./bench/register-dist.mjs bench/dr-bandwidth.ts",
     "bench:release-check": "node bench/compare.ts --release",
     "bench:compare": "node bench/compare.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "vmethod": "npm exec --no -- vmethod",
+    "test:tooling": "node --test scripts/tests/vmethod-adoption.test.mjs && bash scripts/tests/changelog.test.sh && bash scripts/tests/markdown.test.sh && node --test scripts/tests/format-worktrees.test.mjs && bash scripts/tests/deps-after-fast-forward.test.sh && bash scripts/tests/release-publish.test.sh && node --test scripts/tests/beta-versions.test.mjs && bash scripts/tests/publish-beta.test.sh"
   },
   "devDependencies": {
     "@reteps/dockerfmt": "^0.5.4",
     "@types/node": "^24.0.0",
     "@typescript-eslint/eslint-plugin": "^8.59.1",
     "@typescript-eslint/parser": "^8.59.1",
+    "@vworlds/vmethod": "1.0.0-rc.3",
     "eslint": "^10.2.1",
     "eslint-plugin-unused-imports": "^4.4.1",
     "husky": "^9.1.7",

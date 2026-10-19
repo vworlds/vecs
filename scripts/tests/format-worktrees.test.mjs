@@ -28,6 +28,7 @@ test("repository formatting never descends into task worktrees", () => {
       ".prettierrc",
       ".prettierignore",
       "scripts/agent/check-markdown.sh",
+      "scripts/vmethod-hooks/verify",
       ".agents/skills/release/release.sh",
       "apps/client/docker/nginx.conf",
       "apps/client/docker/entrypoint.sh",

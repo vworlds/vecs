@@ -1,4 +1,0 @@
-2026-10-09T19:37:07.3620060Z ##[group]Run npm run lint
-2026-10-09T19:37:07.3620060Z /workspace/src/world.ts
-2026-10-09T19:37:07.3620060Z   2:3  error  'unused' is defined but never used  @typescript-eslint/no-unused-vars
-2026-10-09T19:37:32.2678271Z ##[error]Process completed with exit code 1.

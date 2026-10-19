@@ -32,6 +32,11 @@ jobs:
       - name: Format
         run: npm run format:check
 
+      # Pilot only: rc releases accept the owner-approved permission deferral;
+      # drop the switch at vmethod 1.0, where it is rejected (vmethod#60).
+      - name: Methodology check
+        run: npm exec --no -- vmethod check --defer-permissions
+
       - name: Changelog fragments
         run: |
           scripts/agent/check-changelog.sh
@@ -42,10 +47,10 @@ jobs:
       - name: Run tests
         run: npm run test
 
-      - name: Orchestrator tests (offline)
+      - name: Methodology adoption and project hooks (offline)
         run: |
-          bash scripts/tests/orchestrator.test.sh
-          bash scripts/tests/estimate-model.test.sh
+          node --test scripts/tests/vmethod-adoption.test.mjs
+          bash scripts/tests/deps-after-fast-forward.test.sh
 
       - name: Release publication verification tests (offline)
         run: bash scripts/tests/release-publish.test.sh

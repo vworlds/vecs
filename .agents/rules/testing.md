@@ -58,4 +58,4 @@ Write assertions that prove what users or callers observe:
 
 Avoid weak assertions such as `toBeDefined()` when a concrete value, event, or behavior can be checked.
 
-Place future test policy, examples, and package-specific testing conventions in this file. If a task needs a step-by-step testing workflow, create or update a file in `.agents/workflows/` and link to this rule file.
+Place future test policy, examples, and package-specific testing conventions in this file. Shared task procedures live in the pinned vmethod worker guide; project hook checks live in [the local tooling guide](../vmethod.md).

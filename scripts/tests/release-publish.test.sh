@@ -2,7 +2,8 @@
 # Offline integration tests; never source or execute release.sh.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-TMP="$(mktemp -d "$ROOT/.release-publish-test.XXXXXX")"
+mkdir -p "$ROOT/.tmp"
+TMP="$(mktemp -d "$ROOT/.tmp/release-publish-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin" "$TMP/repo/modules/alpha" "$TMP/repo/modules/beta" "$TMP/repo/modules/private" "$TMP/repo/modules/foreign" "$TMP/repo/modules/unpublished" "$TMP/repo/modules/wire/dist" "$TMP/repo/lib/outside" "$TMP/repo/scripts"
 export STATE="$TMP" PATH="$TMP/bin:$PATH"

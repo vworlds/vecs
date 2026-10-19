@@ -8,7 +8,7 @@ npm run lint
 npm run format:check
 ```
 
-The pre-commit hook runs `npm run typecheck`, `npx lint-staged`, and `npm run format:check`. Do not bypass it unless explicitly instructed.
+The pre-commit hook runs `npm run typecheck` when needed, `npm exec --no -- lint-staged`, and `npm run format:check`. Do not bypass it unless explicitly instructed.
 
 Formatting is handled by Prettier. Linting is handled by the workspace `lint` scripts. Keep source, tests, docs, and config files formatted consistently with the existing `.prettierrc.json` settings.
 

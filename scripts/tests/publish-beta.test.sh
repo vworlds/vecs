@@ -2,7 +2,8 @@
 # Offline only: every gh/npm invocation is intercepted, including dispatch.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-TMP="$(mktemp -d "${TMPDIR:-$ROOT}/.publish-beta-test.XXXXXX")"
+mkdir -p "$ROOT/.tmp"
+TMP="$(mktemp -d "$ROOT/.tmp/publish-beta-test.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin"
 export STATE="$TMP" PATH="$TMP/bin:$PATH"

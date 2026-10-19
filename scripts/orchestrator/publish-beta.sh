@@ -2,7 +2,7 @@
 # Dispatch a branch test release; never modifies git or publishes locally.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-. "$ROOT/scripts/lib/common.sh"
+REPO_SLUG="${VMETHOD_REPO:-vworlds/vecs}"
 . "$ROOT/scripts/lib/release-publish.sh"
 log() { printf '[beta] %s\n' "$*"; }
 err() { printf '[beta][error] %s\n' "$*" >&2; }
