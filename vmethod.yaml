@@ -5,9 +5,9 @@ releaseBranch: master
 workerUser: jm
 stateName: vecs
 legacyState: [vecs-watch]
-# rc.1 cannot import vecs-orchestrator/{workers,claude-workers}: nested paths
-# and worktree-keyed records are rejected. See the adoption guide's open gaps.
-legacyWorkers: []
+legacyWorkers:
+  - vecs-orchestrator/workers
+  - vecs-orchestrator/claude-workers
 vmethod:
   repo: vworlds/vmethod
 watch:
@@ -15,7 +15,8 @@ watch:
 branches:
   taskPattern: "<number>-<slug>"
   worktreeRoot: .worktrees
-  mainCheckout: /home/vecsmaster/src/vecs
+  worktreePrefix: auto-
+  mainCheckout: /home/jm/src/vecs
   packPrefix: pack/
   trackPrefix: track/
 board:
@@ -24,6 +25,10 @@ board:
   number: 4
   repos: [vworlds/vecs, vworlds/spacerocks]
 learningsPrivacy: public
+# Bugs with a reproducer skip owner scope approval, as before vmethod; they
+# still need a SCOPE REVIEW, and delivery approval is unchanged.
+scope:
+  fastPath: [bug]
 push: {}
 checks:
   verify:

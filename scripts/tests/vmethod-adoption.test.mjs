@@ -53,6 +53,13 @@ test(
     assert.equal(config("postMerge.trigger"), "package-lock.json");
     assert.equal(config("postMerge.install"), "HUSKY=0 npm ci --no-audit --no-fund");
     assert.equal(config("merge.requireCurrentBase"), "false");
+    assert.equal(config("branches.worktreePrefix"), "auto-");
+    assert.equal(config("branches.mainCheckout"), "/home/jm/src/vecs");
+    assert.equal(
+      config("legacyWorkers"),
+      "- vecs-orchestrator/workers\n- vecs-orchestrator/claude-workers"
+    );
+    assert.equal(config("scope.fastPath"), "- bug");
     assert.equal(config("board.repos"), "- vworlds/vecs\n- vworlds/spacerocks");
   }
 );
@@ -177,6 +184,23 @@ test(
     assert.equal(run("bash", [hook, "--unknown"], { env }).status, 1);
   }
 );
+
+test("verify hook merge scope installs, typechecks and lints only", { timeout: 30_000 }, (t) => {
+  const directory = scratch(t);
+  const env = fakeNpm(directory);
+  let result = run("bash", [hook, "--logs", join(directory, "merge"), "--scope", "merge"], {
+    env,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(env.CALLS, "utf8"), "0|ci\n|run typecheck\n|run lint\n");
+  writeFileSync(env.CALLS, "");
+  result = run("bash", [hook, "--logs", join(directory, "other"), "--scope", "release"], {
+    env,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Unknown verify-hook scope: release/);
+  assert.equal(readFileSync(env.CALLS, "utf8"), "");
+});
 
 test(
   "release dependencies still exist and export the functions release.sh calls",

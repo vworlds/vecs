@@ -14,6 +14,10 @@ the old entry-point paths, not old argument conventions. See the installed
 lint, format, tests, offline tooling tests, build, and optionally the sector
 benchmark. Only workspace tests can be narrowed. vmethod owns the detached review
 worktree and passes `--logs`, `--packages` and `--bench` to this hook.
+`merge-task` passes `--scope merge` when it re-verifies an open PR merged onto the
+live base (`merge.requireCurrentBase: false`); that scope runs only install,
+typecheck and lint, since CI already ran the full recipe on the head. Owner button
+merges get no merge-time verification, only the follow-up.
 Run `npm run test:tooling` to validate the local integration offline; no test may
 write to the real board. The old bash-implementation tests move with their generic
 implementation to vmethod; local tests cover configuration, stubs and project hooks.
@@ -69,23 +73,26 @@ deferred to owner/SpaceRocks coordination.
   requires owner-installed permissions despite their approved deferral. Report the
   finding locally; do not edit permissions or filter it into a pass. Add the CI
   check with the fixing rc before merge (orchestrator amendment on PR #370).
-- [vmethod#58](https://github.com/vworlds/vmethod/issues/58): rc.1 has no worker
-  worktree-prefix setting. Existing vecs worktrees use `.worktrees/auto-<branch>`;
-  use explicit verified PR/session adoption, not a local branch-prefix guess.
-- [vmethod#59](https://github.com/vworlds/vmethod/issues/59): rc.1's watcher does
-  not check package-started workers. The orchestrator runs `worker status`
-  manually during the pilot; do not add a second monitoring implementation.
+
+rc.3 resolves the remaining rc.1 gaps:
+
+- [vmethod#58](https://github.com/vworlds/vmethod/issues/58): `branches.worktreePrefix`
+  is set to `auto-`, matching the existing `.worktrees/auto-<branch>` worktrees.
+- [vmethod#59](https://github.com/vworlds/vmethod/issues/59): the watcher checks
+  workers started by `worker start`; no local monitoring is added.
 - [vmethod#63](https://github.com/vworlds/vmethod/issues/63): the watcher emits
-  `button-merge` rather than automatically completing owner button merges. The
-  orchestrator must run `merge-task <pr>` to finish the idempotent follow-up
-  (issues, board cleanup, branch/main-checkout refresh and dependency reinstall).
-  Do not claim watcher-only follow-up or add a local watcher workaround.
-- [vmethod#61](https://github.com/vworlds/vmethod/issues/61): legacy records live
-  under `vecs-orchestrator/workers` and `claude-workers`,
-  keyed by worktree path. rc.1 accepts only flat legacy directory names and
-  numeric PR filenames, so `legacyWorkers` is deliberately empty pending an
-  upstream fix. Do not relocate records to disguise this incompatibility or
-  claim automatic adoption ran. Review merged-PR records as skips during rollout.
+  `button-merge` rather than completing owner button merges. The orchestrator runs
+  `merge-task <pr>` for the idempotent follow-up (issues, board cleanup,
+  branch/main-checkout refresh and dependency reinstall).
+- [vmethod#61](https://github.com/vworlds/vmethod/issues/61): `legacyWorkers` lists
+  `vecs-orchestrator/workers` and `vecs-orchestrator/claude-workers`. Run
+  `worker adopt --from-legacy` as the orchestrator and review every result; records
+  whose opencode session no longer resolves (the pre-move `/home/vecsmaster` paths)
+  are reported skips, never relocated or rewritten.
+
+`scope.fastPath: [bug]` keeps the vecs gating: an issue labelled `bug` still needs a
+SCOPE REVIEW but does not wait for owner scope approval. Delivery approval is
+unchanged.
 
 After merge, report a task/review/merge cycle, an owner button-merge follow-up,
 the separate fresh track task and a release with the fixed check in CI to

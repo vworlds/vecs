@@ -3,7 +3,7 @@
 set -euo pipefail
 
 main() {
-  local logs="" packages_arg="" bench=false
+  local logs="" packages_arg="" bench=false scope=""
   local -a packages=()
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -20,6 +20,14 @@ main() {
       --bench)
         bench=true
         shift
+        ;;
+      --scope)
+        scope="${2:?--scope requires a value}"
+        [ "$scope" = merge ] || {
+          echo "Unknown verify-hook scope: $scope" >&2
+          return 1
+        }
+        shift 2
         ;;
       *)
         echo "Unknown verify-hook argument: $1" >&2
@@ -47,6 +55,9 @@ main() {
   step npm-ci env HUSKY=0 npm ci
   step typecheck npm run typecheck
   step lint npm run lint
+  # merge-task re-verifies the PR merged onto the live base; CI already ran the
+  # full recipe on the head, so the merge scope only checks that it still fits.
+  [ "$scope" != merge ] || return 0
   step format-check npm run format:check
   if [ "${#packages[@]}" -gt 0 ]; then
     local index=0 workspace
