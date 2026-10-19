@@ -1,43 +1,58 @@
 # Model families match the shared board. Owner fallback: sol → glm → big-pickle.
+# price: API list rates in USD per million tokens { input, output, cached }.
+# opencode families copy vmethod's models.yaml at v1.0.0-rc.3 (OpenRouter rates
+# fetched 2026-10-18; big-pickle is the vmethod owner's 90% of glm-5.3). Claude
+# families use Anthropic's first-party API rates as of 2026-10-06.
 - family: sol
   model: codexbal/gpt-6.1-sol
+  price: { input: 2.0, output: 10.0, cached: 0.1 }
+  tiers: [{ minPrompt: 272000, input: 4.0, output: 15.0, cached: 0.2 }]
   kind: opencode
   gate: none
   tier: standard
   fallback: [glm, big-pickle]
 - family: luna
   model: codexbal/gpt-6-luna
+  price: { input: 0.1, output: 0.5, cached: 0.01 }
+  tiers: [{ minPrompt: 272000, input: 0.2, output: 0.75, cached: 0.02 }]
   kind: opencode
   gate: none
   tier: standard
 - family: astra
   model: codexbal/gpt-6-astra
+  price: { input: 10.0, output: 50.0, cached: 1.0 }
+  tiers: [{ minPrompt: 272000, input: 20.0, output: 75.0, cached: 2.0 }]
   kind: opencode
   gate: owner
   tier: expensive
 - family: sonnet
   model: claude-sonnet-5-5
+  price: { input: 2.0, output: 10.0, cached: 0.2 }
   kind: claude
   gate: none
   tier: standard
 - family: opus
   model: claude-opus-5-5
+  price: { input: 4.0, output: 20.0, cached: 0.2 }
   kind: claude
   gate: none
   tier: standard
 - family: glm
   model: ollama-cloud/glm-5.3
+  price: { input: 0.079, output: 2.5, cached: 0.078 }
   kind: opencode
   gate: none
   tier: cheap
   fallback: [big-pickle]
 - family: glm-flash
   model: ollama-cloud/glm-5.3-flash
+  price: { input: 0.048, output: 0.2, cached: 0.006 }
   kind: opencode
   gate: none
   tier: cheap
 - family: big-pickle
   model: opencode/big-pickle
+  price: { input: 0.0711, output: 2.25, cached: 0.0702 }
   kind: opencode
   gate: none
   tier: cheap
