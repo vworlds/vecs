@@ -62,6 +62,7 @@ test(
       "- vecs-orchestrator/workers\n- vecs-orchestrator/claude-workers"
     );
     assert.equal(config("scope.fastPath"), "- bug");
+    assert.equal(config("vmethod.repo"), "off");
     assert.equal(config("board.repos"), "- vworlds/vecs\n- vworlds/spacerocks");
   }
 );
