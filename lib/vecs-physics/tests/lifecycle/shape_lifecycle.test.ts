@@ -296,7 +296,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    const aabb = engine.box2d.b2Shape_GetAABB(shapeId);
+    const aabb = engine.box2d.b2Shape_GetBounds(shapeId);
     try {
       const centerX = (aabb.lowerBound.x + aabb.upperBound.x) / 2;
       expect(centerX).toBeCloseTo(10, 1);
@@ -315,7 +315,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    const aabb = engine.box2d.b2Shape_GetAABB(shapeId);
+    const aabb = engine.box2d.b2Shape_GetBounds(shapeId);
     try {
       const centerX = (aabb.lowerBound.x + aabb.upperBound.x) / 2;
       expect(centerX).toBeCloseTo(5, 1);
@@ -334,7 +334,7 @@ describe("PhysicsShapeLifecycle.enter", () => {
     world.progress(0, 16);
 
     const shapeId = getShapeId(shape.eid)!;
-    const aabb = engine.box2d.b2Shape_GetAABB(shapeId);
+    const aabb = engine.box2d.b2Shape_GetBounds(shapeId);
     try {
       // Rotated 90°: wide axis becomes tall.
       const width = aabb.upperBound.x - aabb.lowerBound.x;

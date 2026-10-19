@@ -67,7 +67,7 @@ function setWasmTransform(entity: Entity, x: number, y: number, angle = 0): void
 
 function readShapeCenterX(shape: Entity): number {
   const shapeId = shape.get(SingleShape)!._shapeId as b2ShapeId;
-  const aabb = engine.box2d.b2Shape_GetAABB(shapeId);
+  const aabb = engine.box2d.b2Shape_GetBounds(shapeId);
   try {
     return (aabb.lowerBound.x + aabb.upperBound.x) / 2;
   } finally {
