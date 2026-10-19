@@ -4,7 +4,7 @@ Connect an agent, discover world data and safely apply inspection-time changes.
 
 Read in this order:
 
-1. [Getting started](./getting-started.md): opt in and connect Claude Code.
+1. [Getting started](./getting-started.md): opt in, connect Claude Code, release worlds and manage session limits.
 2. [Tools](./tools.md): targets, queries, entity dumps, mutations, systems and stats.
 3. [Schema decorators](./schema.md): describe and validate component fields.
 4. [Execution semantics](./execution.md): validation, inline writes and failures.

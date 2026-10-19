@@ -446,7 +446,10 @@ export class ServerWorld extends NetworkWorld {
   public readonly name: string;
   private readonly _components: readonly RegisteredComponent[];
   private readonly _sessions = new Map<string, ServerClientSession>();
-  private readonly _rpcHandlers = new Map<number, RPCHandler<ServerRPCContext>>();
+  private readonly _rpcHandlers = new Map<
+    number,
+    { handler: RPCHandler<ServerRPCContext>; installed: WeakMap<SessionRPC, RPCHandler> }
+  >();
   private readonly _updates = new Map<number, Update>();
   private readonly _snapshotCache = new Map<number, EncodedSnapshot>();
   private readonly _trackerCache: TrackerCache;
@@ -666,14 +669,29 @@ export class ServerWorld extends NetworkWorld {
    *
    * @param rpcId - Request id to answer.
    * @param handler - Handler run for every connection; see {@link RPCHandler}.
+   * @returns An idempotent disposer that removes this handler from current and future
+   * connections, leaving any later replacement untouched. In-flight calls still settle.
    */
-  public handleRpc(rpcId: number, handler: RPCHandler<ServerRPCContext>): void {
-    this._rpcHandlers.set(rpcId, handler);
+  public handleRpc(rpcId: number, handler: RPCHandler<ServerRPCContext>): () => void {
+    const registration = { handler, installed: new WeakMap<SessionRPC, RPCHandler>() };
+    this._rpcHandlers.set(rpcId, registration);
     this._sessions.forEach((session) => {
       if (!session.closing) {
-        this._installHandler(session, rpcId, handler);
+        this._installHandler(session, rpcId, registration);
       }
     });
+    return () => {
+      if (this._rpcHandlers.get(rpcId) !== registration) {
+        return;
+      }
+      this._rpcHandlers.delete(rpcId);
+      this._sessions.forEach((session) => {
+        const installed = registration.installed.get(session.rpc);
+        if (installed) {
+          session.rpc.unlisten(rpcId, installed);
+        }
+      });
+    };
   }
 
   /**
@@ -1450,9 +1468,15 @@ export class ServerWorld extends NetworkWorld {
   private _installHandler(
     session: ServerClientSession,
     rpcId: number,
-    handler: RPCHandler<ServerRPCContext>
+    registration: {
+      handler: RPCHandler<ServerRPCContext>;
+      installed: WeakMap<SessionRPC, RPCHandler>;
+    }
   ): void {
-    session.rpc.listen(rpcId, (params, request) => handler(params, request, session.context));
+    const handler: RPCHandler = (params, request) =>
+      registration.handler(params, request, session.context);
+    registration.installed.set(session.rpc, handler);
+    session.rpc.listen(rpcId, handler);
   }
 
   private _sessionFor(connection: string | Entity): ServerClientSession | undefined {

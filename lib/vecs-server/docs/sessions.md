@@ -51,7 +51,10 @@ and you should not reach for them.
 
 ## Caller context
 
-`handleRpc` registers one handler for every connection. The handler's third argument is a
+`handleRpc` registers one handler for every connection and returns an idempotent
+disposer. Call it to remove that registration from existing and future connections;
+it leaves a newer replacement untouched and does not cancel calls already in flight.
+The handler's third argument is a
 `ServerRPCContext`:
 
 ```ts

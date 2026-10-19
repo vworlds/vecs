@@ -51,6 +51,7 @@ export class Router {
   public readonly worlds = new Map<string, LocalWorld>();
   public readonly nodeId = randomUUID();
   private readonly _tunnels = new Map<string, ServerWorld>();
+  private readonly _cleanup = new Map<string, () => void>();
   private readonly _changes = new Set<() => void>();
 
   public constructor(
@@ -100,9 +101,25 @@ export class Router {
     this.worlds.set(name, new LocalWorld(world, this.readOnly));
     const tunnel = registerTunnel(world, () => this.changed());
     if (tunnel) {
-      this._tunnels.set(name, tunnel);
+      this._tunnels.set(name, tunnel.world);
+      this._cleanup.set(name, tunnel.close);
     }
     this.changed();
+  }
+
+  /** Remove a local world's hooks, tunnel handler and watches; absent worlds are a no-op. */
+  public unregister(world: World): void {
+    for (const [name, local] of this.worlds) {
+      if (local.world !== world) {
+        continue;
+      }
+      this._cleanup.get(name)?.();
+      this._cleanup.delete(name);
+      this._tunnels.delete(name);
+      local.watches.dispose();
+      this.worlds.delete(name);
+      this.changed();
+    }
   }
 
   /** Subscribe to topology changes; the returned function removes the subscription. */

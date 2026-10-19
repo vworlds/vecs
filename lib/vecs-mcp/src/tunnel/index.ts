@@ -15,15 +15,25 @@ const server = await import("@vworlds/vecs-server").catch((error: unknown) => {
 export class BridgeClient {}
 
 /** @internal Install per-connection topology hooks only on actual ServerWorld instances. */
-export function registerTunnel(world: World, changed: () => void): ServerWorld | undefined {
+export function registerTunnel(
+  world: World,
+  changed: () => void
+): { world: ServerWorld; close: () => void } | undefined {
   if (!server || !(world instanceof server.ServerWorld)) {
     return undefined;
   }
-  world.component(BridgeClient).on("add", changed).on("remove", changed);
-  world.handleRpc(BRIDGE_ANNOUNCE_RPC_ID, (_params, _request, ctx) => {
+  const component = world.component(BridgeClient);
+  component.on("add", changed).on("remove", changed);
+  const off = world.handleRpc(BRIDGE_ANNOUNCE_RPC_ID, (_params, _request, ctx) => {
     ctx.caller.add(BridgeClient);
   });
-  return world;
+  return {
+    world,
+    close: () => {
+      component.off("add", changed).off("remove", changed);
+      off();
+    },
+  };
 }
 
 /** @internal Scan on demand; no per-frame client-target bookkeeping. */

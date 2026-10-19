@@ -37,7 +37,7 @@ export class WatchSet {
 
   public constructor(private readonly world: World) {}
 
-  /** Create one membership query and removable hooks only for projected components. */
+  /** Create one membership query and projected-component hooks, up to 32 per session/world. */
   public create(params: Record<string, unknown>, registry: Map<string, Component>): unknown {
     const owner = this._owner(params);
     const where = query(params.where, registry, true);
@@ -52,8 +52,9 @@ export class WatchSet {
     if (this.world.deferred) {
       throw new Error("Create watches between ticks, not in a deferred scope");
     }
-    if (this._watches.size >= 32) {
-      throw new Error(`Watch cap (32); live ids: ${[...this._watches.keys()].join(", ")}`);
+    const ids = this.ids(owner);
+    if (ids.length >= 32) {
+      throw new Error(`Watch cap (32); live ids: ${ids.join(", ")}`);
     }
     const id = `w${++this._nextId}`;
     let ready = false;
@@ -172,6 +173,15 @@ export class WatchSet {
         this._expired.delete(id);
       }
     }
+  }
+
+  /** Release every session's queries, hooks, timers, receipts and event listeners. */
+  public dispose(): void {
+    for (const id of this._watches.keys()) {
+      this._destroy(id);
+    }
+    this._expired.clear();
+    this._listeners.clear();
   }
 
   /** List only the calling session's live watches. */

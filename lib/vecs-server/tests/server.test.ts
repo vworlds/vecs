@@ -1620,6 +1620,44 @@ describe("ServerWorld", () => {
 });
 
 describe("ServerWorld RPC caller context", () => {
+  it("disposes handlers on existing and future sessions without removing replacements", async () => {
+    const server = createWorld();
+    let nextId = 1;
+    const call = async (socket: MemorySocket) => {
+      const callId = nextId++;
+      const replies = await deliver(socket, server, {
+        rpc: [new RPC({ rpcId: 101, callId, params: [] })],
+      });
+      const reply = replies.find((reply) => reply.callId === callId);
+      if (!reply) {
+        throw new Error(`Missing reply ${callId}`);
+      }
+      return reply;
+    };
+    const listener = new MockListener();
+    server._attach(listener);
+    const first = new MemorySocket("first");
+    listener.connect(first);
+    const dispose = server.handleRpc(101, () => ["original"]);
+    const second = new MemorySocket("second");
+    listener.connect(second);
+    expect((await call(first)).params).toEqual(["original"]);
+    expect((await call(second)).params).toEqual(["original"]);
+    dispose();
+    dispose();
+    const third = new MemorySocket("third");
+    listener.connect(third);
+    for (const socket of [first, second, third]) {
+      expect((await call(socket)).message).toBe("Unknown RPC id 101");
+    }
+    const old = server.handleRpc(101, () => ["old"]);
+    const current = server.handleRpc(101, () => ["replacement"]);
+    old();
+    expect((await call(first)).params).toEqual(["replacement"]);
+    current();
+    expect((await call(first)).message).toBe("Unknown RPC id 101");
+  });
+
   it("gives each concurrent session its own caller", async () => {
     const world = createWorld();
     const server = world;
