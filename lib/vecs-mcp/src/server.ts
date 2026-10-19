@@ -35,6 +35,8 @@ export interface VecsMcpServerOptions {
   name?: string;
   /** Require Authorization: Bearer on MCP requests and the same token in link hello. */
   token?: string;
+  /** Exact Origins allowed on /link upgrades. Defaults to none; absent Origin is always allowed. */
+  linkOrigins?: readonly string[];
   /** Reject mutation batches and system enable/disable requests. Defaults to false. */
   readOnly?: boolean;
 }
@@ -47,6 +49,7 @@ export interface VecsMcpServerOptions {
 export class VecsMcpServer {
   private readonly _router: Router;
   private readonly _token: string | undefined;
+  private readonly _linkOrigins: ReadonlySet<string>;
   private _http: Server | undefined;
   private _version: string | undefined;
   private readonly _sessions = new Map<string, Session>();
@@ -60,6 +63,7 @@ export class VecsMcpServer {
       throw new Error("Node name must be a nonempty path segment");
     }
     this._token = options.token;
+    this._linkOrigins = new Set(options.linkOrigins);
     this._router = new Router(
       name,
       {
@@ -93,7 +97,12 @@ export class VecsMcpServer {
     }
   }
 
-  /** Listen at /mcp and /link, binding loopback by default. Returns the bound port (0 is ephemeral). */
+  /**
+   * Listen at /mcp and /link, binding loopback by default. Returns the bound port (0 is ephemeral).
+   * SECURITY: Browser pages can reach loopback. /link refuses Origin headers unless allowed by
+   * linkOrigins, but non-browser peers can omit or forge Origin. Use only on private networks;
+   * configure a token before exposing the port. Origin filtering is not authentication.
+   */
   public async listen(port: number, host = "127.0.0.1"): Promise<number> {
     if (this._http) {
       throw new Error("VecsMcpServer is already listening");
@@ -102,7 +111,7 @@ export class VecsMcpServer {
       void this._handle(req, res);
     });
     this._http = http;
-    this._closeLinks = listenLinks(http, this._router, this._token);
+    this._closeLinks = listenLinks(http, this._router, this._token, this._linkOrigins);
     try {
       await new Promise<void>((resolve, reject) => {
         http.once("error", reject);
