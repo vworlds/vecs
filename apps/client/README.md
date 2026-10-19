@@ -18,6 +18,13 @@ npm run dev -w @vworlds/vecs-demo-client
 Open the Vite URL printed by the client, usually `http://localhost:5173/`. If that port is busy,
 Vite will choose the next available port.
 
+## MCP Bridge
+
+The MCP bridge is disabled by default. Set `VITE_MCP=1` at build time to include it; with that
+build, adding `?mcp` to the game URL opts the client into bridge installation. Do not set this flag
+for production builds: anyone able to control the server's MCP node can then drive a visitor's
+client, and the bridge code is included in the bundle.
+
 ## Docker
 
 Build the nginx-backed static client image from the workspace root:
