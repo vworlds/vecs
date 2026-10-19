@@ -18,6 +18,10 @@ export const scr_b2QueryFilter: b2QueryFilter[] = [];
 export let scr_b2AABB: b2AABB | null = null;
 export let scr_b2ShapeProxy: b2ShapeProxy | null = null;
 export let scr_b2MassData: InstanceType<Box2DModule["b2MassData"]> | null = null;
+/** The zero origin for Box2D 3.2 world queries (`b2World_OverlapAABB`, `b2World_OverlapShape`,
+ * `b2World_CastShape`): their AABB / proxy is relative to it, so zero means world space.
+ * Read-only: never `Set` it. */
+export let scr_b2Origin: b2Vec2 | null = null;
 
 /** Load the pinned owned Box2D module and fast path once, with profile timers disabled.
  * Selects single-threaded SIMD when supported; initialization needs no navigator polyfill. */
@@ -46,6 +50,8 @@ function initializeScratchPools(box2d: Box2DModule): void {
   for (let i = 0; i < 3; i++) {
     scr_b2Vec2.push(new box2d.b2Vec2());
   }
+
+  scr_b2Origin = new box2d.b2Vec2(0, 0);
 
   // b2QueryFilter: queries and material sync each need at most 1 simultaneously.
   // Allocate 2 for safety.

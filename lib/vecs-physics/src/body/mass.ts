@@ -34,7 +34,7 @@ export class BodyMassModule extends Module {
         for (const eid of engine.dirtyMassBodies) {
           const bodyId = world.getEntity(eid)?.get(Body)?._bodyId;
           if (bodyId !== undefined) {
-            engine.box2d.b2Body_ApplyMassFromShapes(bodyId);
+            engine.box2d.b2Body_UpdateMassFromShapes(bodyId);
             correctMassCenter(engine, bodyId);
           }
         }
@@ -60,7 +60,7 @@ function correctMassCenter(engine: PhysicsEngine, bodyId: b2BodyId): void {
     if (data.mass <= 0 || (x === 0 && y === 0)) {
       return;
     }
-    const bounds = box2d.b2Body_ComputeAABB(bodyId);
+    const bounds = box2d.b2Body_ComputeBounds(bodyId);
     let extent: number;
     try {
       const lower = bounds.lowerBound;

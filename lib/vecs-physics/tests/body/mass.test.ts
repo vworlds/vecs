@@ -31,7 +31,7 @@ describe("exact shape-derived mass centers", () => {
     world.entity().childOf(body).set(Box, { hx, hy });
     world.progress(0, 0);
     const id = body.get(Body)!._bodyId!;
-    engine.box2d.b2Body_ApplyMassFromShapes(id);
+    engine.box2d.b2Body_UpdateMassFromShapes(id);
     const mass = engine.box2d.b2Body_GetMass(id);
     const inertia = engine.box2d.b2Body_GetRotationalInertia(id);
     engine.dirtyMassBodies.add(body.eid);
@@ -96,7 +96,7 @@ describe("exact shape-derived mass centers", () => {
       .set(ShapePosition, { x: offset, y: offset });
     world.progress(0, 0);
     const id = body.get(Body)!._bodyId!;
-    engine.box2d.b2Body_ApplyMassFromShapes(id);
+    engine.box2d.b2Body_UpdateMassFromShapes(id);
     const expected = readCenter(engine, id);
     expect(expected[0]).toBeCloseTo(offset, 6);
     expect(expected[1]).toBeCloseTo(offset, 6);
@@ -122,7 +122,7 @@ describe("exact shape-derived mass centers", () => {
     const centeredId = centered.get(Body)!._bodyId!;
     const offsetId = offset.get(Body)!._bodyId!;
     expect(readCenter(engine, centeredId)).toEqual([0, 0]);
-    engine.box2d.b2Body_ApplyMassFromShapes(offsetId);
+    engine.box2d.b2Body_UpdateMassFromShapes(offsetId);
     const raw = readCenter(engine, offsetId);
     expect(raw[0] / extent).toBeCloseTo(1e-4, 6);
     expect(raw[1] / extent).toBeCloseTo(1e-4, 6);
@@ -166,7 +166,7 @@ describe("exact shape-derived mass centers", () => {
 });
 
 function readCenter(engine: PhysicsEngine, bodyId: b2BodyId): [number, number] {
-  const center = engine.box2d.b2Body_GetLocalCenterOfMass(bodyId);
+  const center = engine.box2d.b2Body_GetLocalCenter(bodyId);
   try {
     return [center.x, center.y];
   } finally {
