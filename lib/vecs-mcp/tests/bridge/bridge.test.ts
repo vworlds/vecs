@@ -61,7 +61,7 @@ describe("local bridge", () => {
     expect(call("components").find((c: any) => c.name === "Likes").kind).toBe("relationship");
     expect(call("components").find((c: any) => c.name === "Definitions").kind).toBe("module");
     expect(call("components").find((c: any) => c.name === "Dead").kind).toBe("trait");
-    expect(call("components", { filter: "Position" })[0].traits).toEqual(["Dead"]);
+    expect(call("components", { filter: "Position" })[0].traits).toEqual(["ComponentDef", "Dead"]);
     expect(call("components").find((c: any) => c.name === "Identity").kind).toBe("component");
   });
 

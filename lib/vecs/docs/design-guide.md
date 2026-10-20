@@ -160,6 +160,11 @@ in registration order and are removed with `off(event, handler)` by reference (s
 
 ### Component traits: policy on component entities
 
+For schema reflection, query the built-in `ComponentDef` marker with
+`world.query("Definitions").with(ComponentDef).build()` rather than scanning all entities with
+`instanceof Component`. See [Reflecting on component definitions](./components.md#reflecting-on-component-definitions)
+for membership and local-only snapshot/network behavior.
+
 A registered component is also an entity. Components attached to that component entity can declare
 policy for every use of the component type; these configuration components are **component traits**:
 

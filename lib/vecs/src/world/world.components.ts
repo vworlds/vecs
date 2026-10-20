@@ -1,4 +1,5 @@
 import { Component, type ComponentClass, type ComponentType } from "../component.js";
+import { ComponentDef } from "../component_def.js";
 import { Entity, type EID, type EntityClass } from "../entity/index.js";
 import { type IdPool } from "../util/id_pool.js";
 import { Entities } from "./world.entities.js";
@@ -15,6 +16,7 @@ export class Components extends Entities {
    * and its id is drawn from the `"component"` id pool (1–899 by default).
    * Subsequent calls with the same class return the same entity. The same class
    * may be registered independently in multiple worlds.
+   * Every registered definition carries the local-only `ComponentDef` tag.
    * A newly registered definition inherits the current scope parent immediately.
    * Scopes must be entered outside deferred mode. Existing lookups do not reparent it.
    *
@@ -139,6 +141,10 @@ export class Components extends Entities {
     const component = new Constructor(this, ceid, ComponentClass);
     this._entities.set(ceid, component);
     this._classRegistry.set(ComponentClass, component);
+    // Publish the class before resolving the marker: its own registration then
+    // finds itself, so bootstrap needs neither a special id nor a second pass.
+    this.component(ComponentDef);
+    component.add(ComponentDef);
     const parent = this._scope;
     if (parent !== undefined) {
       component.childOf(parent);
