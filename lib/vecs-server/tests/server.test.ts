@@ -16,6 +16,7 @@ import {
   POST_UPDATE,
   PRE_STORE,
   Exclusive,
+  ComponentDef,
   type QueryDSL,
   Relationship,
   type Entity,
@@ -528,6 +529,36 @@ describe("ServerWorld", () => {
 
   it("constructs normally without localEntityIdStart", () => {
     expect(() => new ServerWorld()).not.toThrow();
+  });
+
+  it("rejects ComponentDef in the network component allowlist", () => {
+    expect(() => createWorld({ networkComponents: [Position, ComponentDef] })).toThrow(
+      "ComponentDef is local schema metadata and cannot be networked"
+    );
+  });
+
+  it("omits ComponentDef from replication snapshots and updates", () => {
+    const world = createWorld();
+    allowAllClientViews(world);
+    const listener = new MockListener();
+    world._attach(listener);
+    const { socket } = connectSession(world, listener);
+    const definition = world.component(LocalOnly).add(Networked).set(Position, { x: 10, y: 20 });
+    expect(definition.has(ComponentDef)).toBe(true);
+
+    for (const x of [10, 30]) {
+      definition.set(Position, { x });
+      world.progress(x, 16);
+      const message = decodeLastMessage(socket);
+      const snapshots = message.diff!.snapshots.map((encoded) =>
+        new Decoder(encoded.bytes).read(ComponentSnapshot)
+      );
+      expect(snapshots).toHaveLength(1);
+      expect(snapshots[0]).toMatchObject({ eid: definition.eid, wireType: 1 });
+      expect(new Decoder(snapshots[0].payload).read(Position)).toEqual({ x, y: 20 });
+      expect(message.diff!.removed).toEqual([]);
+      ackLatestFrame(socket);
+    }
   });
 
   it("sends full component snapshots for networked component updates", () => {

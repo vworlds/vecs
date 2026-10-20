@@ -55,6 +55,32 @@ same class return the same entity. The same class can be registered independentl
 worlds — metadata is world-specific. Passing an explicit id for an already-registered class (with
 a different id) throws, as does passing a name with no matching component entity.
 
+### Reflecting on component definitions
+
+Use the built-in `ComponentDef` tag to query registered definitions rather than scanning every
+entity with an `instanceof Component` predicate:
+
+```ts
+import { ComponentDef, World } from "@vworlds/vecs";
+
+const world = new World();
+const definitions = world.query("Definitions").with(ComponentDef).build();
+for (const definition of definitions) {
+  console.log(definition.meta.Class.name);
+}
+```
+
+Every registered component and module entity carries the tag, including built-ins and
+`ComponentDef` itself. The query tracks later registrations and destroyed definitions incrementally;
+iterating it visits definitions only, not ordinary game, query, system, or phase entities.
+Registration adds one tag per class; worlds that never query it need no reflection query.
+
+Treat `ComponentDef` as world-managed schema metadata: do not add or remove it yourself.
+Its `DontSnapshot` policy excludes it from subtree snapshots, and `NetworkWorld` rejects it in
+`networkComponents`. Each destination world tags its own locally registered definitions instead.
+Component entities themselves remain invalid subtree snapshot roots. The tag does not change
+[world disposal priorities](./entities.md#disposing-a-world).
+
 ### Registration provenance
 
 Components created during a module's `init` become its `ChildOf` children, through

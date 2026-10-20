@@ -4,6 +4,7 @@ import {
   type BridgeRequest,
   type BridgeResponse,
   type Router,
+  type TargetTable,
 } from "../bridge/router.js";
 import { Peer } from "./peer.js";
 import { frameSchema, type Frame } from "./protocol.js";
@@ -239,7 +240,7 @@ export class Link {
     this._state = "linked";
     this._attempt = 0;
     if (this._exposes) {
-      this._unsubscribe = this._router.onChange(() => this._advertise());
+      this._unsubscribe = this._router.onChange((table) => this._advertise(table));
       this._advertise();
     }
   }
@@ -251,8 +252,7 @@ export class Link {
     this._socket?.close();
   }
 
-  private _advertise(): void {
-    const table = this._router.table();
+  private _advertise(table: TargetTable = this._router.table()): void {
     this._send({
       type: "advertise",
       ...table,

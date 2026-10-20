@@ -83,7 +83,7 @@ export class VecsMcpServer {
     );
   }
 
-  /** Stop HTTP, MCP sessions and links and unregister all local worlds. Safe to repeat. */
+  /** Stop HTTP, MCP sessions and links; unregister every world and release its queries. Safe to repeat. */
   public async close(): Promise<void> {
     const http = this._http;
     this._http = undefined;
@@ -97,6 +97,9 @@ export class VecsMcpServer {
     this._links.clear();
     this._closeLinks?.();
     this._closeLinks = undefined;
+    for (const local of this._router.worlds.values()) {
+      local.dispose();
+    }
     if (http) {
       const closed = new Promise<void>((resolve, reject) =>
         http.close((error) => (error ? reject(error) : resolve()))
@@ -141,7 +144,9 @@ export class VecsMcpServer {
   /**
    * Register a local world. Uses world.name when available, otherwise "world";
    * duplicates throw. ServerWorld instances also accept bridge announcements and
-   * expose opted-in clients as three-segment targets, discovered on demand.
+   * expose opted-in clients as three-segment targets tracked by connection hooks.
+   * Each registration holds a live ComponentDef query until unregisterWorld() or close();
+   * topology advertisements are coalesced on setImmediate outside the world's tick.
    */
   public registerWorld(world: World, name?: string): void {
     const worldName = "name" in world && typeof world.name === "string" ? world.name : "world";
@@ -409,9 +414,12 @@ export class VecsMcpServer {
           const { target, ...rest } = params;
           // Remember the actual route at creation; adding another target later must
           // not make session-close cleanup ambiguous for an omitted target.
-          const paths = ["vecs_watch", "vecs_events", "vecs_unwatch"].includes(name)
-            ? [...this._router.destinations.values()].flatMap((destination) => destination.paths())
-            : [];
+          const paths =
+            target === undefined && ["vecs_watch", "vecs_events", "vecs_unwatch"].includes(name)
+              ? [...this._router.destinations.values()].flatMap((destination) =>
+                  destination.paths()
+                )
+              : [];
           const route =
             (target as string | undefined) ?? (paths.length === 1 ? paths[0] : undefined);
           const response = await this._router.dispatch({
