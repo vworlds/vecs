@@ -1,5 +1,6 @@
 import {
   Component,
+  ComponentDef,
   Module,
   DependsOn,
   Entity,
@@ -86,6 +87,7 @@ export class LocalWorld {
   private _components(filter?: string): unknown[] {
     const registry = this.registry();
     const names = new Map([...registry].map(([name, c]) => [c.eid, name]));
+    const componentDefEid = this.world.getEntity(ComponentDef)?.eid;
     const provenance = new Set([
       this.world.getEntity(ChildOf)?.eid,
       this.world.getEntity(Identity)?.eid,
@@ -116,7 +118,7 @@ export class LocalWorld {
           ...(parent instanceof Module ? { module: parent.meta.Class.name } : {}),
           carriers: component.instanceCount(),
           traits: [...component.components.entries()]
-            .filter(([eid]) => !provenance.has(eid))
+            .filter(([eid]) => !provenance.has(eid) && eid !== componentDefEid)
             .map(([eid]) => names.get(eid) ?? String(eid)),
           schema,
           ...(description === undefined ? {} : { description }),
