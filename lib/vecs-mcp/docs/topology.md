@@ -55,8 +55,16 @@ that link; `server.close()` stops all links and the listener. A join-only node
 need not call `listen` unless it also needs inbound MCP or links.
 
 Advertisements replace the whole previous table after the handshake, world
-registration or a peer change. A closed transport removes its subtree immediately;
-reconnection advertises again. On idle links, the listener sends JSON `ping` frames
+registration, a bridged client announcement/disconnect or a peer change. Topology
+changes coalesce into one rebuild per `setImmediate` macrotask, outside the world's
+tick and command drain; exposing links share that rebuilt table. Without an
+exposing link, changes schedule no rebuild. Bridged clients are indexed by connection
+ID, and component counts use a retained `ComponentDef` query rather than an entity
+scan. `close()` releases that registry query.
+
+A closed transport removes its local subtree immediately; the replacement table
+propagates to exposing links on the next macrotask.
+Reconnection advertises again. On idle links, the listener sends JSON `ping` frames
 every 15 s; either side answers a JSON `ping` with `pong`. Each side checks for
 45 s without an inbound frame and closes the socket, so the native Node 24 connector
 also detects a dead listener without waiting for a TCP close. Advertisements,

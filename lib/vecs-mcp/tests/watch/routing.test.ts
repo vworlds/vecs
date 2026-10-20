@@ -9,6 +9,7 @@ import { VecsMcpServer } from "../../src/server.js";
 import { installBridge } from "../../src/client.js";
 
 const cleanups: (() => void | Promise<void>)[] = [];
+const registrationQueries = 1;
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) {
     await cleanup();
@@ -59,6 +60,9 @@ it("routes watch tools and ownership through real peer links, keeping resources 
   const baseline = world.queries.length;
   const hook = world.component(Position).meta._onSet;
   const remote = await node("remote", world);
+  expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toHaveLength(
+    registrationQueries
+  );
   const hub = await node("hub");
   hub.server.mount(`ws://127.0.0.1:${remote.port}/link`);
   const a = await sdk(hub.port);
@@ -68,7 +72,7 @@ it("routes watch tools and ownership through real peer links, keeping resources 
   const first = await call(a.client, "watch", { where: "Position", include: ["Position"] });
   const second = await call(b.client, "watch", { target: "remote/world", where: "Position" });
   expect(first.members).toBe(1);
-  expect(world.queries.length).toBe(baseline + 2);
+  expect(world.queries.length).toBe(baseline + registrationQueries + 2);
   expect((await a.client.listResources()).resources).toEqual([]);
   await expect(
     a.client.readResource({ uri: `vecs://remote/world/watch/${first.watch}` })
@@ -82,7 +86,7 @@ it("routes watch tools and ownership through real peer links, keeping resources 
     events: [{ seq: 1, kind: "update", eid: entity.eid, component: "Position", value: { x: 9 } }],
   });
   await a.transport.terminateSession();
-  await expect.poll(() => world.queries.length).toBe(baseline + 1);
+  await expect.poll(() => world.queries.length).toBe(baseline + registrationQueries + 1);
   expect(world.component(Position).meta._onSet).toBe(hook);
   expect(await call(b.client, "events", { watch: second.watch })).toEqual({
     events: [],
@@ -90,7 +94,7 @@ it("routes watch tools and ownership through real peer links, keeping resources 
     dropped: 0,
   });
   await call(b.client, "unwatch", { watch: second.watch });
-  expect(world.queries.length).toBe(baseline);
+  expect(world.queries.length).toBe(baseline + registrationQueries);
 });
 
 type Handler = (arg?: unknown) => void;

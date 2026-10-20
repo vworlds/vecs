@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { VecsMcpServer } from "../../src/server.js";
 import { installBridge } from "../../src/client.js";
 import { Router } from "../../src/bridge/router.js";
-import { BridgeClient, clientTargets } from "../../src/tunnel/index.js";
+import { BridgeClient } from "../../src/tunnel/index.js";
 
 type Handler = (arg?: unknown) => void;
 class MemorySocket implements VecsSocket {
@@ -111,7 +111,7 @@ it("lists only announced clients, executes node tools through the tunnel, and re
       data: JSON.parse((response.content as { text: string }[])[0].text),
     };
   };
-  await expect.poll(() => clientTargets(server).length).toBe(2);
+  await expect.poll(async () => (await call("vecs_targets")).data.targets.length).toBe(3);
   const listing = await call("vecs_targets");
   expect(listing.data.targets).toMatchObject([
     expect.objectContaining({ path: "node/main", kind: "world" }),
@@ -245,7 +245,7 @@ it("enforces node readOnly before forwarding a mutation", async () => {
   router.register(server, "main");
   const client = pair(server, "browser");
   drive(server, [client]);
-  await expect.poll(() => clientTargets(server).length).toBe(1);
+  await expect.poll(() => router.table().targets.length).toBe(2);
   expect(
     await router.dispatch({
       id: "test",
