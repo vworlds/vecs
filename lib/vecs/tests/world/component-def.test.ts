@@ -46,6 +46,31 @@ describe("ComponentDef", () => {
     expect(world.entities.size).toBe(0);
   });
 
+  it("tags a component registered inside a system after deferred commands flush", () => {
+    class DeferredComponent {
+      value = 0;
+    }
+    const world = new World();
+    const entity = world.entity();
+    const definitions = world.query("Definitions").with(ComponentDef).build();
+    world.system("LazyRegistration").run(() => {
+      expect(world.deferred).toBe(true);
+      world.component(DeferredComponent);
+      entity.set(DeferredComponent, { value: 42 });
+    });
+    const initial = new Set(definitions);
+
+    expect(() => world.progress(0, 16)).not.toThrow();
+
+    const definition = world.getEntity(DeferredComponent)!;
+    expect(definition.has(ComponentDef)).toBe(true);
+    expect(new Set(definitions)).toEqual(new Set([...initial, definition]));
+    expect(entity.get(DeferredComponent)).toEqual({ value: 42 });
+    expect([...definitions]).not.toContain(entity);
+    expect(() => world.progress(16, 16)).not.toThrow();
+    expect(new Set(definitions)).toEqual(new Set([...initial, definition]));
+  });
+
   it("does not transfer the marker in a snapshot round trip", () => {
     const source = new World();
     const destination = new World();
