@@ -9,8 +9,9 @@ on the world. One-shot reads install no hooks; explicitly requested
 [watches](./watches.md) use reactive query membership and component hooks, never per-tick tasks.
 Each registered world also holds one live `ComponentDef` query for schema reflection,
 released by server `close()` or browser bridge uninstall. Component names remain
-`Name`, or `Name@eid` when multiple registered classes share a name. Explicit-target
-tool calls route directly without enumerating other destinations' paths.
+`Name`, or `Name@eid` when multiple registered classes share a name. Valid explicit-target
+tool calls route directly without enumerating other destinations' paths. If the
+destination is unknown, the error lists available targets so you can retry with one.
 
 The whole batch is checked statically first: op shape, registered component and
 relationship names, entity references, written-field schemas and read-only fields.

@@ -154,6 +154,7 @@ export class Router {
     };
   }
 
+  /** Route directly; enumerate paths only for omitted targets or unknown-destination hints. */
   public async dispatch(request: BridgeRequest): Promise<BridgeResponse> {
     try {
       if (request.command === "vecs_targets") {
@@ -162,17 +163,16 @@ export class Router {
           result: this.table(),
         };
       }
-      const paths =
-        request.target === undefined
-          ? [...this.destinations.values()].flatMap((destination) => destination.paths())
-          : [];
+      const paths = request.target === undefined ? this._paths() : [];
       const target = request.target ?? (paths.length === 1 ? paths[0] : undefined);
       if (!target) {
         throw new Error(`Specify target; available targets: ${paths.join(", ") || "(none)"}`);
       }
       const destination = this.destinations.get(target.split("/")[0]);
       if (!destination) {
-        throw new Error(`Unknown target ${target}`);
+        throw new Error(
+          `Unknown target ${target}; available targets: ${this._paths().join(", ") || "(none)"}`
+        );
       }
       return { id: request.id, result: await destination.dispatch({ ...request, target }) };
     } catch (error) {
@@ -193,5 +193,9 @@ export class Router {
       eid: entity.eid,
       name: entity.name,
     }));
+  }
+
+  private _paths(): string[] {
+    return [...this.destinations.values()].flatMap((destination) => destination.paths());
   }
 }

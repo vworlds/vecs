@@ -123,7 +123,7 @@ it("does no topology rebuild without an exposing link and drops unsubscribed que
   expect(changed).not.toHaveBeenCalled();
 });
 
-it("only enumerates destination paths for omitted targets, including unknown explicit targets", async () => {
+it("only enumerates destination paths for omitted targets or unknown destinations", async () => {
   const router = new Router("node", {});
   const paths = vi.fn(() => ["peer/world"]);
   router.destinations.set("peer", { paths, dispatch: () => "ok" });
@@ -132,11 +132,16 @@ it("only enumerates destination paths for omitted targets, including unknown exp
     id: "test",
     result: "ok",
   });
-  expect(await router.dispatch({ ...request, target: "missing/world" })).toMatchObject({
-    error: { message: expect.stringContaining("Unknown target missing/world") },
-  });
   expect(paths).not.toHaveBeenCalled();
+  expect(await router.dispatch({ ...request, target: "missing/world" })).toMatchObject({
+    error: { message: "Unknown target missing/world; available targets: peer/world" },
+  });
+  expect(paths).toHaveBeenCalledTimes(1);
   router.destinations.delete("node");
   expect(await router.dispatch(request)).toEqual({ id: "test", result: "ok" });
-  expect(paths).toHaveBeenCalledTimes(1);
+  expect(paths).toHaveBeenCalledTimes(2);
+  router.destinations.clear();
+  expect(await router.dispatch({ ...request, target: "missing/world" })).toMatchObject({
+    error: { message: "Unknown target missing/world; available targets: (none)" },
+  });
 });
