@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { VecsMcpServer } from "../../src/server.js";
 import { installBridge } from "../../src/client.js";
 import { Router } from "../../src/bridge/router.js";
-import { BridgeClient, clientTargets, dispatchClient } from "../../src/tunnel/index.js";
+import { BridgeClient, dispatchClient } from "../../src/tunnel/index.js";
 
 type Handler = (arg?: unknown) => void;
 class MemorySocket implements VecsSocket {
@@ -91,7 +91,12 @@ it("bounds a client tool by wall clock when the game loop never sends", async ()
   router.register(server, "main");
   const client = pair(server, "browser");
   client.send();
-  expect(clientTargets(server).map((target) => target.id)).toEqual(["browser"]);
+  expect(
+    router
+      .table()
+      .targets.filter((target) => target.kind === "client")
+      .map((target) => (target.client as { id: string }).id)
+  ).toEqual(["browser"]);
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   let result: unknown;
   const call = router
@@ -153,7 +158,17 @@ it("closes with a tunneled watch open after the game loop stops", async () => {
   cleanup.push(() => sdk.close());
   const port = await node.listen(0);
   await sdk.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
-  await expect.poll(() => clientTargets(server).length).toBe(1);
+  const call = async (name: string, args = {}) => {
+    const response = await sdk.callTool({ name, arguments: args });
+    return JSON.parse((response.content as { text: string }[])[0].text);
+  };
+  await expect
+    .poll(
+      async () =>
+        (await call("vecs_targets")).targets.filter((t: { kind: string }) => t.kind === "client")
+          .length
+    )
+    .toBe(1);
   const watch = await sdk.callTool({
     name: "vecs_watch",
     arguments: { target: "node/main/browser", where: "Position" },
@@ -207,7 +222,7 @@ it("lists only announced clients, executes node tools through the tunnel, and re
       data: JSON.parse((response.content as { text: string }[])[0].text),
     };
   };
-  await expect.poll(() => clientTargets(server).length).toBe(2);
+  await expect.poll(async () => (await call("vecs_targets")).data.targets.length).toBe(3);
   const listing = await call("vecs_targets");
   expect(listing.data.targets).toMatchObject([
     expect.objectContaining({ path: "node/main", kind: "world" }),
@@ -341,7 +356,7 @@ it("enforces node readOnly before forwarding a mutation", async () => {
   router.register(server, "main");
   const client = pair(server, "browser");
   drive(server, [client]);
-  await expect.poll(() => clientTargets(server).length).toBe(1);
+  await expect.poll(() => router.table().targets.length).toBe(2);
   expect(
     await router.dispatch({
       id: "test",

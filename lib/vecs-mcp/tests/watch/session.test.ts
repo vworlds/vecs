@@ -10,6 +10,8 @@ import { Router } from "../../src/bridge/router.js";
 const servers: VecsMcpServer[] = [];
 const transports: StreamableHTTPClientTransport[] = [];
 const clients: Client[] = [];
+// Each registered world owns one schema query, independently of session watches.
+const registrationQueries = 1;
 afterEach(async () => {
   vi.useRealTimers();
   await Promise.all(
@@ -31,6 +33,10 @@ async function setup(token?: string) {
   const server = new VecsMcpServer({ name: "sessions", readOnly: true, token });
   servers.push(server);
   server.registerWorld(world);
+  expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toHaveLength(
+    registrationQueries
+  );
+  expect(world.queries.length).toBe(baseline + registrationQueries);
   const port = await server.listen(0);
   const url = new URL(`http://127.0.0.1:${port}/mcp`);
   async function connect() {
@@ -52,6 +58,24 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
 }
 
 describe("session watches and MCP resources", () => {
+  it("does not enumerate paths for explicit-target watch tools", async () => {
+    const register = vi.spyOn(Router.prototype, "register");
+    try {
+      const { connect } = await setup();
+      const router = register.mock.contexts[0] as Router;
+      const paths = vi.spyOn(router.destinations.get("sessions")!, "paths");
+      const { client } = await connect();
+      const target = "sessions/world";
+      const { watch } = await call(client, "watch", { target, where: "Position" });
+      await call(client, "events", { target, watch });
+      await call(client, "unwatch", { target, watch });
+      expect(paths).not.toHaveBeenCalled();
+      paths.mockRestore();
+    } finally {
+      register.mockRestore();
+    }
+  });
+
   it("retains each remote route when different worlds return the same watch id", async () => {
     const { connect } = await setup();
     const { client, transport } = await connect();
@@ -104,7 +128,7 @@ describe("session watches and MCP resources", () => {
     try {
       await transport.terminateSession();
       expect(dispatch).not.toHaveBeenCalled();
-      expect(world.queries.length).toBe(baseline);
+      expect(world.queries.length).toBe(baseline + registrationQueries);
       expect(component.meta._onSet).toBe(hook);
     } finally {
       dispatch.mockRestore();
@@ -119,6 +143,9 @@ describe("session watches and MCP resources", () => {
     second.flush();
     const secondBaseline = second.queries.length;
     server.registerWorld(second, "second");
+    expect(second.queries.filter((q) => q.name === "vecs-mcp.definitions")).toHaveLength(
+      registrationQueries
+    );
     const { client, transport } = await connect();
     const a = await call(client, "watch", { target: "sessions/world", where: "Position" });
     const b = await call(client, "watch", { target: "sessions/second", where: "Position" });
@@ -127,15 +154,15 @@ describe("session watches and MCP resources", () => {
       [`vecs://sessions/second/watch/${b.watch}`, `vecs://sessions/world/watch/${a.watch}`]
     );
     await call(client, "unwatch", { target: "sessions/world", watch: a.watch });
-    expect(world.queries.length).toBe(baseline);
-    expect(second.queries.length).toBe(secondBaseline + 1);
+    expect(world.queries.length).toBe(baseline + registrationQueries);
+    expect(second.queries.length).toBe(secondBaseline + registrationQueries + 1);
     expect(await call(client, "events", { target: "sessions/second", watch: b.watch })).toEqual({
       events: [],
       latest: 0,
       dropped: 0,
     });
     await transport.terminateSession();
-    expect(second.queries.length).toBe(secondBaseline);
+    expect(second.queries.length).toBe(secondBaseline + registrationQueries);
   });
 
   it.each(["source", "children"])(
@@ -157,7 +184,7 @@ describe("session watches and MCP resources", () => {
       expect(JSON.stringify(rejected.content)).toContain(
         `${operator} is filter-only: vecs_find supports it, vecs_watch does not`
       );
-      expect(world.queries.length).toBe(baseline);
+      expect(world.queries.length).toBe(baseline + registrationQueries);
       expect((await client.listResources()).resources).toEqual([]);
       expect(await call(client, "find", { where })).toMatchObject({ total: 1 });
     }
@@ -170,7 +197,7 @@ describe("session watches and MCP resources", () => {
     expect(a.transport.sessionId).not.toBe(b.transport.sessionId);
     const first = await call(a.client, "watch", { where: "Position", include: ["Position"] });
     const second = await call(b.client, "watch", { where: "Position" });
-    expect(world.queries.length).toBe(baseline + 2);
+    expect(world.queries.length).toBe(baseline + registrationQueries + 2);
     const resource = (await a.client.listResources()).resources[0];
     expect(resource.uri).toBe(`vecs://sessions/world/watch/${first.watch}`);
     expect((await b.client.listResources()).resources.map((r) => r.uri)).toEqual([
@@ -193,7 +220,7 @@ describe("session watches and MCP resources", () => {
     });
     expect(unwatch.isError).toBe(true);
     await a.transport.terminateSession();
-    expect(world.queries.length).toBe(baseline + 1);
+    expect(world.queries.length).toBe(baseline + registrationQueries + 1);
     expect(component.meta._onSet).toBe(hook);
     expect(await call(b.client, "events", { watch: second.watch })).toEqual({
       events: [],
@@ -201,7 +228,7 @@ describe("session watches and MCP resources", () => {
       dropped: 0,
     });
     await b.transport.terminateSession();
-    expect(world.queries.length).toBe(baseline);
+    expect(world.queries.length).toBe(baseline + registrationQueries);
   });
 
   it("reads the same log through resources and coalesces a burst into one notification per 100ms", async () => {
@@ -261,7 +288,7 @@ describe("session watches and MCP resources", () => {
     await call(client, "stats");
     await vi.advanceTimersByTimeAsync(WATCH_IDLE_MS);
     vi.useRealTimers();
-    expect(world.queries.length).toBe(baseline);
+    expect(world.queries.length).toBe(baseline + registrationQueries);
     expect(
       (
         await fetch(url, {
@@ -278,6 +305,7 @@ describe("session watches and MCP resources", () => {
     await call(client, "watch", { where: "Position", include: ["Position"] });
     await server.close();
     expect(world.queries.length).toBe(baseline);
+    expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toEqual([]);
   });
 
   it("expires an unread watch while its session remains active and reads its resource receipt once", async () => {
@@ -289,7 +317,7 @@ describe("session watches and MCP resources", () => {
     await vi.advanceTimersByTimeAsync(WATCH_IDLE_MS / 2);
     await call(client, "stats");
     await vi.advanceTimersByTimeAsync(WATCH_IDLE_MS / 2);
-    expect(world.queries.length).toBe(baseline);
+    expect(world.queries.length).toBe(baseline + registrationQueries);
     expect(component.meta._onSet).toBe(hook);
     expect((await client.listResources()).resources).toEqual([]);
     const resource = await client.readResource({ uri });

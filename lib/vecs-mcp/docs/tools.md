@@ -7,6 +7,7 @@ class names; duplicate class names are exposed as `Name@eid` and the ambiguous
 bare name is rejected. Entities use a positive eid or an `Identity` name.
 Component trait lists and trait classification exclude `Identity` and `ChildOf`:
 names are identity, and module provenance is already reported by `module`.
+Trait lists also omit the world-managed `ComponentDef` schema marker; it is not policy.
 
 [Browser clients](./clients.md) add `<node>/<world>/<connectionId>` targets with
 `kind: "client"` and `client: { id, eid, name? }` metadata to `vecs_targets`.

@@ -64,6 +64,9 @@ world.progress(performance.now(), 16); // call once per frame
 For synchronous world teardown and its allowed call sites, see
 [Disposing a world](./docs/entities.md#disposing-a-world).
 
+For local schema reflection, query [`ComponentDef`](./docs/components.md#reflecting-on-component-definitions)
+to enumerate registered component and module entities.
+
 System entity callbacks can inject [`Now` and `Delta`](./docs/systems.md#clock-injection) alongside
 components to read the processing tick's timestamp and the system's accumulated tick delta.
 

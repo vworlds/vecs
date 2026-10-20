@@ -45,6 +45,23 @@ async function call(client: Client, name: string, args: Record<string, unknown> 
 }
 
 describe("Streamable HTTP MCP", () => {
+  it("releases each world's schema query on close without requiring HTTP sessions", async () => {
+    const world = new World();
+    world.flush();
+    const baseline = world.queries.length;
+    const server = new VecsMcpServer();
+    servers.push(server);
+    server.registerWorld(world, "first");
+    server.registerWorld(world, "alias");
+    expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toHaveLength(2);
+    expect(world.queries.length).toBe(baseline + 2);
+    await server.close();
+    await server.close();
+    expect(world.queries.length).toBe(baseline);
+    expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toEqual([]);
+    world.dispose();
+  });
+
   it("lists ten tools and invokes the original seven through the SDK client", async () => {
     const { url } = await start();
     const client = await connect(url);

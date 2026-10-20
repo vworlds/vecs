@@ -24,6 +24,7 @@ export type {
 export { DEFAULT_POOLS, World, type WorldOptions } from "./world/index.js";
 export { WorldStats, type Timing, type SystemTiming, type OperationTiming } from "./world/stats.js";
 export { Filter } from "./filter.js";
+export { ComponentDef } from "./component_def.js";
 export {
   ChildOf,
   DependsOn,

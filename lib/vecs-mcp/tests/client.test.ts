@@ -11,6 +11,20 @@ import { installBridge } from "../src/client.js";
 
 afterEach(() => vi.useRealTimers());
 
+it("releases the registration-owned schema query on repeated uninstall", () => {
+  const world = new ClientWorld();
+  world.flush();
+  const baseline = world.queries.length;
+  const bridge = installBridge(world);
+  expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toHaveLength(1);
+  expect(world.queries.length).toBe(baseline + 1);
+  bridge.uninstall();
+  bridge.uninstall();
+  expect(world.queries.length).toBe(baseline);
+  expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toEqual([]);
+  world.dispose();
+});
+
 function setup(readOnly = false) {
   const world = new ClientWorld();
   const listen = vi.spyOn(world, "listen");
