@@ -1,6 +1,7 @@
 import type { World } from "@vworlds/vecs";
 import { BRIDGE_ANNOUNCE_RPC_ID, BRIDGE_CALL_RPC_ID } from "@vworlds/vecs-protocol";
-import type { ServerWorld } from "@vworlds/vecs-server";
+import type { ServerRPCContext, ServerWorld } from "@vworlds/vecs-server";
+import type { RPCHandler } from "@vworlds/vecs-protocol";
 import { BridgeError, type BridgeRequest, type BridgeResponse } from "../bridge/router.js";
 
 // The node entry works without the optional server peer when only plain worlds are used.
@@ -24,14 +25,15 @@ export function registerTunnel(
   }
   const component = world.component(BridgeClient);
   component.on("add", changed).on("remove", changed);
-  const off = world.handleRpc(BRIDGE_ANNOUNCE_RPC_ID, (_params, _request, ctx) => {
+  const handler: RPCHandler<ServerRPCContext> = (_params, _request, ctx) => {
     ctx.caller.add(BridgeClient);
-  });
+  };
+  world.handleRpc(BRIDGE_ANNOUNCE_RPC_ID, handler);
   return {
     world,
     close: () => {
       component.off("add", changed).off("remove", changed);
-      off();
+      world.unhandleRpc(BRIDGE_ANNOUNCE_RPC_ID, handler);
     },
   };
 }

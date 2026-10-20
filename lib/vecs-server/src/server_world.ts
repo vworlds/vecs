@@ -667,12 +667,12 @@ export class ServerWorld extends NetworkWorld {
    * });
    * ```
    *
+   * Use {@link ServerWorld.unhandleRpc} with the same handler reference to remove it.
+   *
    * @param rpcId - Request id to answer.
    * @param handler - Handler run for every connection; see {@link RPCHandler}.
-   * @returns An idempotent disposer that removes this handler from current and future
-   * connections, leaving any later replacement untouched. In-flight calls still settle.
    */
-  public handleRpc(rpcId: number, handler: RPCHandler<ServerRPCContext>): () => void {
+  public handleRpc(rpcId: number, handler: RPCHandler<ServerRPCContext>): void {
     const registration = { handler, installed: new WeakMap<SessionRPC, RPCHandler>() };
     this._rpcHandlers.set(rpcId, registration);
     this._sessions.forEach((session) => {
@@ -680,18 +680,29 @@ export class ServerWorld extends NetworkWorld {
         this._installHandler(session, rpcId, registration);
       }
     });
-    return () => {
-      if (this._rpcHandlers.get(rpcId) !== registration) {
-        return;
+  }
+
+  /**
+   * Remove only the matching handler reference from current and future connections.
+   * A later replacement is left untouched. Calls already in flight still settle.
+   *
+   * @param rpcId - Request id whose registration should be removed.
+   * @param handler - The exact handler reference passed to {@link ServerWorld.handleRpc}.
+   * @returns True when removed; false when absent or registered to another handler.
+   */
+  public unhandleRpc(rpcId: number, handler: RPCHandler<ServerRPCContext>): boolean {
+    const registration = this._rpcHandlers.get(rpcId);
+    if (!registration || registration.handler !== handler) {
+      return false;
+    }
+    this._rpcHandlers.delete(rpcId);
+    this._sessions.forEach((session) => {
+      const installed = registration.installed.get(session.rpc);
+      if (installed) {
+        session.rpc.unlisten(rpcId, installed);
       }
-      this._rpcHandlers.delete(rpcId);
-      this._sessions.forEach((session) => {
-        const installed = registration.installed.get(session.rpc);
-        if (installed) {
-          session.rpc.unlisten(rpcId, installed);
-        }
-      });
-    };
+    });
+    return true;
   }
 
   /**
