@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { Peer } from "../../src/links/peer.js";
 
 it("routes only advertised paths and replaces the whole cached target table", async () => {
@@ -12,10 +12,13 @@ it("routes only advertised paths and replaces the whole cached target table", as
   const peer = new Peer([entry], async (forwarded) => ({ target: forwarded.target }));
   expect(peer.paths()).toEqual(["game/world"]);
   expect(peer.targets()).toEqual([entry]);
+  const paths = vi.spyOn(peer, "paths");
   expect(await peer.dispatch(request)).toEqual({ target: "game/world" });
   expect(() => peer.dispatch({ ...request, target: "game/missing" })).toThrow(
     "Unknown target game/missing"
   );
+  expect(paths).not.toHaveBeenCalled();
+  paths.mockRestore();
   peer.entries = [];
   expect(peer.paths()).toEqual([]);
   expect(() => peer.dispatch(request)).toThrow("Unknown target game/world");

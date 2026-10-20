@@ -12,7 +12,7 @@ export class Peer implements Destination {
   }
 
   public dispatch(request: BridgeRequest): Promise<unknown> {
-    if (!this.paths().includes(request.target!)) {
+    if (!this.entries.some((entry) => entry.path === request.target)) {
       throw new Error(`Unknown target ${request.target}`);
     }
     return this._forward(request);

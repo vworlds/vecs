@@ -8,6 +8,7 @@ import {
   Identity,
   type World,
   type QueryDSL,
+  type Query,
 } from "@vworlds/vecs";
 import { componentSchema } from "../schema/index.js";
 import { componentValue } from "./serialize.js";
@@ -18,12 +19,14 @@ import { WatchSet } from "./watch.js";
 export class LocalWorld {
   /** Live, session-owned watches; inert until explicitly created. */
   public readonly watches: WatchSet;
+  private readonly _definitions: Query<[typeof ComponentDef]>;
 
   public constructor(
     public readonly world: World,
     private readonly readOnly = false
   ) {
     this.watches = new WatchSet(world);
+    this._definitions = world.query("vecs-mcp.definitions").with(ComponentDef).build();
   }
 
   /** Execute a world tool; watch tools require the bridge-injected session owner. */
@@ -68,10 +71,14 @@ export class LocalWorld {
     };
   }
 
+  /** Release the registration-owned schema query. Safe after world disposal and to repeat. */
+  public dispose(): void {
+    this._definitions.destroy();
+  }
+
+  /** Read the live component-definition query; duplicate class names use Name@eid keys. */
   public registry(): Map<string, Component> {
-    const components = [...this.world.entities.values()].filter(
-      (entity): entity is Component => entity instanceof Component
-    );
+    const components = [...this._definitions] as Component[];
     const counts = new Map<string, number>();
     for (const c of components) {
       counts.set(c.meta.Class.name, (counts.get(c.meta.Class.name) ?? 0) + 1);

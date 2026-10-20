@@ -1,7 +1,6 @@
 import { World } from "@vworlds/vecs";
 import { LocalWorld } from "./world.js";
-import type { ServerWorld } from "@vworlds/vecs-server";
-import { registerTunnel, clientTargets, dispatchClient } from "../tunnel/index.js";
+import { registerTunnel, dispatchClient, type Tunnel } from "../tunnel/index.js";
 import { randomUUID } from "node:crypto";
 
 /** @internal An advertised target, including its originating node and traversal history. */
@@ -50,8 +49,9 @@ export class Router {
   public readonly destinations = new Map<string, Destination>();
   public readonly worlds = new Map<string, LocalWorld>();
   public readonly nodeId = randomUUID();
-  private readonly _tunnels = new Map<string, ServerWorld>();
-  private readonly _changes = new Set<() => void>();
+  private readonly _tunnels = new Map<string, Tunnel>();
+  private readonly _changes = new Set<(table: TargetTable) => void>();
+  private _pendingChange?: ReturnType<typeof setImmediate>;
 
   public constructor(
     public readonly name: string,
@@ -72,7 +72,7 @@ export class Router {
         }
         if (segments.length === 3) {
           const tunnel = this._tunnels.get(segments[1]);
-          if (!tunnel || !this._clients(segments[1]).some((client) => client.id === segments[2])) {
+          if (!tunnel || !tunnel.clients.has(segments[2])) {
             throw new Error(`Unknown target ${request.target}`);
           }
           if (
@@ -83,7 +83,7 @@ export class Router {
           ) {
             throw new Error("readOnly server: client mutations are forbidden");
           }
-          return dispatchClient(tunnel, segments[2], request);
+          return dispatchClient(tunnel.world, segments[2], request);
         }
         return local.command(request.command, request.params);
       },
@@ -105,20 +105,30 @@ export class Router {
     this.changed();
   }
 
-  /** Subscribe to topology changes; the returned function removes the subscription. */
-  public onChange(callback: () => void): () => void {
+  /** Subscribe to a shared, coalesced topology table; return an unsubscribe function. */
+  public onChange(callback: (table: TargetTable) => void): () => void {
     this._changes.add(callback);
     return () => this._changes.delete(callback);
   }
 
-  /** Notify exposing links after a world, bridged client, or peer table changes. */
+  /** Coalesce topology notifications outside the tick; idle nodes schedule nothing. */
   public changed(): void {
-    for (const callback of this._changes) {
-      callback();
+    if (!this._changes.size || this._pendingChange) {
+      return;
     }
+    this._pendingChange = setImmediate(() => {
+      this._pendingChange = undefined;
+      if (!this._changes.size) {
+        return;
+      }
+      const table = this.table();
+      for (const callback of this._changes) {
+        callback(table);
+      }
+    });
   }
 
-  /** Read the cached aggregate table without remote requests. */
+  /** Combine current local targets and cached peer advertisements without remote requests. */
   public table(): TargetTable {
     return {
       node: { ...this.node, name: this.name, nodeId: this.nodeId },
@@ -152,14 +162,17 @@ export class Router {
           result: this.table(),
         };
       }
-      const paths = [...this.destinations.values()].flatMap((destination) => destination.paths());
+      const paths =
+        request.target === undefined
+          ? [...this.destinations.values()].flatMap((destination) => destination.paths())
+          : [];
       const target = request.target ?? (paths.length === 1 ? paths[0] : undefined);
       if (!target) {
         throw new Error(`Specify target; available targets: ${paths.join(", ") || "(none)"}`);
       }
       const destination = this.destinations.get(target.split("/")[0]);
       if (!destination) {
-        throw new Error(`Unknown target ${target}; available targets: ${paths.join(", ")}`);
+        throw new Error(`Unknown target ${target}`);
       }
       return { id: request.id, result: await destination.dispatch({ ...request, target }) };
     } catch (error) {
@@ -174,8 +187,11 @@ export class Router {
     }
   }
 
-  private _clients(name: string): ReturnType<typeof clientTargets> {
-    const world = this._tunnels.get(name);
-    return world ? clientTargets(world) : [];
+  private _clients(name: string): { id: string; eid: number; name: string | undefined }[] {
+    return [...(this._tunnels.get(name)?.clients ?? [])].map(([id, entity]) => ({
+      id,
+      eid: entity.eid,
+      name: entity.name,
+    }));
   }
 }
