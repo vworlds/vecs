@@ -9,8 +9,10 @@ legacyState: [vecs-watch]
 legacyWorkers:
   - vecs-orchestrator/workers
   - vecs-orchestrator/claude-workers
+# Owner decision (2026-10-19): the owner handles communication with vmethod, so
+# the watcher follows only this repository and board 4.
 vmethod:
-  repo: vworlds/vmethod
+  repo: "off"
 watch:
   preview: false
 branches:

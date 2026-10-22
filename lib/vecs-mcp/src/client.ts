@@ -21,6 +21,7 @@ export interface BridgeOptions {
  * macrotask after progress()/apply() returns, inline with read-after-write semantics.
  * No Node imports, polling, or additional tick work. Disposal/uninstall before the
  * macrotask rejects the handler with RPC_CLOSED_CODE rather than executing it.
+ * Holds a live component-definition query; uninstall releases it and is safe to repeat.
  */
 export function installBridge(
   world: ClientWorld,
@@ -64,6 +65,7 @@ export function installBridge(
       installed = false;
       world.events.off("connect", announce);
       world.unlisten(BRIDGE_CALL_RPC_ID, handler);
+      local.dispose();
     },
   };
 }

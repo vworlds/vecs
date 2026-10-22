@@ -28,5 +28,9 @@ hub; the [hub CLI](./docs/getting-started.md#hub-cli) is included as `vecs-mcp`.
 
 Start with the [documentation map](./docs/README.md).
 
-**Never expose a public port without a token.** MCP mutation access is authoritative
-game access; see [security](./docs/security.md).
+**SECURITY:** Use tokenless nodes only on trusted private networks. Browser pages
+can reach loopback; `/link` rejects requests carrying an `Origin` by default
+(`linkOrigins` can allow trusted origins). Non-browser peers can omit or forge
+Origin, so this filter is not authentication. **Never expose a public port without
+a token.** MCP mutation access is authoritative game access; review
+[security](./docs/security.md) before changing this deployment boundary.

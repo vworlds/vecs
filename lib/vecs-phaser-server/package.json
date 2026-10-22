@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-phaser-server",
-  "version": "1.0.58",
+  "version": "1.0.59",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -25,10 +25,10 @@
     "test:stress": "vitest run --config vitest.stress.config.ts --passWithNoTests"
   },
   "dependencies": {
-    "@vworlds/vecs-phaser": "1.0.58",
-    "@vworlds/vecs-physics": "1.0.58",
-    "@vworlds/vecs-protocol": "1.0.58",
-    "@vworlds/vecs-server": "1.0.58"
+    "@vworlds/vecs-phaser": "1.0.59",
+    "@vworlds/vecs-physics": "1.0.59",
+    "@vworlds/vecs-protocol": "1.0.59",
+    "@vworlds/vecs-server": "1.0.59"
   },
   "peerDependencies": {
     "express": "^5.2.1"
