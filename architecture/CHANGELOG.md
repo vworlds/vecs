@@ -3,6 +3,33 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## v1.0.59 (2026-10-22)
+
+- [vecs-mcp] Changed: Track bridged clients incrementally and coalesce topology rebuilds and advertisements outside the server tick, sharing one table across exposing links (#382).
+- [vecs-mcp] Internal: Reflect registered components through a retained `ComponentDef` query, release it on server close/browser uninstall, and avoid destination path enumeration for valid explicit targets while preserving discovery hints for unknown destinations (#382).
+- [vecs-mcp] Tests: Cover scan-free client churn, coalesced advertisements, duplicate component names, explicit routing and registry-query teardown (#382).
+- [vecs] Added: `ComponentDef`, a local-only tag for incremental queries over registered component and module entities, including built-ins and the tag itself (#380).
+- [vecs-protocol] Changed: Reject `ComponentDef` as a network component because it is local schema metadata (#380).
+- [vecs-mcp] Changed: Omit the world-managed `ComponentDef` marker from component policy trait lists (#380).
+- [vecs] Docs: Document component-definition reflection and its local schema metadata lifecycle (#380).
+- [repo] Changed: Gate the demo client's MCP bridge behind the opt-in VITE_MCP=1 build flag and document the production risk (#377).
+- [vecs-mcp] Fixed: Reject unlisted browser Origins before /link WebSocket upgrades by default; add linkOrigins configuration and document residual private-network trust (#371, #362).
+- [repo] Changed: Adopt pinned vmethod tooling, shared agent guides and identity/model registries while retaining vecs verification and release hooks (#370).
+- [repo] Changed: Mark owner-review PRs ready, return changes to draft, and finish owner button-merge follow-up with track isolation and pack-branch preservation (#358).
+- [repo] Fixed: Exclude task worktrees and scratch directories before Prettier traversal so unreadable worker files cannot block formatting checks or releases (#357).
+- [repo] Added: Merge-commit support for integration-pack PRs while keeping pack branches by default (#354).
+- [repo] Added: Estimate grading, action-maintained Model families, Claude workers and checked-in vecs model calibration, with budget-neutral track-scoped GRADE events (#353).
+- [vecs-mcp] Added: Session-owned reactive watches, bounded event logs and subscribable local MCP resources; session DELETE and idle expiry release queries and component hooks (#350).
+- [vecs-mcp] Fixed: Watch ids work in insecure browser contexts without crypto APIs, and session cleanup distinguishes world-scoped ids while avoiding redundant local unwatch requests (#350).
+- [vecs-mcp] Added: Integration coverage for watch ownership, pull-only event reads and session cleanup through peer links, link cascades and browser tunnels (#350).
+- [vecs-protocol] Added: Reserved MCP bridge RPC ids 90/91, reference-safe handler removal and constant-time pending-call count (#349).
+- [vecs-client] Added: Socket-attachment connect events, connected/disposed getters and reference-safe unlisten for bridge lifecycle cleanup (#349).
+- [vecs-server] Added: Client RPC invocation with typed failures, session-end rejection and timeout ticking only for pending server calls (#349).
+- [vecs-mcp] Added: Browser-safe client bridge, on-demand client targets over the vecs connection, macrotask execution and demo opt-in (#349).
+- [vecs-mcp] Fixed: Refresh linked target tables on bridge announce/disconnect and preserve client metadata, cascade routing and error hops through hubs (#349).
+- [vecs-mcp] Added: Join and mount links with cascade routing, loop-safe advertised target tables, reconnects and a hub CLI; demo servers can join through VECS_MCP_HUB (#348).
+- [vecs-mcp] Fixed: Preserve local multi-segment targets through links, reject invalid link URLs immediately, and detect silent peers with application-level ping/pong liveness (#348).
+
 ## v1.0.58 (2026-10-15)
 
 - [repo] Changed: Add isolated orchestrator tracks and integration bases (#345).
