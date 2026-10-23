@@ -71,6 +71,15 @@ The orchestrator posted both read-only results on PR #370: exit 0, no drift, and
 an expect-only v2 migration with no changes. Applying its version stamp remains
 deferred to owner/SpaceRocks coordination.
 
+## rc.5
+
+The orchestrator role is per repository since rc.5: `people.yaml` binds VecsMaster
+with `repos: [vworlds/vecs]`, and `vmethod check` errors without it. `vmethod init`
+regenerates the stubs with `>/dev/null`; the checked-in stubs keep the
+`prettier-plugin-sh` spelling `> /dev/null`, which is otherwise identical. Before
+re-arming a watcher, `vmethod watch --replay previous` shows what the last run
+delivered.
+
 ## Pilot gaps and remaining rollout
 
 rc.3 resolves the rc.1 gaps:
