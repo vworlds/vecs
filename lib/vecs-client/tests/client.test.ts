@@ -153,17 +153,20 @@ describe("ClientWorld", () => {
     expect(events).toEqual([true, true]);
   });
 
-  it("unlisten removes only the same handler reference", () => {
-    const world = createClientWorld();
-    const old = () => "old";
-    const replacement = () => "new";
-    world.listen(201, old);
-    world.listen(201, replacement);
-    expect(world.unlisten(201, old)).toBe(false);
-    expect(world.unlisten(201, replacement)).toBe(true);
-    expect(world.unlisten(201, replacement)).toBe(false);
-    world.dispose();
-  });
+  it.each([201, "client/inspect"])(
+    "unlisten removes only the same handler reference for %s",
+    (key) => {
+      const world = createClientWorld();
+      const old = () => "old";
+      const replacement = () => "new";
+      world.listen(key, old);
+      world.listen(key, replacement);
+      expect(world.unlisten(key, old)).toBe(false);
+      expect(world.unlisten(key, replacement)).toBe(true);
+      expect(world.unlisten(key, replacement)).toBe(false);
+      world.dispose();
+    }
+  );
   it("honours moduleIdCount", () => {
     const client = new ClientWorld({ moduleIdCount: 300 });
     expect(client.pools.find((pool) => pool.name === "module")).toEqual({

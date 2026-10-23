@@ -343,10 +343,11 @@ export class ClientWorld extends NetworkWorld {
    * A call made before the first {@link ClientWorld.attachSocket} is queued and
    * sent once a socket is attached.
    *
-   * @param rpcId - Request id to call.
+   * @param rpcId - Name to call, or numeric application id (101–2147483647).
+   *   Names are hashed once; collisions with remembered names throw with both names.
    * @param params - Positional parameters to send.
    */
-  public invoke(rpcId: number, params: unknown[] = []): Promise<unknown[]> {
+  public invoke(rpcId: number | string, params: unknown[] = []): Promise<unknown[]> {
     if (this._disposed) {
       return Promise.reject(
         new RPCError(RPC_CLOSED_CODE, "ClientWorld disposed before the RPC completed")
@@ -368,15 +369,16 @@ export class ClientWorld extends NetworkWorld {
    * Its answer is queued once the handler settles and goes out with the next
    * ack.
    *
-   * @param rpcId - Request id to answer.
+   * @param rpcId - Name to answer, or numeric application id (101–2147483647).
+   *   Names share collision detection with invoke and unlisten.
    * @param handler - Handler run once for each incoming call; see {@link RPCHandler}.
    */
-  public listen(rpcId: number, handler: RPCHandler): void {
+  public listen(rpcId: number | string, handler: RPCHandler): void {
     this._rpc.listen(rpcId, handler);
   }
 
-  /** Remove only this handler reference, returning false if absent or replaced. */
-  public unlisten(rpcId: number, handler: RPCHandler): boolean {
+  /** Remove a name or numeric id's matching handler; remember names after removal for collision checks. */
+  public unlisten(rpcId: number | string, handler: RPCHandler): boolean {
     return this._rpc.unlisten(rpcId, handler);
   }
 

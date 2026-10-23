@@ -7,6 +7,7 @@ answers, and both sides learn about failure through a typed error instead of an 
 ## What you'll learn
 
 - How `SessionRPC` keeps call/answer pairs matched.
+- How names become wire ids, and which numeric application ids remain supported.
 - Why a handler runs once per call even when the caller retransmits its request, and when the
   channel lets go of a reply.
 - How the two sides exchange the settled watermark that makes that possible.
@@ -31,7 +32,7 @@ const server = new SessionRPC();
 const move: RPCHandler = (params, _request) => {
   return [`moved ${params[0]}`];
 };
-server.listen(101, move);
+server.listen("move", move);
 
 // Stand-in for the socket. Once per frame, each side hands the other its outgoing messages and
 // its settled watermark (see below), which tells the other side what it can let go of.
@@ -42,7 +43,7 @@ setInterval(() => {
   client.process(server.getOutgoing());
 }, 33);
 
-const answer = await client.invoke(101, ["north"]);
+const answer = await client.invoke("move", ["north"]);
 console.log(answer.params); // ["moved north"]
 ```
 
@@ -54,17 +55,35 @@ reply message, an `RPC`.
 the same, returning true when removed. Cleanup with an old reference leaves a
 replacement intact; in-flight calls and cached replies are unaffected.
 
-### Reserved request ids
+### Names and numeric request ids
 
-| Id           | Constant                 | Purpose                                              |
-| ------------ | ------------------------ | ---------------------------------------------------- |
-| `0`          | `RPC_RESPONSE_ID`        | Reply, never a request.                              |
-| `90`         | `BRIDGE_ANNOUNCE_RPC_ID` | Client announces the MCP bridge to its server.       |
-| `91`         | `BRIDGE_CALL_RPC_ID`     | Server forwards an MCP envelope to a bridged client. |
-| `101` and up | `FIRST_USER_RPC_ID`      | Application request ids.                             |
+Use names such as `"auth"` for application RPCs and package-prefixed names such as
+`"vecs-mcp/call"` for extensions. `SessionRPC.listen`, `unlisten` and `invoke`,
+`ServerWorld.handleRpc`, `unhandleRpc` and `invoke`, and `ClientWorld.listen`,
+`unlisten` and `invoke` accept `number | string`.
 
-`SessionRPC.invoke` rejects other ids below 101. The bridge ids are the only
-exceptions in the reserved request range; applications must not use them.
+`rpcIdFor(name)` reuses vecs' FNV-1a 32-bit hash over UTF-16 code units and forces
+the top bit: `(hash | 0x80000000) >>> 0`. Names are case-sensitive; no normalization
+is applied. Pass the **name**, not the hash, to these APIs. Hashing occurs at the
+API boundary, never while routing incoming messages. The wire still carries only
+the same `u32` `RPC.rpcId`, without additional bytes.
+
+| Wire id                   | Purpose                                                       |
+| ------------------------- | ------------------------------------------------------------- |
+| `0`                       | `RPC_RESPONSE_ID`: reply marker, never callable.              |
+| `1`–`100`                 | Reserved for vecs; no extension exceptions.                   |
+| `101`–`2147483647`        | Numeric application ids, starting at `FIRST_USER_RPC_ID`.     |
+| `2147483648`–`4294967295` | Hashed names only; numeric API arguments in this range throw. |
+
+All three API operations reject reserved, fractional and out-of-range numeric ids.
+Existing numeric application ids such as `101` and `102` continue to work.
+
+Each channel remembers the names it registers or invokes. The server handler
+registry also checks registrations before any clients connect. A different name
+with the same hash throws with both names and the id; choose a different name on
+both peers. Removing a handler or reconnecting does not forget the channel's names.
+An unknown-handler reply includes the name when the responding channel knows it.
+Names are not transmitted, so a peer that never learned a name can report only its id.
 
 `RPCHandler` takes an optional third type parameter for a context: `RPCHandler<TContext>` defaults
 to `RPCHandler<void>`, so existing handlers keep typechecking unchanged. `SessionRPC` never supplies
@@ -134,7 +153,7 @@ that both cross the wire:
 ```ts
 import { RPCError } from "@vworlds/vecs-protocol";
 
-server.listen(102, () => {
+server.listen("spend", () => {
   throw new RPCError(4001, "unknown resume token");
 });
 ```
@@ -144,7 +163,7 @@ and you can branch on it:
 
 ```ts
 try {
-  await client.invoke(102);
+  await client.invoke("spend");
 } catch (error) {
   if (error instanceof RPCError && error.code === 4001) {
     // re-authenticate and retry
@@ -208,7 +227,7 @@ is disposed. `ServerWorld.invoke` ticks only sessions with pending outgoing call
 from its send path, including sessions without a view. A bare `SessionRPC` needs its own tick driver.
 
 ```ts
-const pending = client.invoke(101, [], 5_000);
+const pending = client.invoke("auth", [], 5_000);
 // once per frame, with absolute time on the default clock
 client.timeoutTick(performance.now());
 ```

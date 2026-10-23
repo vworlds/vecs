@@ -52,6 +52,9 @@ and you should not reach for them.
 ## Caller context
 
 `handleRpc(rpcId, handler): void` registers one handler for every connection.
+Use names such as `handleRpc("auth", handler)`; numeric application ids in
+101–2147483647 remain supported. See [names and numeric request ids](../../vecs-protocol/docs/rpc.md#names-and-numeric-request-ids)
+for hashing, collision detection and reserved ranges.
 Keep the handler reference and pass it to `unhandleRpc(rpcId, handler): boolean`
 to remove that registration from existing and future connections. Removal returns
 `true` only when that exact handler is currently registered; otherwise it returns
@@ -62,7 +65,7 @@ The handler's third argument is a
 ```ts
 import type { ServerRPCContext } from "@vworlds/vecs-server";
 
-world.handleRpc(101, (params, _request, ctx: ServerRPCContext) => {
+world.handleRpc("auth", (params, _request, ctx: ServerRPCContext) => {
   ctx.caller.set(SessionStats, { calls: 1 });
   return [ctx.connectionId, ctx.world.name];
 });
@@ -89,7 +92,7 @@ branch on:
 ```ts
 import { RPCError } from "@vworlds/vecs-protocol";
 
-world.handleRpc(102, (_params, _request, ctx) => {
+world.handleRpc("spend", (_params, _request, ctx) => {
   if (!isRateLimited(ctx.connectionId)) {
     throw new RPCError(4001, "slow down");
   }
@@ -452,7 +455,7 @@ the client would never see the typed error. The reply is not "best effort" anymo
 retransmitted until acknowledged, and only then is the transport closed.
 
 ```ts
-world.handleRpc(101, (params, _request, ctx) => {
+world.handleRpc("auth", (params, _request, ctx) => {
   const [resumeToken] = params as [string];
   if (!sessions.authenticate(ctx.connectionId, resumeToken)) {
     world.closeSession(ctx.caller, "unauthenticated");

@@ -1,11 +1,5 @@
 import type { ClientWorld } from "@vworlds/vecs-client";
-import {
-  BRIDGE_ANNOUNCE_RPC_ID,
-  BRIDGE_CALL_RPC_ID,
-  RPC_CLOSED_CODE,
-  RPCError,
-  type RPCHandler,
-} from "@vworlds/vecs-protocol";
+import { RPC_CLOSED_CODE, RPCError, type RPCHandler } from "@vworlds/vecs-protocol";
 import { LocalWorld } from "./bridge/world.js";
 import type { BridgeRequest, BridgeResponse } from "./bridge/router.js";
 
@@ -22,6 +16,7 @@ export interface BridgeOptions {
  * No Node imports, polling, or additional tick work. Disposal/uninstall before the
  * macrotask rejects the handler with RPC_CLOSED_CODE rather than executing it.
  * Holds a live component-definition query; uninstall releases it and is safe to repeat.
+ * Uses named RPCs `vecs-mcp/announce` and `vecs-mcp/call`; both peers must use this naming scheme.
  */
 export function installBridge(
   world: ClientWorld,
@@ -31,7 +26,7 @@ export function installBridge(
   let installed = true;
   const announce = (): void => {
     // A disconnect/dispose may race the reply; announcement must not leak a rejection.
-    void world.invoke(BRIDGE_ANNOUNCE_RPC_ID).catch(() => {});
+    void world.invoke("vecs-mcp/announce").catch(() => {});
   };
   const handler: RPCHandler = ([input]) =>
     new Promise<BridgeResponse>((resolve, reject) => {
@@ -55,7 +50,7 @@ export function installBridge(
         }
       }, 0);
     });
-  world.listen(BRIDGE_CALL_RPC_ID, handler);
+  world.listen("vecs-mcp/call", handler);
   world.events.on("connect", announce);
   if (world.connected) {
     announce();
@@ -64,7 +59,7 @@ export function installBridge(
     uninstall(): void {
       installed = false;
       world.events.off("connect", announce);
-      world.unlisten(BRIDGE_CALL_RPC_ID, handler);
+      world.unlisten("vecs-mcp/call", handler);
       local.dispose();
     },
   };

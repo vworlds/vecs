@@ -344,10 +344,10 @@ describe("a baseline in flight", () => {
 
   it("still carries RPC replies, in frames with no state", async () => {
     const rig = createRig();
-    rig.world.handleRpc(7, () => "pong");
+    rig.world.handleRpc(107, () => "pong");
     step(rig);
 
-    ack(rig, 0, [new RPC({ rpcId: 7, callId: 3, params: [] })]);
+    ack(rig, 0, [new RPC({ rpcId: 107, callId: 3, params: [] })]);
     await settlePromises();
     move(rig, 5);
     const frames = step(rig);
@@ -360,7 +360,7 @@ describe("a baseline in flight", () => {
     // Once the baseline is acked, a reply rides with the (here empty) diff from the ack again.
     ack(rig, 1);
     const [delta] = step(rig);
-    ack(rig, delta.diff!.toFrame, [new RPC({ rpcId: 7, callId: 4, params: [] })]);
+    ack(rig, delta.diff!.toFrame, [new RPC({ rpcId: 107, callId: 4, params: [] })]);
     await settlePromises();
     const [rpcFrame] = step(rig);
     expect(rpcFrame.diff).toMatchObject({ fromFrame: 3, toFrame: 4, snapshots: [], removed: [] });
@@ -371,7 +371,7 @@ describe("a baseline in flight", () => {
 describe("a frame without state", () => {
   it("still carries the RPC watermark, so the client can drop the replies it kept", async () => {
     const rig = createRig();
-    rig.world.handleRpc(7, () => "pong");
+    rig.world.handleRpc(107, () => "pong");
     step(rig); // the baseline is now in flight
 
     // The channel's watermark is 1 once its first call has settled.
@@ -380,7 +380,7 @@ describe("a frame without state", () => {
     rpc.process([new RPC({ rpcId: 0, callId: 0, params: [] })]);
     await call;
     expect(rpc.settledBelow).toBe(1);
-    ack(rig, 0, [new RPC({ rpcId: 7, callId: 3, params: [] })]);
+    ack(rig, 0, [new RPC({ rpcId: 107, callId: 3, params: [] })]);
     await settlePromises();
     const frames = step(rig);
 
@@ -405,9 +405,9 @@ describe("a session with nothing visible", () => {
 
   it("gets an RPC reply with no diff rather than an empty baseline", async () => {
     const rig = createRig({}, { entity: false });
-    rig.world.handleRpc(7, () => "pong");
+    rig.world.handleRpc(107, () => "pong");
 
-    ack(rig, 0, [new RPC({ rpcId: 7, callId: 1, params: [] })]);
+    ack(rig, 0, [new RPC({ rpcId: 107, callId: 1, params: [] })]);
     await settlePromises();
     const frames = step(rig);
 

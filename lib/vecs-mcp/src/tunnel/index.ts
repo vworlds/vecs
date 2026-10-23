@@ -1,9 +1,5 @@
 import type { Entity, World } from "@vworlds/vecs";
-import {
-  BRIDGE_ANNOUNCE_RPC_ID,
-  BRIDGE_CALL_RPC_ID,
-  RPC_TIMEOUT_ERROR,
-} from "@vworlds/vecs-protocol";
+import { RPC_TIMEOUT_ERROR } from "@vworlds/vecs-protocol";
 import type { ServerRPCContext, ServerWorld } from "@vworlds/vecs-server";
 import type { RPCHandler } from "@vworlds/vecs-protocol";
 import { BridgeError, type BridgeRequest, type BridgeResponse } from "../bridge/router.js";
@@ -63,13 +59,13 @@ export function registerTunnel(
   const handler: RPCHandler<ServerRPCContext> = (_params, _request, ctx) => {
     ctx.caller.add(BridgeClient);
   };
-  world.handleRpc(BRIDGE_ANNOUNCE_RPC_ID, handler);
+  world.handleRpc("vecs-mcp/announce", handler);
   return {
     world,
     clients,
     close: () => {
       world.component(BridgeClient).off("add", add).off("remove", remove);
-      world.unhandleRpc(BRIDGE_ANNOUNCE_RPC_ID, handler);
+      world.unhandleRpc("vecs-mcp/announce", handler);
     },
   };
 }
@@ -86,7 +82,7 @@ export async function dispatchClient(
       timer = setTimeout(() => reject(RPC_TIMEOUT_ERROR), CLIENT_CALL_TTL_MS);
     });
     const [response] = (await Promise.race([
-      world.invoke(segment, BRIDGE_CALL_RPC_ID, [request], CLIENT_CALL_TTL_MS),
+      world.invoke(segment, "vecs-mcp/call", [request], CLIENT_CALL_TTL_MS),
       timeout,
     ])) as [BridgeResponse];
     if ("error" in response) {

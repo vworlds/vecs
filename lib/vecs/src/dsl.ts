@@ -412,7 +412,8 @@ function _sortCommutativeTerms(terms: SimplifiedQueryDSL[]): SimplifiedQueryDSL[
   return deduped;
 }
 
-function _fnv1a32(input: string): number {
+/** Compute unsigned FNV-1a over UTF-16 code units, shared by DSL keys and RPC names. @internal */
+export function _fnv1a32(input: string): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < input.length; i++) {
     hash ^= input.charCodeAt(i);

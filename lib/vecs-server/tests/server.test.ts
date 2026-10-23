@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import * as vecs from "@vworlds/vecs";
 import {
   Client2Server,
   ComponentSnapshot,
   RPC,
   RPC_RESPONSE_ID,
+  rpcIdFor,
   Server2Client,
   SessionRPC,
   RPC_CLOSED_CODE,
@@ -1097,8 +1099,8 @@ describe("ServerWorld", () => {
   it("renames listen to handleRpc and applies registered handlers to new sessions", () => {
     const world = createWorld();
     const server = world;
-    server.handleRpc(42, (_params, req) => {
-      expect(req.rpcId).toBe(42);
+    server.handleRpc(142, (_params, req) => {
+      expect(req.rpcId).toBe(142);
       return [];
     });
     // handler registration must be retroactive to sessions opened later
@@ -1683,46 +1685,67 @@ describe("ServerWorld", () => {
 });
 
 describe("ServerWorld RPC caller context", () => {
-  it("unhandles matching handlers on existing and future sessions without removing replacements", async () => {
-    const server = createWorld();
-    let nextId = 1;
-    const call = async (socket: MemorySocket) => {
-      const callId = nextId++;
-      const replies = await deliver(socket, server, {
-        rpc: [new RPC({ rpcId: 101, callId, params: [] })],
-      });
-      const reply = replies.find((reply) => reply.callId === callId);
-      if (!reply) {
-        throw new Error(`Missing reply ${callId}`);
-      }
-      return reply;
-    };
-    const listener = new MockListener();
-    server._attach(listener);
-    const first = new MemorySocket("first");
-    listener.connect(first);
-    const original = () => ["original"];
-    expect(server.handleRpc(101, original)).toBeUndefined();
-    const second = new MemorySocket("second");
-    listener.connect(second);
-    expect((await call(first)).params).toEqual(["original"]);
-    expect((await call(second)).params).toEqual(["original"]);
-    expect(server.unhandleRpc(101, original)).toBe(true);
-    expect(server.unhandleRpc(101, original)).toBe(false);
-    const third = new MemorySocket("third");
-    listener.connect(third);
-    for (const socket of [first, second, third]) {
-      expect((await call(socket)).message).toBe("Unknown RPC id 101");
+  it("rejects a forced name collision before any sessions connect", () => {
+    const hash = vi.spyOn(vecs, "_fnv1a32").mockReturnValue(123);
+    try {
+      const server = createWorld();
+      const handler = () => [];
+      server.handleRpc("first", handler);
+      expect(() => server.handleRpc("second", handler)).toThrow(/"first".*"second"/);
+      expect(server.unhandleRpc("first", handler)).toBe(true);
+      expect(() => server.handleRpc("second", handler)).toThrow(/"first".*"second"/);
+    } finally {
+      hash.mockRestore();
     }
-    const old = () => ["old"];
-    const current = () => ["replacement"];
-    server.handleRpc(101, old);
-    server.handleRpc(101, current);
-    expect(server.unhandleRpc(101, old)).toBe(false);
-    expect((await call(first)).params).toEqual(["replacement"]);
-    expect(server.unhandleRpc(101, current)).toBe(true);
-    expect((await call(first)).message).toBe("Unknown RPC id 101");
   });
+
+  it.each([101, "auth"])(
+    "unhandles %s on existing and future sessions without removing replacements",
+    async (key) => {
+      const server = createWorld();
+      const id = typeof key === "string" ? rpcIdFor(key) : key;
+      const unknown = `Unknown RPC id ${id}${typeof key === "string" ? ` (${JSON.stringify(key)})` : ""}`;
+      let nextId = 1;
+      const call = async (socket: MemorySocket) => {
+        const callId = nextId++;
+        const replies = await deliver(socket, server, {
+          rpc: [new RPC({ rpcId: id, callId, params: [] })],
+        });
+        const reply = replies.find((reply) => reply.callId === callId);
+        if (!reply) {
+          throw new Error(`Missing reply ${callId}`);
+        }
+        return reply;
+      };
+      const listener = new MockListener();
+      server._attach(listener);
+      const first = new MemorySocket("first");
+      listener.connect(first);
+      const original = () => ["original"];
+      expect(server.handleRpc(key, original)).toBeUndefined();
+      const second = new MemorySocket("second");
+      listener.connect(second);
+      expect((await call(first)).params).toEqual(["original"]);
+      expect((await call(second)).params).toEqual(["original"]);
+      expect(server.unhandleRpc(key, original)).toBe(true);
+      expect(server.unhandleRpc(key, original)).toBe(false);
+      const third = new MemorySocket("third");
+      listener.connect(third);
+      for (const socket of [first, second, third]) {
+        expect((await call(socket)).message).toBe(
+          socket === third ? `Unknown RPC id ${id}` : unknown
+        );
+      }
+      const old = () => ["old"];
+      const current = () => ["replacement"];
+      server.handleRpc(key, old);
+      server.handleRpc(key, current);
+      expect(server.unhandleRpc(key, old)).toBe(false);
+      expect((await call(first)).params).toEqual(["replacement"]);
+      expect(server.unhandleRpc(key, current)).toBe(true);
+      expect((await call(first)).message).toBe(unknown);
+    }
+  );
 
   it("gives each concurrent session its own caller", async () => {
     const world = createWorld();
@@ -2897,7 +2920,7 @@ describe("ServerWorld send failures", () => {
 
       it("treats a failed RPC reply flush as a disconnect", async () => {
         const { world, bad, good } = setup(mode);
-        world.handleRpc(7, () => "pong");
+        world.handleRpc(107, () => "pong");
         const before = bad.attempts;
         bad.failing = true;
 
@@ -2906,7 +2929,7 @@ describe("ServerWorld send failures", () => {
             encodeClient2Server(
               new Client2Server({
                 ackFrame: 0,
-                rpc: [new RPC({ rpcId: 7, callId: 0, params: [] })],
+                rpc: [new RPC({ rpcId: 107, callId: 0, params: [] })],
               })
             )
           );
@@ -2925,7 +2948,7 @@ describe("ServerWorld send failures", () => {
 
       it("treats a failed closeSession flush as a disconnect", async () => {
         const { world, bad, good } = setup(mode);
-        world.handleRpc(7, () => {
+        world.handleRpc(107, () => {
           world.closeSession("bad");
           return "bye";
         });
@@ -2937,7 +2960,7 @@ describe("ServerWorld send failures", () => {
             encodeClient2Server(
               new Client2Server({
                 ackFrame: 0,
-                rpc: [new RPC({ rpcId: 7, callId: 0, params: [] })],
+                rpc: [new RPC({ rpcId: 107, callId: 0, params: [] })],
               })
             )
           );
