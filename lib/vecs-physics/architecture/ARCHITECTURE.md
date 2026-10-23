@@ -1,6 +1,6 @@
 # vecs-physics Engineering Architecture
 
-Status: **active, shipped.** Public API frozen at v1 (published `@vworlds/vecs-physics@1.0.x`). The simulation backend is **@vworlds/box2d3-wasm**, pinned exactly to `6.0.1` (Emscripten build of Box2D v3 at commit `3a4f0da8374af61293a03021c9a0b3ebcfe67948`). The owned fork preserves the existing simulation bits and adds the supported `b2x_` fast path.
+Status: **active, shipped.** Public API frozen at v1 (published `@vworlds/vecs-physics@1.0.x`). The simulation backend is **@vworlds/box2d3-wasm**, pinned exactly to `7.0.0` (Emscripten build of Box2D v3.2.0), with the supported `b2x_` fast path. Solver, restitution and sleep timing changes mean simulation results can differ from vecs-physics 1.0.58. Upgrade `@vworlds/vecs-physics` and `@vworlds/box2d3-wasm` together; see the [speed-clamp caveat](../docs/systems-and-phases.md#world-options).
 
 This document is the stable contract: what vecs-physics looks like from the outside (public exports, components, defaults, systems, phases, lifecycle semantics) and how the adapter is wired internally. It is what tests assert against and what eng architects read before touching the package.
 
@@ -489,7 +489,7 @@ Hook-driven (see **Hooks vs systems**). `world.component(Impulse).on("set", ...)
 
 ### `PhysicsMassRecompute` (`physics-cleanup`, after the reaper)
 
-box2d3-wasm auto-recomputes mass when `b2Shape_SetDensity` is called with `updateBodyMass = true`. For bodies in `engine.dirtyMassBodies` (e.g. after shape add/remove), call `b2Body_ApplyMassFromShapes(bodyId)`. Most steady-state frames are no-ops.
+box2d3-wasm auto-recomputes mass when `b2Shape_SetDensity` is called with `updateBodyMass = true`. For bodies in `engine.dirtyMassBodies` (e.g. after shape add/remove), call `b2Body_UpdateMassFromShapes(bodyId)`. Most steady-state frames are no-ops.
 
 ### `PhysicsDebugValidation` (`physics-pre`, debug:true only)
 
@@ -602,7 +602,7 @@ Single-threaded. Determinism depends on:
 4. **System ordering.** Phase registration, system registration, and inbox arrival order all deterministic.
 5. **Map iteration.** ES Map iteration follows insertion order; index-keyed `ArrayMap`s are slot-stable.
 
-The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determined. The owned 6.0.1 adoption preserves it unchanged. Future Box2D updates require deliberate parity review rather than automatic re-baselining.
+The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determined. Adoption of 7.0.0 changes solver, restitution and sleep timing relative to 6.0.1, not the public component contract. The existing joint-free, byte-equal repeated-scene test was re-run on 7.0.0 without changing its scene or assertions; it checks same-build repeatability, not equality with 6.0.1 trajectories. The compiled-output pose benchmark was also compared against `dev`: its exact final-state checksums match for 500 and 2,000 freely moving bodies. Future Box2D updates require deliberate parity review rather than automatic re-baselining.
 
 ## Vecs dependencies
 
@@ -639,7 +639,7 @@ The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determ
 ## Risks
 
 1. **WASM init lifecycle.** `preloadPhysics` is process-global and cached. Callers must `await preloadPhysics` exactly once before any `PhysicsModule`. Tests share a single `beforeAll(async () => { await preloadPhysics(); })` per file.
-2. **Emscripten manual cleanup.** Owned embind structs/results require `.delete()` through `withAllocated` or local `finally` blocks; ids are plain value objects. The per-world WASM allocations are Box2D world storage (including all bodies/shapes/chains/joints and native events) and the move-export buffer, released by the engine remove hook. Failed world creation releases the already-allocated exporter and throws before contact tuning on a null id. The process-global scratch in `src/adapter/runtime.ts` (three Vec2, two QueryFilter, AABB, ShapeProxy, MassData and 64-byte fast output) intentionally lives with the cached WASM module, not any individual world. Reverse maps, event sets, pending queues and the cached query facade are JS-only.
-3. **Box2D package version pinning.** Simulation changes can shift parity baselines. Pin the owned package exactly via `package.json` (`6.0.1`); document the validated version on every parity golden.
+2. **Emscripten manual cleanup.** Owned embind structs/results require `.delete()` through `withAllocated` or local `finally` blocks; ids are plain value objects. The per-world WASM allocations are Box2D world storage (including all bodies/shapes/chains/joints and native events) and the move-export buffer, released by the engine remove hook. Failed world creation releases the already-allocated exporter and throws before contact tuning on a null id. The process-global scratch in `src/adapter/runtime.ts` (three Vec2 plus a read-only zero query origin, two QueryFilter, AABB, ShapeProxy, MassData and 64-byte fast output) intentionally lives with the cached WASM module, not any individual world. Reverse maps, event sets, pending queues and the cached query facade are JS-only.
+3. **Box2D package version pinning.** Simulation changes can shift parity baselines. Pin the owned package exactly via `package.json` (`7.0.0`, Box2D v3.2.0); re-check repeated-scene determinism and compare the pose benchmark against the base before accepting an upgrade. The 7.0.0 checks retain the existing parity assertions and pose checksums; this does not imply unchanged solver trajectories in other scenes.
 4. **Node `navigator.hardwareConcurrency`.** box2d3-wasm reads it on init; `preloadPhysics` polyfills it from `os.cpus().length` when missing, guarded with `??=`.
 5. **SIMD flavour selection.** Both `deluxe` and `compat` are single-threaded. The factory automatically chooses SIMD `deluxe` when supported; neither flavour needs `crossOriginIsolated`.

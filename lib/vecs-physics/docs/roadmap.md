@@ -138,9 +138,8 @@ They are important, but they should come after the body/shape/event model is sol
 
 ### V2 Carries From V1 Closeout
 
-The M5 closeout left four explicit v2 carries:
+Three M5 closeout carries remain after Box2D 3.2 adoption:
 
-- Open-chain ghost-vertex fidelity at sharp endpoints: loop chains use real neighbor ghosts; open-chain endpoints use reflection, which is correct for straight chains but still needs sharp-endpoint Box2D parity work.
 - Dynamic `Sensor` marker toggle: switching solid ↔ sensor at runtime needs contact teardown, sensor-storage create/destroy, and mass/proxy invariant handling; recreating the shape is the v1 workaround.
 - CoM-shift velocity adjustment: v1 sleep state uses `v = ω = 0`, making the shift identically zero in the covered cases; revisit if v2 adds runtime center-of-mass changes that can affect sleeping bodies.
 - Sensor TOI hits queue: v1 sensor events use the regular overlap pass; TOI-precise sensor hits are deferred until sensor CCD use cases need them.

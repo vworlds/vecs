@@ -287,13 +287,16 @@ export function applyChainDef(
   def.filter.categoryBits = options.categoryBits;
   def.filter.maskBits = options.maskBits;
   def.filter.groupIndex = options.groupIndex;
-  const material = def.GetMaterials()[0];
-  material.friction = options.friction;
-  material.restitution = options.restitution;
-  material.rollingResistance = options.rollingResistance;
-  material.tangentSpeed = options.tangentSpeed;
-  material.userMaterialId = BigInt(options.userMaterialId);
-  def.materialCount = 1;
+  // SetMaterials copies into the def; GetMaterials() returns copies, so editing those did nothing.
+  def.SetMaterials([
+    {
+      friction: options.friction,
+      restitution: options.restitution,
+      rollingResistance: options.rollingResistance,
+      tangentSpeed: options.tangentSpeed,
+      userMaterialId: options.userMaterialId,
+    },
+  ]);
   def.enableSensorEvents = options.enableSensorEvents;
 }
 
