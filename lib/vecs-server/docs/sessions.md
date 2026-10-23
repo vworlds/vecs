@@ -51,7 +51,12 @@ and you should not reach for them.
 
 ## Caller context
 
-`handleRpc` registers one handler for every connection. The handler's third argument is a
+`handleRpc(rpcId, handler): void` registers one handler for every connection.
+Keep the handler reference and pass it to `unhandleRpc(rpcId, handler): boolean`
+to remove that registration from existing and future connections. Removal returns
+`true` only when that exact handler is currently registered; otherwise it returns
+`false` and leaves a newer replacement untouched. Calls already in flight still settle.
+The handler's third argument is a
 `ServerRPCContext`:
 
 ```ts

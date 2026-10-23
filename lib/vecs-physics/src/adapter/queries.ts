@@ -15,6 +15,7 @@ import { Body } from "../body/components.js";
 import { Box, Capsule, Circle, Polygon, Segment } from "../shapes/components.js";
 import {
   scr_b2AABB,
+  scr_b2Origin,
   scr_b2QueryFilter,
   scr_b2ShapeProxy,
   scr_b2Vec2,
@@ -406,6 +407,7 @@ class PhysicsQueriesImpl implements PhysicsQueries {
     let closest: ShapeCastHit | undefined;
     box2d.b2World_CastShape(
       worldId,
+      scr_b2Origin!,
       proxy,
       translation,
       to_b2QueryFilter(query.filter),
@@ -449,6 +451,7 @@ class PhysicsQueriesImpl implements PhysicsQueries {
     const hits: ShapeCastHit[] = [];
     box2d.b2World_CastShape(
       worldId,
+      scr_b2Origin!,
       proxy,
       translation,
       to_b2QueryFilter(query.filter),
@@ -480,6 +483,7 @@ class PhysicsQueriesImpl implements PhysicsQueries {
     const seen = new Set<EID>();
     box2d.b2World_OverlapAABB(
       worldId,
+      scr_b2Origin!,
       aabb,
       to_b2QueryFilter(query.filter),
       (result: { shapeId: b2ShapeId }) => {
@@ -507,6 +511,7 @@ class PhysicsQueriesImpl implements PhysicsQueries {
       const seen = new Set<EID>();
       box2d.b2World_OverlapShape(
         worldId,
+        scr_b2Origin!,
         proxy,
         to_b2QueryFilter(query.filter),
         (result: { shapeId: b2ShapeId }) => {

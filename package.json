@@ -27,7 +27,7 @@
     "bench:compare": "node bench/compare.ts",
     "prepare": "husky",
     "vmethod": "npm exec --no -- vmethod",
-    "test:tooling": "node --test scripts/tests/vmethod-adoption.test.mjs && bash scripts/tests/changelog.test.sh && bash scripts/tests/markdown.test.sh && node --test scripts/tests/format-worktrees.test.mjs && bash scripts/tests/deps-after-fast-forward.test.sh && bash scripts/tests/release-publish.test.sh && node --test scripts/tests/beta-versions.test.mjs && bash scripts/tests/publish-beta.test.sh"
+    "test:tooling": "node --test scripts/tests/vmethod-adoption.test.mjs && bash scripts/tests/changelog.test.sh && bash scripts/tests/markdown.test.sh && node --test scripts/tests/format-worktrees.test.mjs && bash scripts/tests/deps-after-fast-forward.test.sh && bash scripts/tests/release-publish.test.sh && node --test scripts/tests/beta-versions.test.mjs scripts/tests/release-bump.test.mjs && bash scripts/tests/publish-beta.test.sh"
   },
   "devDependencies": {
     "@reteps/dockerfmt": "^0.5.4",

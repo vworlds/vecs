@@ -44,8 +44,10 @@ idle close releases its watches. Independently, 30 minutes without a successful
 `vecs_events` or resource read expires a watch, even while writes arrive or its
 session remains active. The next event/resource read of that id returns
 `{ events: [], latest: 0, dropped: -1 }` once, then the id is forgotten.
-A world accepts at most 32 live watches across all sessions; the 33rd is rejected
-with the list of live ids. Expired watches no longer consume that cap.
+A world accepts at most **32 live watches per session**; each session has its own
+allowance. The 33rd is rejected with only the caller's live ids, never another
+session's ids. Expired watches no longer consume that cap. Unregistering a world
+also releases its watches and subscriptions; see [world lifecycle](./getting-started.md).
 
 There is no per-tick work. With no watches, no watch queries, update watchers or
 component hooks are registered. Each watch adds one membership query plus one

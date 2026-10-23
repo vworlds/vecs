@@ -41,7 +41,11 @@ export type PhysicsOptions = {
   contactHertz?: number; // default 30
   contactDampingRatio?: number; // default 10
   contactSpeed?: number; // m/s, default 3.0
-  maximumLinearSpeed?: number; // m/s, default 400
+  /** Maximum linear speed in m/s (default 400). Box2D 3.2 clamps after the biased
+   * constraint solve, so creating joints or teleporting jointed bodies far from
+   * rest can introduce momentum. Create joints near rest, move jointed bodies
+   * together, or raise this limit. */
+  maximumLinearSpeed?: number;
   enableSleep?: boolean; // default true
   enableContinuous?: boolean; // default true
 };

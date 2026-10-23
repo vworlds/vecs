@@ -54,6 +54,9 @@ for (const pkg of packages) {
     if (pkg.data.dependencies?.[dependencyName]) {
       pkg.data.dependencies[dependencyName] = nextVersion;
     }
+    if (pkg.data.peerDependencies?.[dependencyName]) {
+      pkg.data.peerDependencies[dependencyName] = nextVersion;
+    }
   }
 
   await writeFile(pkg.path, `${JSON.stringify(pkg.data, null, 2)}\n`);

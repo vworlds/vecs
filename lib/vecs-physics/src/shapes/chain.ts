@@ -155,8 +155,18 @@ function createChain(
     const chainId = withAllocated(box2d.b2DefaultChainDef, (def) => {
       applyChainDef(def, readShapeOptions(entity));
       def.isLoop = chain.loop;
-      def.count = points.length;
-      def.SetPoints(points);
+      if (chain.loop) {
+        def.SetPoints(points);
+      } else {
+        // Chain keeps Box2D 3.1's open-chain meaning: the first and last points are ghost
+        // vertices (they shape the end normals but get no segment). Box2D 3.2 takes them
+        // separately, and makes a segment between every pair of the remaining points.
+        const first = points[0]!;
+        const last = points[points.length - 1]!;
+        def.ghost1.Set(first.x, first.y);
+        def.ghost2.Set(last.x, last.y);
+        def.SetPoints(points.slice(1, -1));
+      }
       return box2d.b2CreateChain(bodyId, def);
     });
     chain._chainId = chainId;

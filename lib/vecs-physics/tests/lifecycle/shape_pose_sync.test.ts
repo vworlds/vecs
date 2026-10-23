@@ -33,7 +33,7 @@ function getShapeAABB(shapeEid: number) {
   if (shapeId === undefined || !engine.box2d.b2Shape_IsValid(shapeId)) {
     return undefined;
   }
-  const aabb = engine.box2d.b2Shape_GetAABB(shapeId);
+  const aabb = engine.box2d.b2Shape_GetBounds(shapeId);
   const result = {
     minX: aabb.lowerBound.x,
     minY: aabb.lowerBound.y,

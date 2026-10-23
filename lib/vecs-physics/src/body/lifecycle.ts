@@ -123,7 +123,7 @@ export class BodyLifecycleModule extends Module {
         if (bodyId === undefined) {
           return;
         }
-        engine.box2d.b2Body_EnableSleep(bodyId, sleep.enabled);
+        engine.box2d.b2Body_EnableSleeping(bodyId, sleep.enabled);
         engine.box2d.b2Body_SetAwake(bodyId, sleep.awake);
         engine.box2d.b2Body_SetSleepThreshold(bodyId, sleep.threshold);
       })

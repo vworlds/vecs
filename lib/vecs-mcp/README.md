@@ -27,6 +27,8 @@ Client execution runs on a macrotask after the current tick.
 hub; the [hub CLI](./docs/getting-started.md#hub-cli) is included as `vecs-mcp`.
 
 Start with the [documentation map](./docs/README.md).
+See [getting started](./docs/getting-started.md) for world unregistration, shutdown
+and MCP session limits.
 
 **SECURITY:** Use tokenless nodes only on trusted private networks. Browser pages
 can reach loopback; `/link` rejects requests carrying an `Origin` by default

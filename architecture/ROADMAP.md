@@ -9,7 +9,6 @@ Planned features for the next version.
 
 - [vecs-physics] **Fixed-step driver** — add a small real-time accumulator helper so games can drive deterministic physics without hand-rolling the `requestAnimationFrame` to fixed-timestep bridge.
 - [vecs-physics] **Joints** — add the next major physics surface with a second cross-entity relationship model (`JointBodies`) plus per-type joint components.
-- [vecs-physics] **Open-chain sharp-endpoint ghost vertices** — replace the reflection approximation at open-chain endpoints with real Box2D ghost-vertex parity so sharp endpoints collide correctly; loop chains already use real neighbor ghosts.
 - [vecs] **Injected mutation dirty tracking** — make `.each`/`.update`-injected component mutation reliably mark components modified, or provide an explicit ergonomic replacement if automatic tracking is not viable.
 - [vecs-phaser-client] **Anchored UI and text origins** — add UI anchoring and text-origin controls for screen-space overlays and precise label alignment.
 - [vecs-phaser] **Animated Sprite renderables** — add a separate wire-serializable animated `Sprite` renderable that reuses the shipped asset catalog and captured Tiled `animation` frames; static Tiled-backed `Image` rendering already ships.

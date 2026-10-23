@@ -242,14 +242,22 @@ describe("watch logs", () => {
     expect(() => read(local, watch)).toThrow("Unknown watch");
   });
 
-  it("caps at 32 per world across owners, isolates owners and frees capacity", () => {
+  it("caps at 32 per owner and world, isolates owners and frees capacity", () => {
     const { local, world } = setup();
     const baseline = world.queries.length;
     const ids = Array.from({ length: 32 }, () => create(local).watch);
-    expect(() => create(local, { _session: "two" })).toThrow(ids.join(", "));
+    const other = Array.from({ length: 32 }, () => create(local, { _session: "two" }).watch);
+    expect(() => create(local)).toThrow(`Watch cap (32); live ids: ${ids.join(", ")}`);
+    expect(() => create(local, { _session: "two" })).toThrow(
+      `Watch cap (32); live ids: ${other.join(", ")}`
+    );
     expect(() => read(local, ids[0], { _session: "two" })).toThrow("Unknown watch");
     expect(() => local.watches.remove({ watch: ids[0], _session: "two" })).toThrow("Unknown watch");
     local.watches.close("one");
+    expect(world.queries.length).toBe(baseline + 32);
+    expect(create(local).members).toBe(1);
+    local.watches.close("one");
+    local.watches.close("two");
     expect(world.queries.length).toBe(baseline);
     expect(create(local, { _session: "two" }).members).toBe(1);
   });

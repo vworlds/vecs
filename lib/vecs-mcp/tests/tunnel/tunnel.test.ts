@@ -201,6 +201,74 @@ it("registers no tunnel component or hook in a plain World", () => {
   world.dispose();
 });
 
+it.each(["unregister", "close"])(
+  "%s restores tunnel hook and RPC handler counts",
+  async (action) => {
+    const world = new ServerWorld();
+    cleanup.push(() => world.dispose());
+    const component = world.component(BridgeClient);
+    const count = (slot: unknown) =>
+      (slot as { handlers?: unknown[] } | undefined)?.handlers?.length ?? (slot ? 1 : 0);
+    const handlers = (world as unknown as { _rpcHandlers: Map<number, unknown> })._rpcHandlers;
+    const baseline = [count(component.meta._onAdd), count(component.meta._onRemove), handlers.size];
+    const node = new VecsMcpServer({ name: "lifecycle" });
+    cleanup.push(() => node.close());
+    for (let i = 0; i < 3; i++) {
+      node.registerWorld(world);
+      expect([
+        count(component.meta._onAdd),
+        count(component.meta._onRemove),
+        handlers.size,
+      ]).toEqual(baseline.map((n) => n + 1));
+      node.registerWorld(world, "alias");
+      expect([
+        count(component.meta._onAdd),
+        count(component.meta._onRemove),
+        handlers.size,
+      ]).toEqual([baseline[0] + 2, baseline[1] + 2, baseline[2] + 1]);
+      if (action === "close") {
+        await node.close();
+      } else {
+        await node.unregisterWorld(world);
+      }
+      expect([
+        count(component.meta._onAdd),
+        count(component.meta._onRemove),
+        handlers.size,
+      ]).toEqual(baseline);
+    }
+  }
+);
+
+it("unregisters tunneled watches before removing client routes", async () => {
+  const world = new ServerWorld();
+  cleanup.push(() => world.dispose());
+  const node = new VecsMcpServer({ name: "node" });
+  cleanup.push(() => node.close());
+  const register = vi.spyOn(Router.prototype, "register");
+  node.registerWorld(world);
+  const router = register.mock.contexts[0] as Router;
+  register.mockRestore();
+  const client = pair(world, "browser");
+  drive(world, [client]);
+  await expect.poll(() => router.table().targets.length).toBe(2);
+  const sdk = new Client({ name: "test", version: "1" });
+  cleanup.push(() => sdk.close());
+  const port = await node.listen(0);
+  await sdk.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`)));
+  const baseline = client.queries.length;
+  const response = await sdk.callTool({
+    name: "vecs_watch",
+    arguments: { target: "node/main/browser", where: "Position" },
+  });
+  expect(response.isError).not.toBe(true);
+  expect(client.queries.length).toBe(baseline + 1);
+  await node.unregisterWorld(world);
+  expect(client.queries.length).toBe(baseline);
+  const targets = await sdk.callTool({ name: "vecs_targets", arguments: {} });
+  expect(JSON.parse((targets.content as { text: string }[])[0].text).targets).toEqual([]);
+});
+
 it("lists only announced clients, executes node tools through the tunnel, and removes disconnected targets", async () => {
   const server = new ServerWorld();
   cleanup.push(() => server.dispose());

@@ -19,8 +19,12 @@ Call `vecs_targets` to discover paths. Omit `target` only when exactly one exist
 otherwise the error lists available paths.
 
 `listen(port, host = "127.0.0.1")` resolves to the bound port; port `0` requests an
-ephemeral port for tests. `close()` shuts down transports and the listener and is
-safe to call repeatedly. Process metadata (`name`, `pid`, `cwd`, git `branch` and
+ephemeral port for tests. Use `await unregisterWorld(world)` to remove a local
+targets (including aliases), its bridge announcement hooks and RPC handler, and all its watches and
+subscriptions. It also attempts to unwatch tunneled clients before removing their
+routes. Unknown worlds are a no-op; re-registering does not stack hooks.
+`await close()` unregisters every world and shuts down transports and the listener;
+it is safe to repeat. Process metadata (`name`, `pid`, `cwd`, git `branch` and
 `sha`) is captured once at construction. Unavailable git values are `null`.
 MCP initialization advertises the node name and lazily reads the version from
 vecs-mcp's package manifest on first use. Normal package-version bumps update
@@ -38,6 +42,13 @@ transport. POST keeps JSON responses; GET opens the notification stream used by
 watches. Sessions also close after 30 minutes without an HTTP request; an open
 GET stream alone does not keep a session alive. SDK clients should call their
 transport's `terminateSession()` before closing when finished.
+
+Each node admits at most **16 concurrent MCP sessions**, including pending
+initializations. At capacity, a new initialization evicts the session idle longest
+and releases its watches. An idle session has no command request in flight; an open
+notification GET stream does not make it busy. If every session is busy, the new
+request receives HTTP 503 with `MCP session cap (16); all sessions are busy`.
+Reuse sessions rather than repeatedly initializing.
 
 Session ids are routing identifiers, not credentials. Include the bearer token on
 every request, including GET and DELETE, when the listener requires one.

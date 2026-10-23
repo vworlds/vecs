@@ -50,7 +50,7 @@ function isAwake(world: World, eid: EID): boolean {
 
 function isSleepEnabled(world: World, eid: EID): boolean {
   const engine = getPhysicsEngine(world) as PhysicsEngine;
-  return engine.box2d.b2Body_IsSleepEnabled(getBodyId(world, eid));
+  return engine.box2d.b2Body_IsSleepingEnabled(getBodyId(world, eid));
 }
 
 function sleepThreshold(world: World, eid: EID): number {

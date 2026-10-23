@@ -50,6 +50,7 @@ export class Router {
   public readonly worlds = new Map<string, LocalWorld>();
   public readonly nodeId = randomUUID();
   private readonly _tunnels = new Map<string, Tunnel>();
+  private readonly _cleanup = new Map<string, () => void>();
   private readonly _changes = new Set<(table: TargetTable) => void>();
   private _pendingChange?: ReturnType<typeof setImmediate>;
 
@@ -101,8 +102,25 @@ export class Router {
     const tunnel = registerTunnel(world, () => this.changed());
     if (tunnel) {
       this._tunnels.set(name, tunnel);
+      this._cleanup.set(name, tunnel.close);
     }
     this.changed();
+  }
+
+  /** Remove a local world's hooks, tunnel handler, watches and registry query. */
+  public unregister(world: World): void {
+    for (const [name, local] of this.worlds) {
+      if (local.world !== world) {
+        continue;
+      }
+      this._cleanup.get(name)?.();
+      this._cleanup.delete(name);
+      this._tunnels.delete(name);
+      local.watches.dispose();
+      local.dispose();
+      this.worlds.delete(name);
+      this.changed();
+    }
   }
 
   /** Subscribe to a shared, coalesced topology table; return an unsubscribe function. */

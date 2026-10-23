@@ -161,7 +161,9 @@ function destroyJointForEntity(
   if (deferDestroy) {
     engine.pendingJointDestroys.push(jointId);
   } else if (engine.box2d.b2Joint_IsValid(jointId)) {
-    engine.box2d.b2DestroyJoint(jointId, true);
+    // Box2D 3.2 no longer wakes the attached bodies on destroy.
+    engine.box2d.b2Joint_WakeBodies(jointId);
+    engine.box2d.b2DestroyJoint(jointId);
   }
 
   const mutableJoint = entity.get(Joint) as Joint | undefined;

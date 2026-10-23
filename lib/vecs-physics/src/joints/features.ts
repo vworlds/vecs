@@ -115,19 +115,19 @@ function withLiveJoint(
 function applyMotor(box2d: Box2DModule, joint: Joint, jointId: b2JointId, motor: JointMotor): void {
   if (joint instanceof RevoluteJoint) {
     box2d.b2RevoluteJoint_EnableMotor(jointId, true);
-    box2d.b2RevoluteJoint_SetMotorSpeed(jointId, motor.targetSpeed);
+    box2d.b2RevoluteJoint_SetTargetMotorSpeed(jointId, motor.targetSpeed);
     box2d.b2RevoluteJoint_SetMaxMotorTorque(jointId, motor.maxForce);
   } else if (joint instanceof DistanceJoint) {
     box2d.b2DistanceJoint_EnableMotor(jointId, true);
-    box2d.b2DistanceJoint_SetMotorSpeed(jointId, motor.targetSpeed);
+    box2d.b2DistanceJoint_SetTargetMotorSpeed(jointId, motor.targetSpeed);
     box2d.b2DistanceJoint_SetMaxMotorForce(jointId, motor.maxForce);
   } else if (joint instanceof PrismaticJoint) {
     box2d.b2PrismaticJoint_EnableMotor(jointId, true);
-    box2d.b2PrismaticJoint_SetMotorSpeed(jointId, motor.targetSpeed);
+    box2d.b2PrismaticJoint_SetTargetMotorSpeed(jointId, motor.targetSpeed);
     box2d.b2PrismaticJoint_SetMaxMotorForce(jointId, motor.maxForce);
   } else if (joint instanceof WheelJoint) {
     box2d.b2WheelJoint_EnableMotor(jointId, true);
-    box2d.b2WheelJoint_SetMotorSpeed(jointId, motor.targetSpeed);
+    box2d.b2WheelJoint_SetTargetMotorSpeed(jointId, motor.targetSpeed);
     box2d.b2WheelJoint_SetMaxMotorTorque(jointId, motor.maxForce);
   }
 }
@@ -150,7 +150,7 @@ function applyLimit(box2d: Box2DModule, joint: Joint, jointId: b2JointId, limit:
     box2d.b2RevoluteJoint_SetLimits(jointId, limit.lower, limit.upper);
   } else if (joint instanceof DistanceJoint) {
     box2d.b2DistanceJoint_EnableLimit(jointId, true);
-    box2d.b2DistanceJoint_SetLengthRange(jointId, limit.lower, limit.upper);
+    box2d.b2DistanceJoint_SetLimits(jointId, limit.lower, limit.upper);
   } else if (joint instanceof PrismaticJoint) {
     box2d.b2PrismaticJoint_EnableLimit(jointId, true);
     box2d.b2PrismaticJoint_SetLimits(jointId, limit.lower, limit.upper);

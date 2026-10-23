@@ -20,6 +20,8 @@ import { listenLinks } from "./links/listener.js";
 
 interface Session {
   owner: string;
+  active: number;
+  idleOrder: number;
   server: McpServer;
   transport: StreamableHTTPServerTransport;
   timer?: ReturnType<typeof setTimeout>;
@@ -43,6 +45,9 @@ export interface VecsMcpServerOptions {
 
 /**
  * Session-based MCP access to local, linked and tunneled worlds over Streamable HTTP.
+ * Up to 16 sessions are admitted; initialization evicts the longest-idle session,
+ * or returns HTTP 503 if all are busy. Idle sessions expire after 30 minutes;
+ * notification GET streams do not prevent expiry or eviction.
  * The informational package version is resolved lazily, falling back to "unknown"
  * if bundling or unavailable metadata prevents discovery.
  */
@@ -53,6 +58,7 @@ export class VecsMcpServer {
   private _http: Server | undefined;
   private _version: string | undefined;
   private readonly _sessions = new Map<string, Session>();
+  private _idleOrder = 0;
   private readonly _links = new Set<Link>();
   private _closeLinks?: () => void;
 
@@ -78,15 +84,18 @@ export class VecsMcpServer {
   }
 
   /**
-   * Stop HTTP, MCP sessions and links, releasing session watches and registry
-   * queries before routes. Client-tunnel unwatches wait at most the call TTL
-   * (10 seconds), even with a paused game loop; failed unwatches do not prevent
-   * shutdown. Safe to repeat.
+   * Stop HTTP, MCP sessions and links, unregister every world and release its
+   * queries. Session-close unwatches wait at most the call TTL (10 seconds),
+   * even with a paused game loop; failed unwatches do not prevent shutdown.
+   * Safe to repeat.
    */
   public async close(): Promise<void> {
     const http = this._http;
     this._http = undefined;
     await Promise.all([...this._sessions.values()].map((session) => this._closeSession(session)));
+    for (const local of [...this._router.worlds.values()]) {
+      await this.unregisterWorld(local.world);
+    }
     for (const link of this._links) {
       link.close();
     }
@@ -141,12 +150,54 @@ export class VecsMcpServer {
    * Register a local world. Uses world.name when available, otherwise "world";
    * duplicates throw. ServerWorld instances also accept bridge announcements and
    * expose opted-in clients as three-segment targets tracked by connection hooks.
-   * Holds a live ComponentDef query until close(); topology advertisements are
-   * coalesced on setImmediate outside the world's tick.
+   * Each registration holds a live ComponentDef query until unregisterWorld() or close();
+   * topology advertisements are coalesced on setImmediate outside the world's tick.
    */
   public registerWorld(world: World, name?: string): void {
     const worldName = "name" in world && typeof world.name === "string" ? world.name : "world";
     this._router.register(world, name ?? worldName);
+  }
+
+  /**
+   * Detach a local world's hooks, RPC announcement handler, watches and subscriptions.
+   * Attempts to release tunneled watches before dropping their routes. Unknown worlds
+   * are a no-op. Removes all aliases of the world. You can register it again without stacking hooks.
+   */
+  public async unregisterWorld(world: World): Promise<void> {
+    const names = [...this._router.worlds]
+      .filter(([, local]) => local.world === world)
+      .map(([name]) => name);
+    const pending: Promise<unknown>[] = [];
+    for (const name of names) {
+      for (const session of this._sessions.values()) {
+        session.listeners.get(name)?.();
+        session.listeners.delete(name);
+        for (const [uri, timer] of session.subscriptions) {
+          if (uri.startsWith(this._uri(name, ""))) {
+            clearTimeout(timer);
+            session.subscriptions.delete(uri);
+          }
+        }
+        const target = `${this._router.name}/${name}`;
+        for (const [key, watch] of session.watches) {
+          if (watch.target === target || watch.target?.startsWith(`${target}/`)) {
+            if (watch.target !== target) {
+              pending.push(
+                this._router.dispatch({
+                  id: "world-unregister",
+                  target: watch.target,
+                  command: "vecs_unwatch",
+                  params: { watch: watch.watch, _session: session.owner },
+                })
+              );
+            }
+            session.watches.delete(key);
+          }
+        }
+      }
+    }
+    this._router.unregister(world);
+    await Promise.all(pending);
   }
 
   /** Expose this node to a hub. Invalid/non-ws(s) URLs throw; connection failures retry until close(). */
@@ -187,9 +238,30 @@ export class VecsMcpServer {
       res.writeHead(400).end("MCP session required");
       return;
     }
+    let evicted: Promise<void> | undefined;
+    if (id === undefined && this._sessions.size >= 16) {
+      const idle = [...this._sessions.values()]
+        .filter((session) => session.active === 0 && !session.closing)
+        .sort((a, b) => a.idleOrder - b.idleOrder)[0];
+      if (!idle) {
+        res.writeHead(503).end("MCP session cap (16); all sessions are busy");
+        return;
+      }
+      evicted = this._closeSession(idle);
+    }
+    // Reserve capacity synchronously, including pending initialize requests.
     const session = typeof id === "string" ? this._sessions.get(id)! : this._newSession();
-    this._touch(session);
+    // A long-lived notification GET is not an in-flight command and must not
+    // prevent idle expiry or eviction.
+    const active = req.method !== "GET";
+    if (active) {
+      session.active++;
+      clearTimeout(session.timer);
+    } else {
+      this._touch(session);
+    }
     try {
+      await evicted;
       if (id === undefined) {
         await session.server.connect(session.transport);
       }
@@ -206,6 +278,10 @@ export class VecsMcpServer {
       if (id === undefined) {
         await this._closeSession(session);
       }
+    } finally {
+      if (active && --session.active === 0 && !session.closing) {
+        this._touch(session);
+      }
     }
   }
 
@@ -214,6 +290,7 @@ export class VecsMcpServer {
   }
 
   private async _disposeSession(session: Session): Promise<void> {
+    this._sessions.delete(session.owner);
     const id = session.transport.sessionId;
     if (id) {
       this._sessions.delete(id);
@@ -260,11 +337,14 @@ export class VecsMcpServer {
     );
     const session: Session = {
       owner: randomUUID(),
+      active: 0,
+      idleOrder: 0,
       server,
       transport: new StreamableHTTPServerTransport({
         sessionIdGenerator: randomUUID,
         enableJsonResponse: true,
         onsessioninitialized: (id) => {
+          this._sessions.delete(session.owner);
           this._sessions.set(id, session);
         },
         onsessionclosed: () => {
@@ -275,6 +355,7 @@ export class VecsMcpServer {
       listeners: new Map(),
       watches: new Map(),
     };
+    this._sessions.set(session.owner, session);
     server.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
       resources: [...this._router.worlds].flatMap(([name, local]) =>
         local.watches.ids(session.owner).map((id) => ({
@@ -409,9 +490,12 @@ export class VecsMcpServer {
   }
 
   private _touch(session: Session): void {
+    session.idleOrder = ++this._idleOrder;
     clearTimeout(session.timer);
     session.timer = setTimeout(() => {
-      void this._closeSession(session);
+      if (session.active === 0) {
+        void this._closeSession(session);
+      }
     }, WATCH_IDLE_MS).unref();
   }
 
