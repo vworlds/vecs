@@ -48,6 +48,62 @@ entities carry a `Body`, no matter whether the joint or the bodies were created
 first. The body roles are asymmetric — motors drive body B relative to body A,
 and the reference angle is measured as B's rest angle relative to A.
 
+### Initialize and move the whole assembly
+
+Create joints with the bodies already at their intended assembly rest pose. Before
+the next physics step, move every connected body together when teleporting an
+assembly. Preserve or reset **every body's** `LinearVelocity` and `AngularVelocity`
+consistently too; changing `Position` does not reset velocity. For rotated
+assemblies, update body rotations, positions and velocities consistently.
+
+Box2D 3.2 applies its speed clamp after the biased constraint solve, unlike 3.1.
+A joint created far from its rest pose can therefore leave residual motion when
+the correction hits the speed limit. Teleporting the bodies back into place and
+resetting only one velocity leaves the other body moving: the assembly swings.
+See the existing [`maximumLinearSpeed` lever](./systems-and-phases.md#world-options)
+before trying to compensate with stiffness or more substeps.
+
+Measure **anchor distance**, not just an x- or y-offset. For example, a length-1
+rigid distance joint with origin anchors, initialized far from rest at 30 Hz / four
+substeps, then teleported to rest with only one velocity reset, produced an
+x-offset of about **0.912 m** and a y-offset of **−0.423 m** under 7.0.0. The actual
+distance was about **1.005 m**, not 0.912 m. Creating the joint at rest, or resetting
+both velocities after the teleport, held the distance at 1 m without that swing.
+The component-level characterization lives in
+[`tests/joints/initialization.test.ts`](../tests/joints/initialization.test.ts).
+
+### Constraint softness and the 3.2 migration
+
+Base constraint tuning defaults to **60 Hz / damping ratio 2** in both the Box2D
+revision bundled with WASM 6.0.1 and Box2D 3.2 bundled with 7.0.0. The softness
+calculation and frequency cap are unchanged: with substep duration
+`h = fixedTimeStep / subSteps`, the effective frequency is
+`min(60, 0.25 / h)`. At 1/60 s with four substeps this is 60 Hz; at 1/30 s with
+four substeps it is 30 Hz. There is no different legacy stiffness preset to restore.
+vecs-physics does not expose a base constraint-tuning component or world option.
+
+Use `JointLinearSpring` or `JointAngularSpring` when you intentionally want a
+spring. These features use their **own frequency and damping**, independently of
+base constraint softness; adding a distance spring replaces the rigid rod's
+response along its axis. In particular, base tuning would not retune a distance
+spring's own stiffness. `FilterJoint` has no physical constraint; `MotorJoint`
+uses its own velocity and spring fields.
+
+Do not infer changed stiffness from a changed collision trajectory. Box2D 3.2
+also changes contact recycling, the contact push pass and restitution. Those
+changes can alter a spring-linked train's impact response without changing its
+spring settings. Neither a new stiffness preset nor more substeps guarantees
+3.1 trajectories; review your application's handling separately. See
+[contact timing](./events.md#contact-timing-in-box2d-32) for the measured recycling
+effect, not an exclusive diagnosis of a game's ten-second impact trajectory.
+
+Reference comparison: Box2D
+[`3a4f0da` joint defaults and preparation](https://github.com/erincatto/box2d/blob/3a4f0da8374af61293a03021c9a0b3ebcfe67948/src/joint.c)
+and [`178495b`](https://github.com/erincatto/box2d/blob/178495ba35695aefe9c321e569d2277f06db3b90/src/joint.c),
+using `b2MakeSoft` in each revision's `src/solver.h`. Fresh 7.0.0 joint readback
+confirmed 60 Hz / damping 2 for all seven supported types; this does not imply
+that filter and motor joints use base softness in their solvers.
+
 ## The joint frame
 
 Where a joint attaches on each body, and the bodies' rest orientation, is set

@@ -28,6 +28,9 @@ export type HitEvent = {
 /**
  * Per-shape contact begin/end buffers. Add to opt a shape into contact events.
  * Subtree snapshots preserve the opt-in but restore fresh, empty buffers.
+ * Begin/end describe contact manifold transitions, not exact geometric overlap:
+ * speculative points may precede overlap, and Box2D 3.2 contact recycling may
+ * delay a new begin. Published after the engine step; see `docs/events.md`.
  */
 export class ContactEvents {
   begin: ContactEvent[] = [];

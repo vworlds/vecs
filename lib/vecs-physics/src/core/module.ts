@@ -23,7 +23,10 @@ import { getBox2D, getFastPath } from "../adapter/runtime.js";
 export type PhysicsOptions = {
   gravity?: Vec2; // default { x: 0, y: -10 }
   fixedTimeStep?: number; // seconds, default 1/60
-  subSteps?: number; // default 4
+  /** Solver substeps per fixed step (default 4). More substeps cost CPU and can
+   * improve accuracy, but are not a remedy for joints created far from rest:
+   * faster correction may hit `maximumLinearSpeed` harder. */
+  subSteps?: number;
   debug?: boolean; // default false
   /** Override the warning sink used by `PhysicsDebugValidation` when
    * `debug: true`. Accepts any `(message: string) => void` callback.
@@ -43,8 +46,10 @@ export type PhysicsOptions = {
   contactSpeed?: number; // m/s, default 3.0
   /** Maximum linear speed in m/s (default 400). Box2D 3.2 clamps after the biased
    * constraint solve, so creating joints or teleporting jointed bodies far from
-   * rest can introduce momentum. Create joints near rest, move jointed bodies
-   * together, or raise this limit. */
+   * rest can introduce momentum. Create joints near rest and move/reset the
+   * whole assembly's pose and velocity consistently. Raising this limit can
+   * avoid clipping large corrections, but is not a stiffness setting or a
+   * recommendation to change the default. See `docs/systems-and-phases.md`. */
   maximumLinearSpeed?: number;
   enableSleep?: boolean; // default true
   enableContinuous?: boolean; // default true

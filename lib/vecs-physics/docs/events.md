@@ -54,6 +54,44 @@ Add only the event components you need. This keeps event collection cheap and ex
 
 Contact events report when two solid shapes start or stop touching.
 
+### Contact timing in Box2D 3.2
+
+Treat contact begin as a **contact manifold transition**, not a clock for exact
+geometric overlap. A speculative manifold can contain contact points while the
+shapes are still separated. Speculative contacts were already enabled by default
+in the Box2D revision used by WASM 6.0.1; they are not new in 7.0.0.
+
+Box2D 3.2 also recycles contact manifolds while relative motion stays within a
+tolerance. This can reuse an empty manifold and delay a new begin event until
+recomputation. A controlled probe used one static and one dynamic 1 m box, a
+25 mm gap, 0.06 m/s approach speed, zero gravity, sleeping disabled, and 1/60 s
+steps with four substeps:
+
+| Engine / diagnostic control                                     | First contact-begin tick |
+| --------------------------------------------------------------- | -----------------------: |
+| WASM 6.0.1's native Box2D reference                             |                        6 |
+| 7.0.0's native reference and installed WASM, default recycling  |                       21 |
+| 7.0.0's native reference and installed WASM, recycling disabled |                        6 |
+
+The native static-to-dynamic release variant gave the same tick counts.
+Exactly touching boxes instead reported tick 1 in both native versions, with or
+without recycling. Thus “already touching” alone does not establish a delay,
+and this probe does not establish an exclusive cause for a game's stack-collapse
+timing. The tick-6 begin precedes geometric touching, as expected for speculative
+contacts. These are diagnostic measurements, not timing guarantees or golden
+values for applications.
+
+The mechanism is in Box2D 3.2's
+[`src/physics_world.c`](https://github.com/erincatto/box2d/blob/178495ba35695aefe9c321e569d2277f06db3b90/src/physics_world.c):
+the recycling branch skips contact recomputation and touching-state transitions;
+`src/contact.c` derives touching from manifold point count. vecs-physics publishes
+the engine's events in `physics-post`; it does not synthesize an earlier begin.
+Disabling recycling above was an engine-level diagnostic control, not a new
+vecs-physics option or a recommended workaround. If you need a geometry query
+rather than a manifold transition, use the [query API](./queries.md).
+
+### Receiving contact events
+
 ```ts
 export type ContactEvent = {
   other: Entity;
