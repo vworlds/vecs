@@ -1686,7 +1686,7 @@ describe("ServerWorld", () => {
 
 describe("ServerWorld RPC caller context", () => {
   it("rejects a forced name collision before any sessions connect", () => {
-    const hash = vi.spyOn(vecs, "_fnv1a32").mockReturnValue(123);
+    const hash = vi.spyOn(vecs, "fnv1a32").mockReturnValue(123);
     try {
       const server = createWorld();
       const handler = () => [];

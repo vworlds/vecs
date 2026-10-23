@@ -412,8 +412,14 @@ function _sortCommutativeTerms(terms: SimplifiedQueryDSL[]): SimplifiedQueryDSL[
   return deduped;
 }
 
-/** Compute unsigned FNV-1a over UTF-16 code units, shared by DSL keys and RPC names. @internal */
-export function _fnv1a32(input: string): number {
+/**
+ * Compute unsigned 32-bit FNV-1a over UTF-16 code units.
+ * Stable across releases, because query cache keys and RPC name ids depend on it.
+ *
+ * @param input - String to hash without normalization or encoding conversion.
+ * @returns An unsigned integer in 0–4294967295.
+ */
+export function fnv1a32(input: string): number {
   let hash = 0x811c9dc5;
   for (let i = 0; i < input.length; i++) {
     hash ^= input.charCodeAt(i);
@@ -625,7 +631,7 @@ export function containsDownTerm(q: QueryDSL): boolean {
  * identity ids. Like any 32-bit hash, collisions are theoretically possible.
  */
 export function getDSLKey(q: QueryDSL, world: World): number {
-  return _fnv1a32(JSON.stringify(_canonicalDSLKey(simplifyQueryDSL(q, world))));
+  return fnv1a32(JSON.stringify(_canonicalDSLKey(simplifyQueryDSL(q, world))));
 }
 
 /** @internal Return the canonical cache key used by materialized terms. */

@@ -8,7 +8,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("named RPCs", () => {
   it("uses the shared FNV-1a hash, with the top bit forced, including Unicode names", () => {
     for (const name of ["", "auth", "vecs-mcp/announce", "vecs-mcp/call", "登录/🚀"]) {
-      expect(rpcIdFor(name)).toBe((vecs._fnv1a32(name) | 0x80000000) >>> 0);
+      expect(rpcIdFor(name)).toBe((vecs.fnv1a32(name) | 0x80000000) >>> 0);
       expect(rpcIdFor(name)).toBeGreaterThanOrEqual(2 ** 31);
       expect(rpcIdFor(name)).toBeLessThanOrEqual(0xffffffff);
     }
@@ -56,7 +56,7 @@ describe("named RPCs", () => {
   );
 
   it("detects forced collisions across registration, invocation and removal, retaining names", () => {
-    vi.spyOn(vecs, "_fnv1a32").mockReturnValue(123);
+    vi.spyOn(vecs, "fnv1a32").mockReturnValue(123);
     const rpc = new SessionRPC();
     const handler = () => [];
     rpc.listen("first", handler);
@@ -74,7 +74,7 @@ describe("named RPCs", () => {
   });
 
   it("does not hash incoming requests, replies, or retransmissions", async () => {
-    const hash = vi.spyOn(vecs, "_fnv1a32");
+    const hash = vi.spyOn(vecs, "fnv1a32");
     const caller = new SessionRPC();
     const peer = new SessionRPC();
     peer.listen("auth", () => "ok");

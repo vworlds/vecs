@@ -89,7 +89,7 @@ export {
   Phase,
   PipelineModule,
 } from "./modules/pipeline.js";
-export { getDSLKey, _fnv1a32 } from "./dsl.js";
+export { getDSLKey, fnv1a32 } from "./dsl.js";
 export { Term, TermEventKind, type TermConsumer } from "./terms/term.js";
 export {
   ALWAYS_TICK_SOURCE,

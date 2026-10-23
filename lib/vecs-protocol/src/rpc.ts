@@ -1,4 +1,4 @@
-import { _fnv1a32 } from "@vworlds/vecs";
+import { fnv1a32 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 
 export const RPC_RESPONSE_ID = 0;
@@ -11,7 +11,7 @@ export const FIRST_USER_RPC_ID = 101;
  * ids occupy 101–2147483647; the upper half of u32 is exclusively for names.
  */
 export function rpcIdFor(name: string): number {
-  return (_fnv1a32(name) | 0x80000000) >>> 0;
+  return (fnv1a32(name) | 0x80000000) >>> 0;
 }
 
 /** Resolve and remember API names outside message routing. @internal */
