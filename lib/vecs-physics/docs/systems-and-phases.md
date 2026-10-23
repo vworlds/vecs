@@ -218,6 +218,12 @@ The default recommendation is `4`, matching Box2D guidance.
 
 Higher values improve stability for difficult constraints and fast interactions, but cost more CPU. Lower values are faster but less accurate.
 
+More substeps are not a remedy for creating joints far from rest: faster
+correction can hit the speed clamp harder. Initialize the
+[whole assembly consistently](./joints.md#initialize-and-move-the-whole-assembly)
+before tuning solver accuracy. See [constraint softness](./joints.md#constraint-softness-and-the-32-migration)
+for the substep-dependent joint frequency cap.
+
 Joints and contacts use the same world substep count, so most projects should start with `4` and
 only tune if constraints or contacts feel unstable.
 
@@ -242,7 +248,22 @@ only tune if constraints or contacts feel unstable.
 
 When `debug` is `true`, `PhysicsDebugValidation` runs at the end of `physics-pre`; otherwise that system is not registered. When `enableContinuous` is `true`, the step can run the CCD path for `Body.bullet` and other fast bodies before events are published.
 
-**Box2D 3.2 speed-clamp caveat:** `maximumLinearSpeed` now clamps after the biased constraint solve. Creating a joint, or teleporting a jointed body, far from its rest pose can leave the pair moving: momentum appears. Create joints near their rest pose, move jointed bodies together, or raise `maximumLinearSpeed`.
+**Box2D 3.2 speed-clamp caveat:** `maximumLinearSpeed` clamps after the biased
+constraint solve and before position integration, rather than before the solve
+as in 3.1. A large correction can be clipped asymmetrically and leave the pair
+moving after relaxation: momentum appears. Create joints near rest and move or
+reset the [whole assembly's pose and velocity](./joints.md#initialize-and-move-the-whole-assembly).
+
+The existing `maximumLinearSpeed` option is an escape hatch, not a stiffness
+setting. In a two-body, length-1 distance-joint probe at 30 Hz / four substeps,
+with initial body positions (−2.048, 0) and (25.6, 12), raising the limit from
+400 to 4000 m/s avoided the residual motion and matched the 3.1 probe's sampled
+poses and velocities. Creating the joint at rest or resetting both velocities
+after teleporting also avoided the swing. Increasing substeps to 8 or 16 alone
+did not repair this bad-initialization case. This measurement does **not** justify
+raising the default globally; prefer correct assembly initialization. See
+[`tests/joints/initialization.test.ts`](../tests/joints/initialization.test.ts)
+for the component-level characterization.
 
 ## What Runs Before The Step
 

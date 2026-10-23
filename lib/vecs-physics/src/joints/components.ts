@@ -26,6 +26,11 @@ import type { b2JointId } from "../adapter/engine.js";
  * `Joint` so queries and systems can match any joint without enumerating every
  * concrete type. Holds the single Box2D handle, since every joint type maps to
  * exactly one `b2JointId`.
+ * Base constraint softness is 60 Hz / damping ratio 2 in both the 6.0.1 and
+ * 7.0.0 WASM backends, capped to `0.25 / h` Hz for substep duration `h`.
+ * This is independent of explicit spring features and is not a public tunable.
+ * Create at the assembly rest pose; move/reset every body's pose and velocity
+ * consistently when teleporting. See `docs/joints.md` for the 3.2 speed-clamp caveat.
  */
 export abstract class Joint {
   /** @internal Engine-owned Box2D joint handle. Set by the joint lifecycle system. */
@@ -83,6 +88,7 @@ export class RevoluteJoint extends Joint {}
  * rod by default). Add {@link JointLinearSpring} to make it springy,
  * {@link JointLimit} to bound the separation (`lower`/`upper` become min/max
  * length), or {@link JointMotor} to drive the length.
+ * `length` measures anchor distance, not its x- or y-projection while swinging.
  */
 export class DistanceJoint extends Joint {
   length = 1;
@@ -183,6 +189,9 @@ export class JointLimit {
  * Present = spring enabled. `hertz` is the stiffness frequency, `dampingRatio`
  * the damping. Applies to `DistanceJoint`, `PrismaticJoint`, `WheelJoint`, and
  * the linear axis of `WeldJoint`.
+ * Uses its own softness, not base constraint tuning. For a distance joint this
+ * replaces the rigid rod's response along the axis; the spring settings did not
+ * change with the 7.0.0 backend migration.
  */
 export class JointLinearSpring {
   hertz = 0;
