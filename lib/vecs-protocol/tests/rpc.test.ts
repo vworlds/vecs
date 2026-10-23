@@ -318,7 +318,7 @@ describe("SessionRPC", () => {
   });
 
   it("rejects a timed-out call with RPC_TIMEOUT_ERROR", async () => {
-    const client = new SessionRPC(10);
+    const client = new SessionRPC(10, () => 0);
     const call = client.invoke(101);
 
     client.timeoutTick(10);
@@ -571,7 +571,7 @@ describe("SessionRPC.settledBelow", () => {
   });
 
   it("advances through calls that time out or are aborted", async () => {
-    const client = new SessionRPC();
+    const client = new SessionRPC(5000, () => 0);
     const reason = new RPCError(RPC_CLOSED_CODE, "peer gone");
     const outcomes = [
       client.invoke(101, [], 10),
@@ -607,8 +607,51 @@ describe("SessionRPC.settledBelow", () => {
 });
 
 describe("SessionRPC.timeoutTick", () => {
+  it("expires at an absolute deadline, never charging repeated ticks or pre-call time", async () => {
+    let now = 50_000;
+    const channel = new SessionRPC(10_000, () => now);
+    const outcomes: number[] = [];
+    const first = channel.invoke(101).catch((error) => {
+      outcomes.push(0);
+      return error;
+    });
+    now = 55_000;
+    const second = channel.invoke(101).catch((error) => {
+      outcomes.push(1);
+      return error;
+    });
+    channel.timeoutTick(59_999);
+    channel.timeoutTick(59_999);
+    await flush();
+    expect(outcomes).toEqual([]);
+    expect(channel.pendingCalls).toBe(2);
+    channel.timeoutTick(60_000);
+    expect(await first).toBe(RPC_TIMEOUT_ERROR);
+    expect(channel.settledBelow).toBe(1);
+    expect(channel.getOutgoing().map((rpc) => rpc.callId)).toEqual([1]);
+    channel.timeoutTick(65_001);
+    expect(await second).toBe(RPC_TIMEOUT_ERROR);
+    expect(outcomes).toEqual([0, 1]);
+    expect(channel.settledBelow).toBe(2);
+  });
+
+  it("rejects expired calls in call-id order even with different deadlines", async () => {
+    const channel = new SessionRPC(5000, () => 100);
+    const order: number[] = [];
+    const calls = [30, 10, 20].map((ttl, id) =>
+      channel.invoke(101, [], ttl).catch((error) => {
+        order.push(id);
+        return error;
+      })
+    );
+    channel.timeoutTick(130);
+    expect(await Promise.all(calls)).toEqual(Array(3).fill(RPC_TIMEOUT_ERROR));
+    expect(order).toEqual([0, 1, 2]);
+    expect(channel.settledBelow).toBe(3);
+  });
+
   it("rejects pending calls but no longer evicts cached replies", async () => {
-    const channel = new SessionRPC(10);
+    const channel = new SessionRPC(10, () => 0);
     const handler = vi.fn(() => ["once"]);
     channel.listen(101, handler);
     channel.process([request(0)]);

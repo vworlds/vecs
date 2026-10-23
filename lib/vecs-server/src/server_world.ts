@@ -305,7 +305,6 @@ export interface ShutdownOptions {
 class ServerClientSession {
   public readonly history: History;
   public readonly rpc = new SessionRPC();
-  public rpcTickMs = 0;
   /** Smoothed time between sending a frame and receiving its ack. */
   public readonly rtt: RttEstimator;
   public context!: ServerRPCContext;
@@ -710,7 +709,9 @@ export class ServerWorld extends NetworkWorld {
    * retransmitted by send(); the client's listen handler runs during apply().
    * Rejects with RPC_CLOSED_CODE for an unknown/closing connection or session end,
    * the handler's RPCError on failure, or RPC_TIMEOUT_CODE after ttl milliseconds.
-   * Timeouts advance only when send() runs (normally once per progress()).
+   * The deadline is measured from invocation using performance.now(). Expiration
+   * occurs on the first send() at or after it, even without a View; no timer runs
+   * while the loop is paused (normally send runs once per progress()).
    */
   public invoke(
     connectionId: string,
@@ -724,16 +725,7 @@ export class ServerWorld extends NetworkWorld {
         new RPCError(RPC_CLOSED_CODE, `Unknown or closed connection ${connectionId}`)
       );
     }
-    const nowMs = performance.now();
-    if (session.rpc.pendingCalls === 0) {
-      session.rpcTickMs = nowMs;
-    }
-    // The next tick ages every call from the previous tick. Compensate for the
-    // part before this call existed, including a long pause with another call pending.
-    const ageBeforeCall = nowMs - session.rpcTickMs;
-    return session.rpc
-      .invoke(rpcId, params, ttl + ageBeforeCall)
-      .then((response) => response.params);
+    return session.rpc.invoke(rpcId, params, ttl).then((response) => response.params);
   }
 
   /**
@@ -822,7 +814,8 @@ export class ServerWorld extends NetworkWorld {
    * Advance one replication frame: reconcile every session's view, record the
    * frame's diff, and send each session what it has not acked, together with
    * any queued RPC replies. Sessions that have not sent anything within
-   * `disconnectGraceMs` are closed.
+   * `disconnectGraceMs` are closed. Pending outgoing RPC deadlines are checked
+   * against performance.now() for every session, including those without a View.
    *
    * A session that has acked a baseline gets a delta from its newest ack. A
    * session without one gets a full baseline (`fromFrame` 0), once: a new
@@ -875,6 +868,12 @@ export class ServerWorld extends NetworkWorld {
     const nowMs = performance.now();
     const staleSessions: ServerClientSession[] = [];
 
+    this._sessions.forEach((session) => {
+      if (session.rpc.pendingCalls > 0) {
+        session.rpc.timeoutTick(nowMs);
+      }
+    });
+
     this._clients.forEach([View, ServerClientSession], (e, [view, session]) => {
       if (session.closing) {
         // Scheduled to close: no further state, but the rejection that explains
@@ -882,11 +881,6 @@ export class ServerWorld extends NetworkWorld {
         // allowed to reach the client before the transport goes down.
         this._lingerOrClose(session, nowMs, sendSocket);
         return;
-      }
-
-      if (session.rpc.pendingCalls > 0) {
-        session.rpc.timeoutTick(nowMs - session.rpcTickMs);
-        session.rpcTickMs = nowMs;
       }
 
       view._reconcileVisibility();

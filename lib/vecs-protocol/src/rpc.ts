@@ -53,7 +53,7 @@ interface PendingRPC {
   request: RPC;
   resolve(value: RPC): void;
   reject(reason: unknown): void;
-  ttl: number;
+  deadline: number;
 }
 
 /**
@@ -200,7 +200,15 @@ export class SessionRPC {
   private readonly _inFlight = new Set<number>();
   private readonly _handlers = new Map<number, RPCHandler>();
 
-  public constructor(private readonly _defaultTTL = 5000) {}
+  /**
+   * @param _defaultTTL - Default outgoing call lifetime in milliseconds.
+   * @param _now - Monotonic millisecond clock; ticks must use the same time origin.
+   *   Defaults to `performance.now()`.
+   */
+  public constructor(
+    private readonly _defaultTTL = 5000,
+    private readonly _now: () => number = () => performance.now()
+  ) {}
 
   /**
    * Register the handler for an incoming `rpcId`, replacing any previous one.
@@ -233,7 +241,7 @@ export class SessionRPC {
    *   except the reserved bridge announcement and call ids.
    * @param params - Positional parameters to encode with the call.
    * @param ttl - Milliseconds before the call times out; defaults to the
-   *   channel's TTL.
+   *   channel's TTL. The deadline is the channel clock at invocation plus this TTL.
    */
   public invoke(rpcId: number, params: unknown[] = [], ttl = this._defaultTTL): Promise<RPC> {
     if (
@@ -246,7 +254,7 @@ export class SessionRPC {
     const callId = this._nextCallId++;
     const request = new RPC({ rpcId, callId, params });
     return new Promise((resolve, reject) => {
-      this._pending.set(callId, { request, resolve, reject, ttl });
+      this._pending.set(callId, { request, resolve, reject, deadline: this._now() + ttl });
     });
   }
 
@@ -315,8 +323,8 @@ export class SessionRPC {
   }
 
   /**
-   * Age in-flight calls by `elapsed` milliseconds, rejecting the ones that run
-   * out with {@link RPC_TIMEOUT_ERROR}. A call that times out counts as settled,
+   * Reject calls whose absolute deadline is at or before `now` with
+   * {@link RPC_TIMEOUT_ERROR}, in call-id order. A timed-out call counts as settled,
    * so {@link SessionRPC.settledBelow} moves past it.
    *
    * Callers own the clock — `ClientWorld` does not tick this, so a client call
@@ -324,12 +332,12 @@ export class SessionRPC {
    * replies are not aged: they stay until the peer's watermark passes them, see
    * {@link SessionRPC.setPeerSettledBelow}.
    *
-   * @param elapsed - Milliseconds since the previous tick.
+   * @param now - Absolute monotonic milliseconds on the constructor clock's time origin,
+   *   not elapsed time since the last tick. Expiration requires a tick; no timer is installed.
    */
-  public timeoutTick(elapsed: number): void {
+  public timeoutTick(now: number): void {
     this._pending.forEach((pending, callId) => {
-      pending.ttl -= elapsed;
-      if (pending.ttl <= 0) {
+      if (pending.deadline <= now) {
         this._pending.delete(callId);
         pending.reject(RPC_TIMEOUT_ERROR);
       }

@@ -559,10 +559,12 @@ const [answer] = await world.invoke(connectionId, 201, ["question"], 5000);
 Unknown or closing connections reject immediately with `RPC_CLOSED_CODE`.
 Handler failures preserve their wire-safe `RPCError` code and message. Session
 teardown rejects outstanding calls with `RPC_CLOSED_CODE`; an unanswered call
-expires with `RPC_TIMEOUT_CODE` after its ttl. Timeouts use wall-clock elapsed
-milliseconds between sends and only advance when `send()` runs. Sessions without
-pending outgoing calls never call `SessionRPC.timeoutTick`, even when answering
-client requests. There is no additional timer or session scan.
+expires with `RPC_TIMEOUT_CODE` on the first `send()` at or after its deadline
+(`performance.now()` at invocation plus the unchanged TTL). Every session with pending
+outgoing calls is checked, including sessions without a `View`; sessions only answering
+client requests do not tick RPC. There is no additional timer: pausing the loop delays
+expiration until the next send. `rpcTickMs` and its TTL compensation have been removed.
+See [protocol deadline semantics](../../vecs-protocol/docs/rpc.md#timeouts-and-aborts).
 
 ## Reference
 

@@ -98,7 +98,7 @@ the source under [`src/`](./src/) — read it in your IDE.
 
 Networking is documented alongside the packages that own it:
 [MCP hubs and linked worlds](../vecs-mcp/docs/topology.md) ·
-[Remote procedure calls](../vecs-protocol/docs/rpc.md) ·
+[Remote procedure calls and deadlines](../vecs-protocol/docs/rpc.md) ·
 [Sessions and caller context](../vecs-server/docs/sessions.md) ·
 [Client world](../vecs-client/docs/client-world.md).
 For MCP inspection through an opted-in browser connection, see

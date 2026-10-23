@@ -169,6 +169,38 @@ function createWorld(options: ServerWorldOptions = {}): ServerWorld {
 }
 
 describe("ServerWorld.invoke", () => {
+  it("expires outgoing calls even when the session has no View", async () => {
+    const clock = vi.spyOn(performance, "now").mockReturnValue(100);
+    const world = createWorld();
+    const listener = new MockListener();
+    world._attach(listener);
+    const socket = new MemorySocket("viewless");
+    listener.connect(socket);
+    getSession(world, socket.id).entity.remove(View);
+    world.flush();
+    try {
+      const rejected = vi.fn();
+      const outcome = world.invoke(socket.id, 201, [], 10_000).catch((error) => {
+        rejected(error);
+        return error;
+      });
+      clock.mockReturnValue(10_099);
+      world.send();
+      await Promise.resolve();
+      expect(rejected).not.toHaveBeenCalled();
+      expect(getSession(world, socket.id).entity.has(View)).toBe(false);
+      clock.mockReturnValue(10_100);
+      world.send();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(rejected).toHaveBeenCalledWith(expect.objectContaining({ code: RPC_TIMEOUT_CODE }));
+      expect(await outcome).toMatchObject({ code: RPC_TIMEOUT_CODE });
+    } finally {
+      world.dispose();
+      clock.mockRestore();
+    }
+  });
+
   it("does not charge a new call for time before it existed while another call is pending", async () => {
     const world = createWorld();
     const listener = new MockListener();
@@ -281,7 +313,7 @@ describe("ServerWorld.invoke", () => {
       clock.mockReturnValue(110);
       tick(world);
       expect(spy).toHaveBeenCalledTimes(1);
-      expect(spy).toHaveBeenLastCalledWith(10);
+      expect(spy).toHaveBeenLastCalledWith(110);
       clock.mockReturnValue(120);
       tick(world);
       await expect(pending).rejects.toMatchObject({ code: RPC_TIMEOUT_CODE });

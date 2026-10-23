@@ -83,7 +83,12 @@ export class VecsMcpServer {
     );
   }
 
-  /** Stop HTTP, MCP sessions and links; unregister every world and release its queries. Safe to repeat. */
+  /**
+   * Stop HTTP, MCP sessions and links, unregister every world and release its
+   * queries. Session-close unwatches wait at most the call TTL (10 seconds),
+   * even with a paused game loop; failed unwatches do not prevent shutdown.
+   * Safe to repeat.
+   */
   public async close(): Promise<void> {
     const http = this._http;
     this._http = undefined;
