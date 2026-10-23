@@ -687,6 +687,27 @@ export function deadReckoningReplicationCases(stress: boolean): void {
           polygon: QUADRILATERAL,
           streamed: true,
         });
+        // A physics-free control streams the same trajectory over the same packets. While streamed,
+        // compare with this control, not an unavailable physics frame: losing a collision frame makes
+        // the interpolator cut across the bounce. Contact events are not fixed geometric clocks (see
+        // vecs-physics/docs/events.md); with Box2D 3.2, seed 1 loses impact frame 940 between 939 and 941.
+        // Dead-reckoned samples still compare directly with physics truth, with the same tolerance
+        // and transient windows as before. The control never changes the simulated physics.
+        const streamedControl = server.entity().add(Networked);
+        server
+          .system("test.streamed.control")
+          .with(PhysicsPosition, PhysicsRotation)
+          .phase(ON_STORE)
+          .update({ watch: PhysicsPosition, onEnter: true }, (entity, position) => {
+            if (entity === toggled) {
+              streamedControl.set(RenderPosition, { x: position.x, y: position.y });
+            }
+          })
+          .update({ watch: PhysicsRotation, onEnter: true }, (entity, rotation) => {
+            if (entity === toggled) {
+              streamedControl.set(RenderRotation, { angle: rotation.angle });
+            }
+          });
         // Every switch, as the server frame it takes effect in. The first is at t = 5 s and then
         // every 1.5 s; even ones run outside a system, odd ones inside a system of a late phase.
         const switches: number[] = [];
@@ -719,15 +740,24 @@ export function deadReckoningReplicationCases(stress: boolean): void {
           toggleAt(lastSwitch, toggles++);
         }
 
-        const samples: Array<{ frame: number } & Pose> = [];
+        const samples: Array<{ frame: number; deadReckoned: boolean; streamed: Pose } & Pose> = [];
         run.client.world
           .system("test.sample")
           .with(RenderPosition, RenderRotation)
           .phase(ON_STORE)
           .each([RenderPosition, RenderRotation], (entity, [position, rotation]) => {
             if (entity.eid === toggled.eid) {
+              const control = run.client.world.entity(streamedControl.eid);
+              const controlPosition = control.get(RenderPosition)!;
+              const controlRotation = control.get(RenderRotation)!;
               samples.push({
                 frame: run.client.world.renderFrame,
+                deadReckoned: entity.has(Motion),
+                streamed: {
+                  x: controlPosition.x,
+                  y: controlPosition.y,
+                  angle: controlRotation.angle,
+                },
                 x: position.x,
                 y: position.y,
                 angle: rotation.angle,
@@ -737,8 +767,9 @@ export function deadReckoningReplicationCases(stress: boolean): void {
 
         run.sim.run(stress ? 60_000 : 14_000);
 
-        // The pose is within tolerance of the server's, outside the documented transients: the
-        // 150 ms after a correction, and around a switch. A streamed body whose updates stop holds
+        // The pose is within tolerance of physics truth (dead reckoned) or the streamed control,
+        // outside the documented transients: 150 ms after a correction, and around a switch.
+        // A streamed body whose updates stop holds
         // its last pose until the baseline's frame, which on this link, with its loss and reordering,
         // is up to HANDOFF_LEAD_FRAMES frames before the switch; the hand-off then blends out over
         // 100 ms after it.
@@ -747,8 +778,10 @@ export function deadReckoningReplicationCases(stress: boolean): void {
         let worstPosition = 0;
         let worstAngle = 0;
         let checked = 0;
-        for (const { frame, x, y, angle } of samples) {
-          const truth = run.truthAt(toggled.eid, frame);
+        let deadReckonedChecked = 0;
+        let streamedChecked = 0;
+        for (const { frame, x, y, angle, deadReckoned, streamed } of samples) {
+          const truth = deadReckoned ? run.truthAt(toggled.eid, frame) : streamed;
           if (truth === undefined) {
             continue;
           }
@@ -761,12 +794,19 @@ export function deadReckoningReplicationCases(stress: boolean): void {
             continue;
           }
           checked++;
+          if (deadReckoned) {
+            deadReckonedChecked++;
+          } else {
+            streamedChecked++;
+          }
           worstPosition = Math.max(worstPosition, Math.hypot(x - truth.x, y - truth.y));
           worstAngle = Math.max(worstAngle, Math.abs(wrap(angle - truth.angle)));
         }
 
         expect(switches.length).toBeGreaterThan(stress ? 30 : 5);
         expect(checked).toBeGreaterThan(samples.length / 2);
+        expect(deadReckonedChecked).toBeGreaterThan(100);
+        expect(streamedChecked).toBeGreaterThan(100);
         expect(worstPosition).toBeLessThanOrEqual(POSITION_TOLERANCE + 1e-6);
         expect(worstAngle).toBeLessThanOrEqual(ANGLE_TOLERANCE + 1e-6);
         expect(run.client.stats.errors).toEqual([]);
