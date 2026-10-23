@@ -141,3 +141,16 @@ if (tags.tags.has(TAG_VISIBLE)) { ... }
 
 Related: `getDSLKey(dsl, world)` returns a deterministic 32-bit hash of a DSL expression
 (equivalent expressions hash identically), useful for caching keyed on predicates.
+
+## Stable string hashing
+
+Use `fnv1a32(input)` from `@vworlds/vecs` for unsigned 32-bit FNV-1a over UTF-16
+code units, without normalization. Its values are stable across releases because
+query cache keys and [RPC name ids](../../vecs-protocol/docs/rpc.md#names-and-numeric-request-ids)
+depend on them. For RPC APIs, pass the name itself rather than a raw hash.
+
+```ts
+import { fnv1a32 } from "@vworlds/vecs";
+
+const key = fnv1a32("auth"); // 0x953fa84f
+```

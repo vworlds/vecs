@@ -1,12 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { ClientWorld } from "@vworlds/vecs-client";
-import {
-  BRIDGE_ANNOUNCE_RPC_ID,
-  BRIDGE_CALL_RPC_ID,
-  RPC,
-  RPC_CLOSED_CODE,
-  type RPCHandler,
-} from "@vworlds/vecs-protocol";
+import { RPC, RPC_CLOSED_CODE, type RPCHandler } from "@vworlds/vecs-protocol";
 import { installBridge } from "../src/client.js";
 
 afterEach(() => vi.useRealTimers());
@@ -29,7 +23,7 @@ function setup(readOnly = false) {
   const world = new ClientWorld();
   const listen = vi.spyOn(world, "listen");
   const bridge = installBridge(world, { readOnly });
-  const handler = listen.mock.calls.find(([id]) => id === BRIDGE_CALL_RPC_ID)![1];
+  const handler = listen.mock.calls.find(([id]) => id === "vecs-mcp/call")![1];
   const call = (command: string, params: Record<string, unknown>) =>
     Promise.resolve(handler([{ id: "test", command, params }], new RPC(), undefined));
   return { world, bridge, handler, call };
@@ -159,15 +153,15 @@ it("announces once per attachment before/after install and removes only its own 
   const bridge = installBridge(world);
   expect(announce).not.toHaveBeenCalled();
   world.attachSocket(socket);
-  expect(announce).toHaveBeenCalledExactlyOnceWith(BRIDGE_ANNOUNCE_RPC_ID);
+  expect(announce).toHaveBeenCalledExactlyOnceWith("vecs-mcp/announce");
   world.close();
   world.attachSocket(socket);
   expect(announce).toHaveBeenCalledTimes(2);
   const replacement: RPCHandler = () => "replacement";
-  world.listen(BRIDGE_CALL_RPC_ID, replacement);
+  world.listen("vecs-mcp/call", replacement);
   bridge.uninstall();
   bridge.uninstall();
-  expect(world.unlisten(BRIDGE_CALL_RPC_ID, replacement)).toBe(true);
+  expect(world.unlisten("vecs-mcp/call", replacement)).toBe(true);
   world.attachSocket(socket);
   expect(announce).toHaveBeenCalledTimes(2);
   const late = installBridge(world);

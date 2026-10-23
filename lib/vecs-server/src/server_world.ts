@@ -7,6 +7,7 @@ import {
   RPCError,
   Server2Client,
   SessionRPC,
+  resolveRpcId,
   StateDiff,
   ALL_COMPONENTS,
   cid_pack,
@@ -445,6 +446,7 @@ export class ServerWorld extends NetworkWorld {
   public readonly name: string;
   private readonly _components: readonly RegisteredComponent[];
   private readonly _sessions = new Map<string, ServerClientSession>();
+  private readonly _rpcNames = new Map<number, string>();
   private readonly _rpcHandlers = new Map<
     number,
     { handler: RPCHandler<ServerRPCContext>; installed: WeakMap<SessionRPC, RPCHandler> }
@@ -654,7 +656,7 @@ export class ServerWorld extends NetworkWorld {
    * a slow or non-idempotent handler is safe.
    *
    * ```ts
-   * const AUTH_RPC = 101;
+   * const AUTH_RPC = "auth";
    * const AUTH_REJECTED = 4001;
    *
    * world.handleRpc(AUTH_RPC, (params, _request, ctx) => {
@@ -668,15 +670,17 @@ export class ServerWorld extends NetworkWorld {
    *
    * Use {@link ServerWorld.unhandleRpc} with the same handler reference to remove it.
    *
-   * @param rpcId - Request id to answer.
+   * @param rpcId - Name to answer, or numeric application id (101–2147483647).
+   *   Hash collisions throw with both names, even before any session connects.
    * @param handler - Handler run for every connection; see {@link RPCHandler}.
    */
-  public handleRpc(rpcId: number, handler: RPCHandler<ServerRPCContext>): void {
+  public handleRpc(rpcId: number | string, handler: RPCHandler<ServerRPCContext>): void {
+    const id = resolveRpcId(rpcId, this._rpcNames);
     const registration = { handler, installed: new WeakMap<SessionRPC, RPCHandler>() };
-    this._rpcHandlers.set(rpcId, registration);
+    this._rpcHandlers.set(id, registration);
     this._sessions.forEach((session) => {
       if (!session.closing) {
-        this._installHandler(session, rpcId, registration);
+        this._installHandler(session, id, registration);
       }
     });
   }
@@ -685,20 +689,22 @@ export class ServerWorld extends NetworkWorld {
    * Remove only the matching handler reference from current and future connections.
    * A later replacement is left untouched. Calls already in flight still settle.
    *
-   * @param rpcId - Request id whose registration should be removed.
+   * @param rpcId - Name or numeric application id whose registration should be removed.
+   *   Names remain remembered for collision detection after removal.
    * @param handler - The exact handler reference passed to {@link ServerWorld.handleRpc}.
    * @returns True when removed; false when absent or registered to another handler.
    */
-  public unhandleRpc(rpcId: number, handler: RPCHandler<ServerRPCContext>): boolean {
-    const registration = this._rpcHandlers.get(rpcId);
+  public unhandleRpc(rpcId: number | string, handler: RPCHandler<ServerRPCContext>): boolean {
+    const id = resolveRpcId(rpcId, this._rpcNames);
+    const registration = this._rpcHandlers.get(id);
     if (!registration || registration.handler !== handler) {
       return false;
     }
-    this._rpcHandlers.delete(rpcId);
+    this._rpcHandlers.delete(id);
     this._sessions.forEach((session) => {
       const installed = registration.installed.get(session.rpc);
       if (installed) {
-        session.rpc.unlisten(rpcId, installed);
+        session.rpc.unlisten(this._rpcNames.get(id) ?? id, installed);
       }
     });
     return true;
@@ -712,10 +718,12 @@ export class ServerWorld extends NetworkWorld {
    * The deadline is measured from invocation using performance.now(). Expiration
    * occurs on the first send() at or after it, even without a View; no timer runs
    * while the loop is paused (normally send runs once per progress()).
+   * Pass an RPC name or a numeric application id in 101–2147483647. Names are
+   * hashed once by the session and checked for collisions with its known names.
    */
   public invoke(
     connectionId: string,
-    rpcId: number,
+    rpcId: number | string,
     params: unknown[] = [],
     ttl = 5000
   ): Promise<unknown[]> {
@@ -1481,7 +1489,7 @@ export class ServerWorld extends NetworkWorld {
     const handler: RPCHandler = (params, request) =>
       registration.handler(params, request, session.context);
     registration.installed.set(session.rpc, handler);
-    session.rpc.listen(rpcId, handler);
+    session.rpc.listen(this._rpcNames.get(rpcId) ?? rpcId, handler);
   }
 
   private _sessionFor(connection: string | Entity): ServerClientSession | undefined {

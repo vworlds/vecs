@@ -1,11 +1,42 @@
+import { fnv1a32 } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 
 export const RPC_RESPONSE_ID = 0;
-/** Reserved client-to-server MCP bridge announcement. */
-export const BRIDGE_ANNOUNCE_RPC_ID = 90;
-/** Reserved server-to-client MCP bridge envelope call. */
-export const BRIDGE_CALL_RPC_ID = 91;
+/** First numeric application RPC id; 0 is the reply marker and 1–100 are reserved. */
 export const FIRST_USER_RPC_ID = 101;
+
+/**
+ * Hash an RPC name using vecs' FNV-1a over UTF-16 code units, forcing the top bit.
+ * Pass the name, not this wire id, to listen/unlisten/invoke. Numeric application
+ * ids occupy 101–2147483647; the upper half of u32 is exclusively for names.
+ */
+export function rpcIdFor(name: string): number {
+  return (fnv1a32(name) | 0x80000000) >>> 0;
+}
+
+/** Resolve and remember API names outside message routing. @internal */
+export function resolveRpcId(rpcId: number | string, names: Map<number, string>): number {
+  if (typeof rpcId === "string") {
+    const id = rpcIdFor(rpcId);
+    const previous = names.get(id);
+    if (previous !== undefined && previous !== rpcId) {
+      throw new Error(
+        `RPC name collision: ${JSON.stringify(previous)} and ${JSON.stringify(rpcId)} (${id})`
+      );
+    }
+    names.set(id, rpcId);
+    return id;
+  }
+  if (rpcId < FIRST_USER_RPC_ID) {
+    throw new Error(`RPC ids 0-${FIRST_USER_RPC_ID - 1} are reserved`);
+  }
+  if (!Number.isInteger(rpcId) || rpcId >= 0x80000000) {
+    throw new Error(
+      `Numeric RPC id ${rpcId} must be an integer in 101-2147483647; use a name for hashed ids`
+    );
+  }
+  return rpcId;
+}
 
 /**
  * Largest code an {@link RPC.error} can carry: the field is encoded as `u32`.
@@ -90,7 +121,7 @@ export const RPC_UNSPECIFIED_ERROR_CODE = 1;
  * with a code the caller can branch on:
  *
  * ```ts
- * const AUTH_RPC = 101;
+ * const AUTH_RPC = "auth";
  * const AUTH_REJECTED = 4001;
  *
  * world.handleRpc(AUTH_RPC, (_params, _request, ctx) => {
@@ -199,6 +230,7 @@ export class SessionRPC {
   // Peer call ids whose handler is running and has not settled yet.
   private readonly _inFlight = new Set<number>();
   private readonly _handlers = new Map<number, RPCHandler>();
+  private readonly _names = new Map<number, string>();
 
   /**
    * @param _defaultTTL - Default outgoing call lifetime in milliseconds.
@@ -213,21 +245,19 @@ export class SessionRPC {
   /**
    * Register the handler for an incoming `rpcId`, replacing any previous one.
    *
-   * @param rpcId - Request id to answer. Ids at or below {@link RPC_RESPONSE_ID}
-   *   are reserved for responses and throw.
+   * @param rpcId - Name to answer, or numeric application id (101–2147483647).
+   *   Conflicting names with the same hash throw, naming both.
    * @param handler - Called with the decoded params, the request message, and
    *   `undefined` for the caller context; see {@link RPCHandler}.
    */
-  public listen(rpcId: number, handler: RPCHandler): void {
-    if (rpcId <= RPC_RESPONSE_ID) {
-      throw new Error("RPC handler ids must be positive request ids");
-    }
-    this._handlers.set(rpcId, handler);
+  public listen(rpcId: number | string, handler: RPCHandler): void {
+    this._handlers.set(resolveRpcId(rpcId, this._names), handler);
   }
 
-  /** Remove only the matching handler reference; a replacement is left untouched. */
-  public unlisten(rpcId: number, handler: RPCHandler): boolean {
-    return this._handlers.get(rpcId) === handler && this._handlers.delete(rpcId);
+  /** Remove a name or numeric id's matching handler; retain its name to detect later collisions. */
+  public unlisten(rpcId: number | string, handler: RPCHandler): boolean {
+    const id = resolveRpcId(rpcId, this._names);
+    return this._handlers.get(id) === handler && this._handlers.delete(id);
   }
 
   /**
@@ -237,22 +267,20 @@ export class SessionRPC {
    * {@link RPC_TIMEOUT_ERROR} if {@link SessionRPC.timeoutTick} expires the call
    * first, or with whatever reason {@link SessionRPC.abortPending} was given.
    *
-   * @param rpcId - Request id. Ids below {@link FIRST_USER_RPC_ID} throw,
-   *   except the reserved bridge announcement and call ids.
+   * @param rpcId - Name to call, or numeric application id (101–2147483647).
+   *   A name is hashed once here; a collision with another remembered name throws.
    * @param params - Positional parameters to encode with the call.
    * @param ttl - Milliseconds before the call times out; defaults to the
    *   channel's TTL. The deadline is the channel clock at invocation plus this TTL.
    */
-  public invoke(rpcId: number, params: unknown[] = [], ttl = this._defaultTTL): Promise<RPC> {
-    if (
-      rpcId < FIRST_USER_RPC_ID &&
-      rpcId !== BRIDGE_ANNOUNCE_RPC_ID &&
-      rpcId !== BRIDGE_CALL_RPC_ID
-    ) {
-      throw new Error(`RPC ids 0-${FIRST_USER_RPC_ID - 1} are reserved`);
-    }
+  public invoke(
+    rpcId: number | string,
+    params: unknown[] = [],
+    ttl = this._defaultTTL
+  ): Promise<RPC> {
+    const id = resolveRpcId(rpcId, this._names);
     const callId = this._nextCallId++;
-    const request = new RPC({ rpcId, callId, params });
+    const request = new RPC({ rpcId: id, callId, params });
     return new Promise((resolve, reject) => {
       this._pending.set(callId, { request, resolve, reject, deadline: this._now() + ttl });
     });
@@ -439,6 +467,10 @@ export class SessionRPC {
     if (!handler) {
       response.error = RPC_UNSPECIFIED_ERROR_CODE;
       response.message = `Unknown RPC id ${message.rpcId}`;
+      const name = this._names.get(message.rpcId);
+      if (name !== undefined) {
+        response.message += ` (${JSON.stringify(name)})`;
+      }
       this._queueResponse(response);
       return;
     }

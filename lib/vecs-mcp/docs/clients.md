@@ -21,6 +21,10 @@ The `/client` entry is browser safe: it imports neither Node APIs nor the MCP SD
 Install once per world, before or after socket attachment. It announces once on
 each attachment, including reconnects, and immediately if already connected.
 Announcement failures are contained when a disconnect races the reply.
+The bridge uses the named RPCs `"vecs-mcp/announce"` and `"vecs-mcp/call"`, under
+the same [name hashing and collision rules](../../vecs-protocol/docs/rpc.md#names-and-numeric-request-ids)
+as applications. No protocol ids are reserved for MCP. Upgrade bridge clients and
+servers together: the previous numeric 90/91 bridge has no compatibility path.
 `uninstall()` is idempotent, removes its connect listener and only its own RPC
 handler, and prevents scheduled envelopes from executing. It does not retract a
 previous announcement: the server retains the capability tag until disconnect.

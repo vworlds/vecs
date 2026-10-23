@@ -519,12 +519,12 @@ describe("a session with traffic", () => {
 
   it("counts a frame that carries an RPC reply with an empty diff as a frame with a diff", async () => {
     const rig = createRig({ keepAliveFrames: 2 });
-    rig.world.handleRpc(7, () => "pong");
+    rig.world.handleRpc(107, () => "pong");
     expect(step(rig)[0].diff).toMatchObject({ fromFrame: 0, toFrame: 1 });
     ack(rig, 1);
     expect(step(rig)).toEqual([]);
 
-    ack(rig, 1, { rpc: [new RPC({ rpcId: 7, callId: 3, params: [] })] });
+    ack(rig, 1, { rpc: [new RPC({ rpcId: 107, callId: 3, params: [] })] });
     await settlePromises();
     const frames = steps(rig, 4);
 
@@ -596,11 +596,11 @@ describe("a session that waits for a baseline", () => {
 
   it("does not count a frame with RPC traffic and no diff as a frame with a diff", async () => {
     const rig = createRig({ keepAliveFrames: 2 });
-    rig.world.handleRpc(7, () => "pong");
+    rig.world.handleRpc(107, () => "pong");
     expect(step(rig)[0].diff).toMatchObject({ fromFrame: 0, toFrame: 1 });
 
     // The baseline is in flight, so frame 2 carries the reply and no diff.
-    ack(rig, 0, { rpc: [new RPC({ rpcId: 7, callId: 3, params: [] })] });
+    ack(rig, 0, { rpc: [new RPC({ rpcId: 107, callId: 3, params: [] })] });
     await settlePromises();
     const [replyOnly] = step(rig);
     expect(replyOnly.diff).toBeUndefined();

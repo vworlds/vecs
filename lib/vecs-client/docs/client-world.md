@@ -236,12 +236,15 @@ the render loop's time instead.
 
 `invoke` sends a call and resolves with the reply's params. It rejects with an
 [`RPCError`](../../vecs-protocol/docs/rpc.md) carrying the server's code and message.
+Pass a name to `invoke`, `listen` and `unlisten`. Numeric application ids in
+101–2147483647 also work; see [names and numeric request ids](../../vecs-protocol/docs/rpc.md#names-and-numeric-request-ids)
+for the shared hashing and collision rules.
 
 ```ts
 import { RPCError } from "@vworlds/vecs-protocol";
 
 try {
-  const [message] = await world.invoke(101, ["north"]);
+  const [message] = await world.invoke("move", ["north"]);
   console.log(message);
 } catch (error) {
   if (error instanceof RPCError && error.code === 4001) {
@@ -267,8 +270,8 @@ reply, a server request waits for `apply()`: its handler runs there, so under `p
 the world's `ON_LOAD` phase, in order with your other systems. Its answer goes out with the next ack:
 
 ```ts
-world.listen(201, ([question]) => {
-  world.invoke(202, [question]);
+world.listen("ask", ([question]) => {
+  world.invoke("question", [question]);
   return ["asked"];
 });
 ```
