@@ -60,6 +60,8 @@ the node can route, including its mounted peers. Cascades extend the trust bound
 and expose originating process/git metadata through every mounting hop.
 
 This package does not authenticate game players or authorize individual ops.
+`vecs_mutate` is unrestricted by design: on writable nodes it can mutate or destroy
+infrastructure entities, including components, systems, modules and network clients.
 Possession of a mutation token means authoritative game access. A validator is a
 game-rule guard, not a security sandbox; constructors and hooks are trusted
 application code. Opaque values reduce accidental traversal, not exposure of

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { ResourceUpdatedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import { World } from "@vworlds/vecs";
@@ -73,6 +74,141 @@ describe("session watches and MCP resources", () => {
       paths.mockRestore();
     } finally {
       register.mockRestore();
+    }
+  });
+
+  it("allows 32 watches per session and exposes only the caller's ids at the cap", async () => {
+    const { connect } = await setup();
+    const a = await connect();
+    const b = await connect();
+    const own: string[] = [];
+    const other: string[] = [];
+    for (let i = 0; i < 32; i++) {
+      own.push((await call(a.client, "watch", { where: "Position" })).watch);
+      other.push((await call(b.client, "watch", { where: "Position" })).watch);
+    }
+    const rejected = await a.client.callTool({ name: "vecs_watch", arguments: { where: true } });
+    expect(rejected.isError).toBe(true);
+    const error = JSON.parse((rejected.content as { text: string }[])[0].text);
+    expect(error.message).toBe(`Watch cap (32); live ids: ${own.join(", ")}`);
+    expect((await b.client.listResources()).resources).toHaveLength(other.length);
+    await call(a.client, "unwatch", { watch: own[0] });
+    await call(a.client, "watch", { where: "Position" });
+  });
+
+  it("evicts the longest-idle session at the 16-session cap and releases its watches", async () => {
+    const { connect, url, world, baseline } = await setup();
+    const first = await connect();
+    const oldest = await connect();
+    await call(oldest.client, "watch", { where: "Position" });
+    for (let i = 2; i < 16; i++) {
+      await connect();
+    }
+    await call(first.client, "stats");
+    await connect();
+    expect(world.queries.length).toBe(baseline + registrationQueries);
+    expect(
+      (
+        await fetch(url, {
+          method: "DELETE",
+          headers: { "mcp-session-id": oldest.transport.sessionId! },
+        })
+      ).status
+    ).toBe(404);
+    expect(await call(first.client, "stats")).toHaveProperty("systems");
+  });
+
+  it("unregisters resources and subscriptions before re-registering the same world", async () => {
+    const { connect, server, world, baseline, component, hook } = await setup();
+    const { client } = await connect();
+    await call(client, "watch", { where: "Position", include: ["Position"] });
+    const uri = (await client.listResources()).resources[0].uri;
+    await client.subscribeResource({ uri });
+    await server.unregisterWorld(world);
+    await server.unregisterWorld(world);
+    expect(world.queries.length).toBe(baseline);
+    expect(component.meta._onSet).toBe(hook);
+    expect((await client.listResources()).resources).toEqual([]);
+    expect(await call(client, "targets")).toMatchObject({ targets: [] });
+    server.registerWorld(world);
+    await call(client, "watch", { where: "Position", include: ["Position"] });
+    await server.close();
+    expect(world.queries.length).toBe(baseline);
+    expect(component.meta._onSet).toBe(hook);
+  });
+
+  it("rejects initialization when all 16 sessions have commands in flight", async () => {
+    const { connect } = await setup();
+    const sessions = [];
+    for (let i = 0; i < 16; i++) {
+      sessions.push(await connect());
+    }
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered = 0;
+    let ready!: () => void;
+    const allEntered = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    const original = Router.prototype.dispatch;
+    const spy = vi.spyOn(Router.prototype, "dispatch").mockImplementation(async function (
+      this: Router,
+      request
+    ) {
+      if (request.command === "vecs_stats") {
+        if (++entered === 16) {
+          ready();
+        }
+        await gate;
+      }
+      return original.call(this, request);
+    });
+    const requests = sessions.map(({ client }) => call(client, "stats"));
+    try {
+      await allEntered;
+      await expect(connect()).rejects.toThrow("MCP session cap (16); all sessions are busy");
+    } finally {
+      release();
+      await Promise.all(requests);
+      spy.mockRestore();
+    }
+    for (const { client } of sessions) {
+      expect(await call(client, "stats")).toHaveProperty("systems");
+    }
+  });
+
+  it("reserves capacity for 16 pending initializations", async () => {
+    const { connect } = await setup();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let ready!: () => void;
+    const allEntered = new Promise<void>((resolve) => {
+      ready = resolve;
+    });
+    let entered = 0;
+    const original = McpServer.prototype.connect;
+    const spy = vi.spyOn(McpServer.prototype, "connect").mockImplementation(async function (
+      this: McpServer,
+      transport
+    ) {
+      if (++entered === 16) {
+        ready();
+      }
+      await gate;
+      return original.call(this, transport);
+    });
+    const pending = Array.from({ length: 16 }, () => connect());
+    try {
+      await allEntered;
+      await expect(connect()).rejects.toThrow("MCP session cap (16); all sessions are busy");
+    } finally {
+      release();
+      await Promise.all(pending);
+      spy.mockRestore();
     }
   });
 
