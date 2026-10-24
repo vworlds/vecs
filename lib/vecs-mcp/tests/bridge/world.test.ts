@@ -270,8 +270,10 @@ it("uses cached find membership without creating terms and otherwise performs on
   class Data {
     value = 3;
   }
+  class Other {}
   const world = new World();
   world.component(Data);
+  world.component(Other);
   const a = world.entity().add(Data);
   const local = new LocalWorld(world);
   const membership = world.query("cached").with(Data).build();
@@ -284,9 +286,11 @@ it("uses cached find membership without creating terms and otherwise performs on
   expect(forEach).not.toHaveBeenCalled();
   expect(world.queries.length).toBe(count);
   membership.destroy();
-  // A previously unseen boolean combination has no retained term.
-  expect(local.command("vecs_find", { where: { any: ["Data", false] } })).toMatchObject({
+  forEach.mockClear();
+  // The component leaf remains cached after query destruction. This composite has no term.
+  expect(local.command("vecs_find", { where: { all: ["Data", { not: "Other" }] } })).toEqual({
     total: 1,
+    entities: [{ eid: a.eid, name: undefined, components: {} }],
   });
   expect(forEach).toHaveBeenCalledTimes(1);
   expect(world.queries.length).toBe(count - 1);

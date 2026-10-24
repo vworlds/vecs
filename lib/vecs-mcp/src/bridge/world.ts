@@ -58,18 +58,19 @@ export class LocalWorld {
         return this._find(params);
       case "vecs_entity":
         return this._entity(params.entity);
-      case "vecs_mutate":
-        return mutate(this.world, this.registry(), params.ops, this.readOnly, this._nameOf);
+      case "vecs_mutate": {
+        const registry = this.registry();
+        return mutate(this.world, registry, params.ops, this.readOnly, this._nameOf);
+      }
       case "vecs_systems":
         return this._systems(params);
       case "vecs_stats": {
         // World.pipeline's getter builds pending queries and refreshes between frames.
-        const pipeline = this.world.pipeline;
-        const timings = new Map(
-          this.world.stats.systems().map(({ system, ...timing }) => [system, timing])
-        );
+        this.world.pipeline;
         return {
-          systems: pipeline.map((system) => ({ name: system.name, ...timings.get(system)! })),
+          systems: this.world.stats
+            .systems()
+            .map(({ system, ...timing }) => ({ name: system.name, ...timing })),
           operations: this.world.stats.operations(),
         };
       }
