@@ -3,6 +3,32 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## v1.0.60 (2026-10-24)
+
+- [vecs-mcp] Changed: Component inspection output now separates `kind` (`module`, `relationship`, `component`) from declared `trait` membership and returns uniform `{ name, targets? }` trait entries, preserving pair targets as registry names or entity references. Usage, definition data and singleton self-carry no longer imply traits (#395).
+- [vecs-mcp] Internal: Lazily index reactive definitions, inspect entities and mutation drafts through their own components, use indexed entity names with batch overrides, and read component counts directly from query membership (#395).
+- [vecs-mcp] Docs: Explain declared-trait output and cached-term versus predicate-pass find costs (#395).
+- [vecs] Added: Exported `Trait` metadata for explicit component-policy declarations and incremental trait reflection, with all eight built-in traits marked locally. The marker is excluded from subtree snapshots and rejected in `networkComponents` (#394).
+- [vecs-phaser-server] Tests: Compare streamed toggle poses with a same-link streamed control, preserving dead-reckoned physics tolerances when a lost collision frame is interpolated across (#392).
+- [vecs-physics] Docs: Explain unchanged joint softness across Box2D 3.1/3.2, the substep frequency cap, whole-assembly pose/velocity initialization, the existing speed-limit lever, and contact-recycling timing. Distinguish anchor distance from a swinging joint's x-offset (#388).
+- [vecs-physics] Tests: Characterize rigid-distance pulling/turning, residual motion after far-from-rest creation, consistent assembly resets and the existing speed-limit escape hatch through vecs components (#388).
+- [vecs] Added: `fnv1a32`, a stable unsigned 32-bit FNV-1a utility over UTF-16 code units, shared by query cache keys and RPC name ids.
+- [vecs-protocol] Added: named RPCs hashed to upper-half u32 ids with `rpcIdFor`, persistent per-channel collision detection, and known names in unknown-handler replies. Numeric application ids remain supported in 101–2147483647; all other numeric API ids are refused.
+- [vecs-protocol] Removed: MCP-specific bridge ids 90/91 and their invocation exemptions; upgrade bridge clients and servers together.
+- [vecs-server] Added: names in `handleRpc`, `unhandleRpc` and `invoke`, with collision detection before clients connect.
+- [vecs-client] Added: names in `listen`, `unlisten` and `invoke` with shared session collision detection.
+- [vecs-mcp] Changed: bridge announcement and calls use `"vecs-mcp/announce"` and `"vecs-mcp/call"` instead of reserved numeric ids, without a wire compatibility path.
+- [vecs-mcp] Fixed: Pin synced peer dependencies to the release version during stable package bumps (#383).
+- [vecs-mcp] Tests: Verify stable release peer pins and publish-package preservation offline (#383).
+- [vecs-mcp] Fixed: Detach world hooks, RPC announcement handlers and watches on close or unregisterWorld; cap MCP sessions at 16 with oldest-idle eviction and isolate the 32-watch allowance per session and world (#378, #368).
+- [vecs-server] Added: Replacement-safe unhandleRpc(rpcId, handler): boolean to release matching handlers from existing and future connections; handleRpc continues to return void (#378).
+- [vecs-mcp] Docs: Document lifecycle limits and unrestricted authoritative mutations (#378).
+- [vecs-protocol] Changed: `SessionRPC` accepts an optional monotonic clock; `timeoutTick(now)` now takes absolute milliseconds, not elapsed time, and expires calls at their invocation-based deadlines.
+- [vecs-server] Removed: server session `rpcTickMs` and TTL age compensation. Client and server packages must be upgraded together for the new timeout signature.
+- [vecs-mcp] Fixed: server calls expire even without a session View. MCP client-target calls and shutdown unwatches are bounded by a 10-second wall-clock timeout when the game loop is paused, with timers cleared on settlement.
+- [vecs-physics] Changed: Run on Box2D v3.2.0 via `@vworlds/box2d3-wasm` 7.0.0. Simulation results differ from 1.0.58 because of solver, restitution and sleep timing changes. The linear-speed clamp now runs after the biased constraint solve: creating a joint or teleporting a jointed body far from its rest pose can introduce momentum. Create joints near their rest pose, move jointed bodies together, or raise `maximumLinearSpeed`. Upgrade `@vworlds/vecs-physics` and `@vworlds/box2d3-wasm` together (#375).
+- [vecs-physics] Fixed: Apply chain shape materials to the generated segments (#375).
+
 ## v1.0.59 (2026-10-22)
 
 - [vecs-mcp] Changed: Track bridged clients incrementally and coalesce topology rebuilds and advertisements outside the server tick, sharing one table across exposing links (#382).
