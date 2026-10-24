@@ -1,11 +1,10 @@
 import {
-  Component,
+  type Component,
   ComponentDef,
   Module,
   DependsOn,
-  Entity,
-  ChildOf,
-  Identity,
+  type Entity,
+  Trait,
   type World,
   type QueryDSL,
   type Query,
@@ -20,13 +19,28 @@ export class LocalWorld {
   /** Live, session-owned watches; inert until explicitly created. */
   public readonly watches: WatchSet;
   private readonly _definitions: Query<[typeof ComponentDef]>;
+  private readonly _traits: Query<[typeof ComponentDef, typeof Trait]>;
+  private _dirty = true;
+  private _byName = new Map<string, Component>();
+  private _nameOf = new Map<number, string>();
+  private _relationships = new Map<string, Component>();
 
   public constructor(
     public readonly world: World,
     private readonly readOnly = false
   ) {
     this.watches = new WatchSet(world);
-    this._definitions = world.query("vecs-mcp.definitions").with(ComponentDef).build();
+    this._definitions = world
+      .query("vecs-mcp.definitions")
+      .with(ComponentDef)
+      .enter(() => {
+        this._dirty = true;
+      })
+      .exit(() => {
+        this._dirty = true;
+      })
+      .build();
+    this._traits = world.query("vecs-mcp.traits").with(ComponentDef, Trait).build();
   }
 
   /** Execute a world tool; watch tools require the bridge-injected session owner. */
@@ -45,16 +59,17 @@ export class LocalWorld {
       case "vecs_entity":
         return this._entity(params.entity);
       case "vecs_mutate":
-        return mutate(this.world, this.registry(), params.ops, this.readOnly);
+        return mutate(this.world, this.registry(), params.ops, this.readOnly, this._nameOf);
       case "vecs_systems":
         return this._systems(params);
       case "vecs_stats": {
-        // Refresh pending pipeline definitions so newly configured systems are listed before a tick.
-        void this.world.pipeline;
+        // World.pipeline's getter builds pending queries and refreshes between frames.
+        const pipeline = this.world.pipeline;
+        const timings = new Map(
+          this.world.stats.systems().map(({ system, ...timing }) => [system, timing])
+        );
         return {
-          systems: this.world.stats
-            .systems()
-            .map(({ system, ...timing }) => ({ name: system.name, ...timing })),
+          systems: pipeline.map((system) => ({ name: system.name, ...timings.get(system)! })),
           operations: this.world.stats.operations(),
         };
       }
@@ -63,54 +78,75 @@ export class LocalWorld {
     }
   }
 
+  /** Read topology counts without materializing the component-name indexes. */
   public counts(): { entities: number; components: number; systems: number } {
     return {
       entities: this.world.entities.size,
-      components: this.registry().size,
+      components: this._definitions.count,
       systems: this.world.pipeline.length,
     };
   }
 
-  /** Release the registration-owned schema query. Safe after world disposal and to repeat. */
+  /** Release both reflection queries. Safe after world disposal and to repeat. */
   public dispose(): void {
     this._definitions.destroy();
+    this._traits.destroy();
   }
 
-  /** Read the live component-definition query; duplicate class names use Name@eid keys. */
+  /** Read lazily indexed live definitions; duplicate class names use Name@eid keys. Do not mutate. */
   public registry(): Map<string, Component> {
+    if (!this._dirty) {
+      return this._byName;
+    }
     const components = [...this._definitions] as Component[];
     const counts = new Map<string, number>();
     for (const c of components) {
       counts.set(c.meta.Class.name, (counts.get(c.meta.Class.name) ?? 0) + 1);
     }
-    return new Map(
+    this._byName = new Map(
       components.map((c) => [
         counts.get(c.meta.Class.name) === 1 ? c.meta.Class.name : `${c.meta.Class.name}@${c.eid}`,
         c,
       ])
     );
+    this._nameOf = new Map();
+    this._relationships = new Map();
+    for (const [name, component] of this._byName) {
+      this._nameOf.set(component.eid, name);
+      if (component.meta.isRelationship) {
+        this._relationships.set(name, component);
+      }
+    }
+    this._dirty = false;
+    return this._byName;
   }
 
   private _components(filter?: string): unknown[] {
     const registry = this.registry();
-    const names = new Map([...registry].map(([name, c]) => [c.eid, name]));
-    const componentDefEid = this.world.getEntity(ComponentDef)?.eid;
-    const provenance = new Set([
-      this.world.getEntity(ChildOf)?.eid,
-      this.world.getEntity(Identity)?.eid,
-    ]);
+    const provenance = new Map<Entity, Module | undefined>();
     return [...registry]
       .filter(([name]) => filter === undefined || name.includes(filter))
       .map(([name, component]) => {
         const { schema, description } = componentSchema(component.meta.Class);
-        let parent = component.parent;
-        const visited = new Set<number>();
-        while (parent && !(parent instanceof Module) && !visited.has(parent.eid)) {
-          visited.add(parent.eid);
-          parent = parent.parent;
+        const parent = this._module(component.parent, provenance);
+        const traits = [];
+        for (const [eid] of component.components.entries()) {
+          const traitName = this._nameOf.get(eid);
+          const definition = traitName === undefined ? undefined : registry.get(traitName);
+          if (!definition || !this._traits.has(definition)) {
+            continue;
+          }
+          traits.push({
+            name: traitName!,
+            ...(definition.meta.isRelationship
+              ? {
+                  targets: component
+                    .targets(definition)
+                    .map((target) => this._nameOf.get(target.eid) ?? { $entity: target.eid }),
+                }
+              : {}),
+          });
         }
-        const trait =
-          !provenance.has(component.eid) && [...registry.values()].some((c) => c.has(component));
         return {
           name,
           eid: component.eid,
@@ -119,14 +155,11 @@ export class LocalWorld {
               ? "module"
               : component.meta.isRelationship
                 ? "relationship"
-                : trait
-                  ? "trait"
-                  : "component",
+                : "component",
+          trait: this._traits.has(component),
           ...(parent instanceof Module ? { module: parent.meta.Class.name } : {}),
           carriers: component.instanceCount(),
-          traits: [...component.components.entries()]
-            .filter(([eid]) => !provenance.has(eid) && eid !== componentDefEid)
-            .map(([eid]) => names.get(eid) ?? String(eid)),
+          traits,
           schema,
           ...(description === undefined ? {} : { description }),
         };
@@ -136,22 +169,36 @@ export class LocalWorld {
   private _entity(ref: unknown): unknown {
     const entity = resolveEntity(this.world, ref);
     const registry = this.registry();
-    const relationships = Object.fromEntries(
-      [...registry]
-        .filter(([, c]) => c.meta.isRelationship && (entity.has(c) || entity.children(c).size > 0))
-        .map(([name, c]) => [
+    const components: Record<string, unknown> = Object.create(null);
+    const outgoing = new Map<string, number[]>();
+    for (const [eid, value] of entity.components.entries()) {
+      const name = this._nameOf.get(eid);
+      if (name === undefined) {
+        continue;
+      }
+      const definition = registry.get(name)!;
+      components[name] = componentValue(definition, value);
+      if (definition.meta.isRelationship) {
+        outgoing.set(
           name,
-          {
-            targets: entity.targets(c).map((e) => e.eid),
-            children: [...entity.children(c)].map((e) => e.eid),
-          },
-        ])
-    );
+          entity.targets(definition).map((e) => e.eid)
+        );
+      }
+    }
+    const relationships: Record<string, { targets: number[]; children: number[] }> =
+      Object.create(null);
+    for (const [name, definition] of this._relationships) {
+      const children = [...entity.children(definition)].map((e) => e.eid);
+      const targets = outgoing.get(name);
+      if (targets || children.length) {
+        relationships[name] = { targets: targets ?? [], children };
+      }
+    }
     return {
       eid: entity.eid,
       name: entity.name,
       parent: entity.parent?.eid ?? null,
-      components: this._values(entity, registry),
+      components,
       relationships,
     };
   }
@@ -192,8 +239,8 @@ export class LocalWorld {
   }
 
   private _systems(params: Record<string, unknown>): unknown {
-    // Force the public pipeline rebuild before reading timings for newly configured systems.
-    void this.world.pipeline;
+    // World.pipeline's getter builds pending queries and refreshes between frames.
+    const pipeline = this.world.pipeline;
     if (params.enable !== undefined || params.disable !== undefined) {
       if (this.readOnly) {
         throw new Error("readOnly server: enable and disable are forbidden");
@@ -205,7 +252,7 @@ export class LocalWorld {
         if (params[action] === undefined) {
           return [];
         }
-        const system = this.world.pipeline.find((s) => s.name === params[action]);
+        const system = pipeline.find((s) => s.name === params[action]);
         if (!system) {
           throw new Error(`Unknown system ${params[action]}`);
         }
@@ -223,6 +270,22 @@ export class LocalWorld {
       watched: system.watched.map((C) => C.name),
       timing,
     }));
+  }
+
+  private _module(
+    parent: Entity | undefined,
+    cache: Map<Entity, Module | undefined>
+  ): Module | undefined {
+    const path = new Set<Entity>();
+    while (parent && !(parent instanceof Module) && !cache.has(parent) && !path.has(parent)) {
+      path.add(parent);
+      parent = parent.parent;
+    }
+    const module = parent instanceof Module ? parent : parent ? cache.get(parent) : undefined;
+    for (const entity of path) {
+      cache.set(entity, module);
+    }
+    return module;
   }
 
   private _values(entity: Entity, registry: Map<string, Component>): Record<string, unknown> {

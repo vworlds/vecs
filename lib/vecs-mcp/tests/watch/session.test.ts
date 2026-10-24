@@ -11,8 +11,8 @@ import { Router } from "../../src/bridge/router.js";
 const servers: VecsMcpServer[] = [];
 const transports: StreamableHTTPClientTransport[] = [];
 const clients: Client[] = [];
-// Each registered world owns one schema query, independently of session watches.
-const registrationQueries = 1;
+// Each registration owns definition and trait queries, independently of session watches.
+const registrationQueries = 2;
 afterEach(async () => {
   vi.useRealTimers();
   await Promise.all(
@@ -34,9 +34,8 @@ async function setup(token?: string) {
   const server = new VecsMcpServer({ name: "sessions", readOnly: true, token });
   servers.push(server);
   server.registerWorld(world);
-  expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toHaveLength(
-    registrationQueries
-  );
+  expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toHaveLength(1);
+  expect(world.queries.filter((q) => q.name === "vecs-mcp.traits")).toHaveLength(1);
   expect(world.queries.length).toBe(baseline + registrationQueries);
   const port = await server.listen(0);
   const url = new URL(`http://127.0.0.1:${port}/mcp`);
@@ -279,9 +278,8 @@ describe("session watches and MCP resources", () => {
     second.flush();
     const secondBaseline = second.queries.length;
     server.registerWorld(second, "second");
-    expect(second.queries.filter((q) => q.name === "vecs-mcp.definitions")).toHaveLength(
-      registrationQueries
-    );
+    expect(second.queries.filter((q) => q.name === "vecs-mcp.definitions")).toHaveLength(1);
+    expect(second.queries.filter((q) => q.name === "vecs-mcp.traits")).toHaveLength(1);
     const { client, transport } = await connect();
     const a = await call(client, "watch", { target: "sessions/world", where: "Position" });
     const b = await call(client, "watch", { target: "sessions/second", where: "Position" });

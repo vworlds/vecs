@@ -7,8 +7,10 @@ deferred scope. If `world.deferred` is true, the entire batch is rejected before
 any op runs. The bridge never reaches into the command queue or schedules work
 on the world. One-shot reads install no hooks; explicitly requested
 [watches](./watches.md) use reactive query membership and component hooks, never per-tick tasks.
-Each registered world also holds one live `ComponentDef` query for schema reflection,
-released by server `close()` or browser bridge uninstall. Component names remain
+Each registration holds two live reflection queries (`ComponentDef` and
+`ComponentDef` + `Trait`), released by world unregistration, server `close()` or
+browser bridge uninstall. They maintain schema membership without component hooks;
+see [tools](./tools.md) for declaration-based trait output. Component names remain
 `Name`, or `Name@eid` when multiple registered classes share a name. Valid explicit-target
 tool calls route directly without enumerating other destinations' paths. If the
 destination is unknown, the error lists available targets so you can retry with one.

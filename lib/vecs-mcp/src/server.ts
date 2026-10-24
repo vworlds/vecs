@@ -150,7 +150,8 @@ export class VecsMcpServer {
    * Register a local world. Uses world.name when available, otherwise "world";
    * duplicates throw. ServerWorld instances also accept bridge announcements and
    * expose opted-in clients as three-segment targets tracked by connection hooks.
-   * Each registration holds a live ComponentDef query until unregisterWorld() or close();
+   * Each registration holds ComponentDef and ComponentDef + Trait reflection queries
+   * until unregisterWorld() or close();
    * topology advertisements are coalesced on setImmediate outside the world's tick.
    */
   public registerWorld(world: World, name?: string): void {

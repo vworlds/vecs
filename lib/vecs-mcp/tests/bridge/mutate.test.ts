@@ -1,9 +1,95 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { World, Entity, Relationship } from "@vworlds/vecs";
 import { field } from "../../src/schema/index.js";
 import { LocalWorld } from "../../src/bridge/world.js";
 
 describe("mutation boundaries", () => {
+  it("mirrors indexed name collisions, empty renames and reuse after destroy", () => {
+    class Data {
+      value = 1;
+    }
+    const world = new World();
+    world.component(Data);
+    const a = world.entity("same").add(Data);
+    const b = world.entity().add(Data);
+    b.name = "same";
+    const local = new LocalWorld(world);
+    expect(
+      local.command("vecs_mutate", {
+        ops: [
+          { name: true, entity: a.eid, value: "other" },
+          { set: true, entity: "same", component: "Data", value: { value: 5 } },
+          { name: true, entity: "other", value: "" },
+          { destroy: true, entity: "same" },
+          { create: true, name: "same" },
+          { add: true, entity: "same", component: "Data" },
+        ],
+      })
+    ).toMatchObject({
+      applied: [{ eid: a.eid }, { eid: b.eid }, { eid: a.eid }, { eid: b.eid }, {}, {}],
+    });
+    expect(a.name).toBe("");
+    expect(world.getEntity("same")?.get(Data)).toEqual({ value: 1 });
+    expect(world.getEntity("same")?.eid).not.toBe(b.eid);
+    expect(() => local.command("vecs_mutate", { ops: [{ destroy: true, entity: "" }] })).toThrow(
+      "Unknown entity"
+    );
+    world.dispose();
+  });
+  it("uses indexed names and own components, with batch rename tombstones and create aliases", () => {
+    class Data {
+      value = 1;
+    }
+    const world = new World();
+    world.component(Data);
+    for (let i = 0; i < 80; i++) {
+      world.component(class Unused {});
+      world.entity(`unused${i}`);
+    }
+    const a = world.entity("old").add(Data);
+    const local = new LocalWorld(world);
+    const registry = local.registry();
+    const values = vi.spyOn(world.entities, "values");
+    const definitions = vi.spyOn(registry, "values");
+    expect(
+      local.command("vecs_mutate", {
+        ops: [
+          { name: true, entity: "old", value: "new" },
+          { set: true, entity: "new", component: "Data", value: { value: 2 } },
+          { create: true, name: "created" },
+          { name: true, entity: "$0", value: "renamed" },
+          { add: true, entity: "renamed", component: "Data" },
+        ],
+      })
+    ).toMatchObject({ applied: [{ eid: a.eid }, { eid: a.eid }, {}, {}, {}] });
+    expect(a.get(Data)).toEqual({ value: 2 });
+    expect(world.getEntity("renamed")?.get(Data)).toEqual({ value: 1 });
+    expect(world.getEntity("created")).toBeUndefined();
+    expect(values).not.toHaveBeenCalled();
+    expect(definitions).not.toHaveBeenCalled();
+    for (const ops of [
+      [
+        { name: true, entity: "new", value: "other" },
+        { destroy: true, entity: "new" },
+      ],
+      [
+        { destroy: true, entity: "new" },
+        { add: true, entity: "new", component: "Data" },
+      ],
+      [
+        { create: true, name: "temp" },
+        { name: true, entity: "$0", value: "moved" },
+        { destroy: true, entity: "temp" },
+      ],
+    ]) {
+      expect(() => local.command("vecs_mutate", { ops })).toThrow();
+    }
+    expect(a.name).toBe("new");
+    expect(a.destroyed).toBe(false);
+    expect(world.getEntity("temp")).toBeUndefined();
+    vi.restoreAllMocks();
+    world.dispose();
+  });
   it("accepts unrelated writes with invalid current structure but still enforces untouched validators", () => {
     class C {
       @field({ max: 10 }) existing = 100;

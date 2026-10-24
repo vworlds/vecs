@@ -4,15 +4,25 @@ import { opaqueComponent } from "./serialize.js";
 import { resolveEntity } from "./world.js";
 
 type Op = Record<string, unknown>;
-type Shadow = { live: boolean; values: Map<Component, Record<string, unknown>> };
+type ShadowKey = Entity | string;
+type Shadow = {
+  key: ShadowKey;
+  name?: string;
+  live: boolean;
+  values: Map<Component, Record<string, unknown>>;
+};
 const actions = ["create", "destroy", "name", "add", "set", "remove", "link", "unlink"];
 
-/** @internal Validate the complete batch before synchronously applying its ops between ticks. */
+/**
+ * @internal Validate the complete batch before synchronously applying its ops between ticks.
+ * `nameOf` indexes the same live definitions as `registry`, for O(k) shadow reads.
+ */
 export function mutate(
   world: World,
   registry: Map<string, Component>,
   input: unknown,
-  readOnly: boolean
+  readOnly: boolean,
+  nameOf: ReadonlyMap<number, string>
 ): unknown {
   if (readOnly) {
     throw new Error("readOnly server: vecs_mutate is forbidden");
@@ -24,7 +34,7 @@ export function mutate(
     throw new Error("ops must be an array");
   }
   const ops = input.map(parseOp);
-  preflight(world, registry, ops);
+  preflight(world, registry, ops, nameOf);
   const created: Entity[] = [];
   const applied: unknown[] = [];
   for (let index = 0; index < ops.length; index++) {
@@ -73,38 +83,47 @@ function parseOp(value: unknown): Op {
   return value;
 }
 
-function preflight(world: World, registry: Map<string, Component>, ops: Op[]): void {
-  const shadows = new Map<Entity | string, Shadow>();
-  const creates: string[] = [];
-  const names = new Map<string, Entity | string>();
-  for (const entity of world.entities.values()) {
-    if (entity.name !== undefined) {
-      names.set(entity.name, entity);
-    }
-  }
+function preflight(
+  world: World,
+  registry: Map<string, Component>,
+  ops: Op[],
+  nameOf: ReadonlyMap<number, string>
+): void {
+  const shadows = new Map<ShadowKey, Shadow>();
+  const creates = new Set<string>();
+  // Only batch changes live here; null masks a name removed by a preceding rename.
+  const names = new Map<string, ShadowKey | null>();
+  const named = (name: string): ShadowKey | undefined =>
+    names.has(name) ? (names.get(name) ?? undefined) : world.getEntity(name);
   const ref = (value: unknown): Shadow => {
     let key: Entity | string;
     if (typeof value === "string" && /^\$\d+$/.test(value)) {
-      if (!creates.includes(value)) {
+      if (!creates.has(value)) {
         throw new Error(`Unknown create reference ${value}`);
       }
       key = value;
     } else if (typeof value === "string") {
-      const named = names.get(value);
-      if (!named) {
+      const existing = named(value);
+      if (!existing) {
         throw new Error(`Unknown entity ${value}`);
       }
-      key = named;
+      key = existing;
     } else {
       key = resolveEntity(world, value);
     }
     let shadow = shadows.get(key);
     if (!shadow) {
-      shadow = { live: true, values: new Map() };
+      shadow = {
+        key,
+        name: key instanceof Entity ? key.name : undefined,
+        live: true,
+        values: new Map(),
+      };
       if (key instanceof Entity) {
-        for (const c of registry.values()) {
-          const current = key.get(c);
-          if (current) {
+        for (const [eid, current] of key.components.entries()) {
+          const name = nameOf.get(eid);
+          const c = name === undefined ? undefined : registry.get(name);
+          if (c) {
             shadow.values.set(c, { ...current });
           }
         }
@@ -119,10 +138,15 @@ function preflight(world: World, registry: Map<string, Component>, ops: Op[]): v
   for (const [index, op] of ops.entries()) {
     try {
       if (op.create) {
-        const key = `$${creates.length}`;
-        creates.push(key);
-        shadows.set(key, { live: true, values: new Map() });
-        if (typeof op.name === "string") {
+        const key = `$${creates.size}`;
+        creates.add(key);
+        shadows.set(key, {
+          key,
+          name: op.name as string | undefined,
+          live: true,
+          values: new Map(),
+        });
+        if (typeof op.name === "string" && op.name) {
           names.set(op.name, key);
         }
         continue;
@@ -133,13 +157,13 @@ function preflight(world: World, registry: Map<string, Component>, ops: Op[]): v
         continue;
       }
       if (op.name) {
-        const key = [...shadows].find(([, value]) => value === shadow)![0];
-        for (const [name, existing] of names) {
-          if (existing === key) {
-            names.delete(name);
-          }
+        if (shadow.name && named(shadow.name) === shadow.key) {
+          names.set(shadow.name, null);
         }
-        names.set(op.value as string, key);
+        shadow.name = op.value as string;
+        if (shadow.name) {
+          names.set(shadow.name, shadow.key);
+        }
         continue;
       }
       const c = getComponent(registry, op.component ?? op.relationship);

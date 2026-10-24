@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { World, Module, Relationship, DontSnapshot, Entity } from "@vworlds/vecs";
+import { World, Module, Relationship, DontSnapshot, Entity, Trait } from "@vworlds/vecs";
 import { Router } from "../../src/bridge/router.js";
 import { LocalWorld } from "../../src/bridge/world.js";
 import { serialize } from "../../src/bridge/serialize.js";
@@ -46,6 +46,7 @@ function fixture(readOnly = false) {
 describe("local bridge", () => {
   it("discovers schemas, owning modules, traits and carrier counts", () => {
     const { world, call } = fixture();
+    world.component(Dead).add(Trait);
     world.component(Position).add(Dead);
     world.component(Position).name = "position-definition";
     expect(call("components", { filter: "Position" })).toEqual([
@@ -54,16 +55,20 @@ describe("local bridge", () => {
         kind: "component",
         module: "Definitions",
         carriers: 2,
-        traits: expect.arrayContaining(["Dead"]),
+        trait: false,
+        traits: [{ name: "Dead" }],
         schema: expect.objectContaining({ type: "object" }),
       }),
     ]);
     expect(call("components").find((c: any) => c.name === "Likes").kind).toBe("relationship");
     expect(call("components").find((c: any) => c.name === "Definitions").kind).toBe("module");
-    expect(call("components").find((c: any) => c.name === "Dead").kind).toBe("trait");
-    expect(call("components", { filter: "Position" })[0].traits).toEqual(["Dead"]);
+    expect(call("components").find((c: any) => c.name === "Dead")).toMatchObject({
+      kind: "component",
+      trait: true,
+    });
+    expect(call("components", { filter: "Position" })[0].traits).toEqual([{ name: "Dead" }]);
     for (const component of call("components")) {
-      expect(component.traits).not.toContain("ComponentDef");
+      expect(component.traits).not.toContainEqual({ name: "ComponentDef" });
     }
     expect(call("components").find((c: any) => c.name === "Identity").kind).toBe("component");
   });
