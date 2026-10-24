@@ -30,7 +30,10 @@ export type HitEvent = {
  * Subtree snapshots preserve the opt-in but restore fresh, empty buffers.
  * Begin/end describe contact manifold transitions, not exact geometric overlap:
  * speculative points may precede overlap, and Box2D 3.2 contact recycling may
- * delay a new begin. Published after the engine step; see `docs/events.md`.
+ * delay a new begin. A static-to-dynamic change does not guarantee a begin with
+ * a former support: the body must actually approach it. Use a geometry query
+ * for release-time placement decisions. Published after the engine step; see
+ * `docs/events.md`.
  */
 export class ContactEvents {
   begin: ContactEvent[] = [];

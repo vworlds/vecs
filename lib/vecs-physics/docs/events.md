@@ -90,6 +90,53 @@ Disabling recycling above was an engine-level diagnostic control, not a new
 vecs-physics option or a recommended workaround. If you need a geometry query
 rather than a manifold transition, use the [query API](./queries.md).
 
+### Releasing a static stack
+
+Do not use a contact-begin edge as a guarantee that a released stack will
+collapse into a vacant cell. Changing `Body.type` to `BodyType.Dynamic` does not
+apply gravity or move a box toward its former support. A picked brick that is
+still a colliding dynamic body can push the released boxes away instead.
+
+The SpaceRocks four-brick pickup fixture illustrates this distinction. It uses
+zero gravity, 0.24 m boxes, and a tow spring from the picked brick to a distant
+ship. With WASM 6.0.1, the first released brick moves inward and begins contact
+with the remaining static support at tick 5. With 7.0.0, it begins contact with
+the **picked brick and the upper released brick** at tick 1, moves outward, and
+never reaches the support during 600 ticks (20 seconds). Its 5.0974 m displacement
+is damped collision-driven drift, not a lost support event or a box sliding along
+that support.
+
+This is a change in the engine's coupled contact/joint solver response, not a
+vecs-physics event-adapter defect. A standalone native four-box/tow-spring probe
+against both pinned Box2D references reproduces inward versus outward motion.
+Box2D 3.2 separates the contact push and velocity-solve stages in `src/solver.c`;
+removing the push calls alone does **not** restore the old trajectory, so the
+push pass alone is not an adequate explanation or workaround. Disabling contact
+recycling, enabling contact events before release, or setting box restitution
+to zero also does not restore the support begin in that probe. Simply removing
+the picked brick, without towing it, leaves the upper boxes suspended in both
+versions: there is no gravity to close the gap. Do not depend on an incidental
+collision impulse for placement policy.
+
+For deterministic reflow, select support as part of your application's release
+operation, using your occupancy model or a
+[shape cast](./queries.md#shape-casts) along the intended collapse direction.
+Filter to eligible support shapes, exclude the picked/released bodies, validate
+the destination, then explicitly project the chosen pose and body type. A cast
+can find support across the removed cell even when there is no contact begin;
+it does not move or snap the body itself. In a zero-gravity game this is a
+placement decision, not a promise of physical landing. Keep `ContactEvents` for
+actual subsequent collision edges. Enabling it before release is sensible when
+you need all new edges, but it cannot create a support contact that never occurs.
+Reading contact data instead of begin edges would not solve this no-contact case
+either.
+
+The standalone Vecs characterization is
+[`tests/events/released_column.test.ts`](../tests/events/released_column.test.ts).
+It covers opt-in before/after release, the picked/upper shape identities, and
+support casts with support enabled, disabled, and re-enabled. The measurements
+above describe these diagnostic scenes, not engine timing guarantees.
+
 ### Receiving contact events
 
 ```ts
