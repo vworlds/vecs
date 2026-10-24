@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ChildOf,
   ClonePublic,
@@ -8,12 +8,16 @@ import {
   Exclusive,
   Identity,
   Implements,
+  ImplementsModule,
   OnSnapshot,
   OneOf,
   OwnedTarget,
   Phase,
   Query,
+  RelationshipsModule,
   Singleton,
+  SingletonModule,
+  SnapshotModule,
   System,
   Trait,
   Traversable,
@@ -27,6 +31,45 @@ class Position {
 }
 
 describe("Trait", () => {
+  it("bootstraps root metadata with the same eid regardless of installed built-in modules", () => {
+    const reference = new World().component(Trait);
+    const install = World.prototype.module;
+    for (const modules of [
+      [],
+      [ImplementsModule],
+      [SingletonModule],
+      [RelationshipsModule],
+      [RelationshipsModule, SnapshotModule],
+    ]) {
+      // Omit constructor-installed modules to exercise core bootstrap independently
+      // of their registrations. The constructor does not consume their return values.
+      const selected = new Set<unknown>(modules);
+      const mock = vi.spyOn(World.prototype, "module").mockImplementation(function (
+        this: World,
+        ...args
+      ) {
+        if (selected.has(args[0])) {
+          return Reflect.apply(install, this, args);
+        }
+        return undefined!;
+      });
+      try {
+        const world = new World();
+        const trait = world.getEntity(Trait)!;
+        // The parent accessor needs the relationship registered even in a world
+        // whose RelationshipsModule was deliberately omitted.
+        world.component(ChildOf);
+        expect(trait.eid).toBe(reference.eid);
+        expect(trait.parent).toBeUndefined();
+        expect(trait.has(ComponentDef)).toBe(true);
+        expect(trait.has(Trait)).toBe(false);
+      } finally {
+        mock.mockRestore();
+      }
+    }
+    expect(reference.parent).toBeUndefined();
+  });
+
   it("marks exactly the eight built-in policy definitions in a fresh world", () => {
     const world = new World();
     const expected = new Set(

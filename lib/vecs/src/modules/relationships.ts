@@ -62,7 +62,6 @@ export {
 export class RelationshipsModule extends Module {
   public init(): void {
     const world = this.world;
-    world.component(Trait);
     const childOf = world.component(ChildOf);
     const dependsOn = world.component(DependsOn);
     const exclusive = world.component(Exclusive).add(Trait);

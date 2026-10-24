@@ -15,7 +15,6 @@ export class ImplementsModule extends Module {
   private _touched = new Set<ComponentMeta>();
 
   public init(): void {
-    this.world.component(Trait);
     const component = this.world.component(Implements).add(Trait);
 
     component.on("set", (entity: Entity) => {

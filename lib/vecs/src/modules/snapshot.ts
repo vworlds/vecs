@@ -49,7 +49,6 @@ export {
 export class SnapshotModule extends Module {
   public init(): void {
     const world = this.world;
-    world.component(Trait);
     const onSnapshot = world.component(OnSnapshot).add(Trait);
 
     world.component(ClonePublic).childOf(onSnapshot);

@@ -27,7 +27,6 @@ export class Singleton {}
  */
 export class SingletonModule extends Module {
   public init(): void {
-    this.world.component(Trait);
     this.world
       .component(Singleton)
       .add(Trait)
