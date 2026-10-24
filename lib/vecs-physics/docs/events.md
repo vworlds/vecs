@@ -90,6 +90,24 @@ Disabling recycling above was an engine-level diagnostic control, not a new
 vecs-physics option or a recommended workaround. If you need a geometry query
 rather than a manifold transition, use the [query API](./queries.md).
 
+### Releasing a static stack
+
+Changing `Body.type` to `BodyType.Dynamic` applies no force and moves nothing
+toward a former support. Without gravity or another applied force, a released
+body at rest moves only from contact or joint impulses. Whether those impulses
+bring it to a given support is solver behavior, which changed between Box2D 3.1
+and 3.2. A contact-begin edge is therefore not a placement guarantee.
+
+For deterministic reflow, decide placement at release time with your occupancy
+model or a [shape cast](./queries.md#shape-casts) along the intended collapse
+direction. Filter to eligible supports, validate the destination, then explicitly
+project the chosen pose and body type. A cast does not move the body itself.
+`ContactEvents` reports collisions that actually happen; enabling it earlier
+cannot create a support contact that never occurs.
+
+See the characterization test:
+[`tests/events/released_column.test.ts`](../tests/events/released_column.test.ts).
+
 ### Receiving contact events
 
 ```ts

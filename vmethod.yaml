@@ -42,7 +42,7 @@ checks:
     - npm run build
   release: [npm run build]
   docsGlob: "{architecture,lib,apps}/**/*.md"
-  ci: [CI]
+  ci: [ci]
 postMerge:
   install: HUSKY=0 npm ci --no-audit --no-fund
   trigger: package-lock.json
