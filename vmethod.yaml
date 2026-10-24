@@ -56,4 +56,4 @@ credentials:
   githubToken: GH_TOKEN
   sshKey: VMETHOD_SSH_KEY
   workerPassword: OPENCODE_SERVER_PASSWORD
-  workerGithubToken: CLAUDE_WORKER_GH_TOKEN
+  workerGithubToken: WORKER_GITHUB_TOKEN
