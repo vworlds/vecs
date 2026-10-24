@@ -1,17 +1,21 @@
 import { Implements, type ComponentMeta, type ComponentType } from "../component_meta.js";
+import { Trait } from "../component_def.js";
 import { type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
 
 export { Implements } from "../component_meta.js";
 
-/** Built-in world module that maintains abstract/interface component aliases. */
+/**
+ * Built-in world module that maintains abstract/interface component aliases
+ * and declares `Implements` as a {@link Trait}.
+ */
 export class ImplementsModule extends Module {
   private readonly _declaring = new Set<Entity>();
   private readonly _knownComponentClasses = new Set<ComponentType>();
   private _touched = new Set<ComponentMeta>();
 
   public init(): void {
-    const component = this.world.component(Implements);
+    const component = this.world.component(Implements).add(Trait);
 
     component.on("set", (entity: Entity) => {
       this._declaring.add(entity);

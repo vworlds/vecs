@@ -4,7 +4,7 @@
 // imports it, so it must not reach back through `module.ts`.
 
 import { Module } from "../module.js";
-import { ComponentDef } from "../component_def.js";
+import { ComponentDef, Trait } from "../component_def.js";
 import { Query } from "../query/index.js";
 import { System } from "../system.js";
 import { type World } from "../world/world.js";
@@ -27,6 +27,7 @@ export {
 /**
  * Built-in world module that registers the `OnSnapshot` trait and its policy
  * values.
+ * Declares `OnSnapshot` as a {@link Trait}; policy values remain unmarked.
  *
  * Registered automatically by every {@link World}. `OnSnapshot` is an
  * `Exclusive` pair-form trait restricted with {@link OneOf} to its own policy
@@ -48,7 +49,7 @@ export {
 export class SnapshotModule extends Module {
   public init(): void {
     const world = this.world;
-    const onSnapshot = world.component(OnSnapshot);
+    const onSnapshot = world.component(OnSnapshot).add(Trait);
 
     world.component(ClonePublic).childOf(onSnapshot);
     world.component(DontSnapshot).childOf(onSnapshot);
@@ -60,5 +61,6 @@ export class SnapshotModule extends Module {
     world.component(Query).snapshotPolicy(DontSnapshot);
     world.component(System).snapshotPolicy(DontSnapshot);
     world.component(ComponentDef).snapshotPolicy(DontSnapshot);
+    world.component(Trait).snapshotPolicy(DontSnapshot);
   }
 }

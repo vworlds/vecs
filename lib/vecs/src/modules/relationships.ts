@@ -1,4 +1,5 @@
 import { CleanupPolicy } from "../component_meta.js";
+import { Trait } from "../component_def.js";
 import { type EID, type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
 import {
@@ -26,6 +27,8 @@ export {
 /**
  * Built-in world module that registers the `ChildOf` relationship and
  * maintains ownership and depth tracking policies for relationship traits.
+ * Declares `Exclusive`, `Traversable`, `OwnedTarget`, `With`, and `OneOf`
+ * with the {@link Trait} marker.
  *
  * Registered automatically by every {@link World}. It sets `ChildOf`'s
  * `onDeleteTarget` cleanup policy to {@link CleanupPolicy.Delete}, so
@@ -61,12 +64,12 @@ export class RelationshipsModule extends Module {
     const world = this.world;
     const childOf = world.component(ChildOf);
     const dependsOn = world.component(DependsOn);
-    const exclusive = world.component(Exclusive);
-    const ownedTarget = world.component(OwnedTarget);
+    const exclusive = world.component(Exclusive).add(Trait);
+    const ownedTarget = world.component(OwnedTarget).add(Trait);
     const silenceSource = world.component(SilenceSource);
-    const traversableTrait = world.component(Traversable);
-    const withTrait = world.component(With);
-    const oneOfTrait = world.component(OneOf);
+    const traversableTrait = world.component(Traversable).add(Trait);
+    const withTrait = world.component(With).add(Trait);
+    const oneOfTrait = world.component(OneOf).add(Trait);
 
     childOf.meta.onDeleteTarget = CleanupPolicy.Delete;
     exclusive.meta.on("policyAdd", (relationship): void => {

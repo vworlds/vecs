@@ -175,6 +175,19 @@ world.component(ChildOf).add(Exclusive).add(Traversable);
 world.component(Orange).set(Implements, { interfaces: [Fruit] });
 ```
 
+Declare custom policy components explicitly with `Trait`; storing ordinary data on a definition
+does not make it a trait:
+
+```ts
+class Audited {}
+world.component(Audited).add(Trait);
+world.component(Position).add(Audited);
+const traits = world.query("Traits").with(ComponentDef, Trait).build();
+```
+
+The query tracks declarations incrementally. `Trait` is local-only metadata, not an enforcement
+gate or a hook installer; see [trait reflection](./components.md#reflecting-on-component-definitions).
+
 | Trait/declaration | Reach for it when                                                                  |
 | ----------------- | ---------------------------------------------------------------------------------- |
 | `Singleton`       | At most one entity may carry the component                                         |
@@ -184,6 +197,7 @@ world.component(Orange).set(Implements, { interfaces: [Fruit] });
 | `OwnedTarget`     | An exclusive relationship owns its explicitly added target                         |
 | `OneOf`           | A relationship's targets must be direct children of a declared parent (enum-style) |
 | `With`            | Adding one component should bring another along, as a companion it does not own    |
+| `OnSnapshot`      | Choose a component's subtree snapshot policy                                       |
 
 Traits declare policy; modules implement it through hooks and metadata. Configure them in module
 setup, not inside systems. Lifecycle differs by trait: `OwnedTarget` and `Singleton` are setup-time

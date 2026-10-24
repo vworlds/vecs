@@ -81,6 +81,19 @@ Its `DontSnapshot` policy excludes it from subtree snapshots, and `NetworkWorld`
 Component entities themselves remain invalid subtree snapshot roots. The tag does not change
 [world disposal priorities](./entities.md#disposing-a-world).
 
+To reflect only policy definitions, combine `ComponentDef` with the declarative `Trait` marker:
+
+```ts
+import { ComponentDef, Trait } from "@vworlds/vecs";
+
+const traits = world.query("Traits").with(ComponentDef, Trait).build();
+```
+
+This query tracks later `add(Trait)` declarations incrementally, without a world scan. Like
+`ComponentDef`, `Trait` has `DontSnapshot` policy and is rejected in `networkComponents`;
+each destination world marks its own locally registered traits. Neither marker marks itself as
+a trait. See [Component traits](#component-traits-policy-on-component-entities) for declarations.
+
 ### Registration provenance
 
 Components created during a module's `init` become its `ChildOf` children, through
@@ -192,6 +205,13 @@ world.component(ChildOf).add(Traversable); // ChildOf is already Exclusive
 world.component(Orange).set(Implements, { interfaces: [Fruit] });
 ```
 
+Declare a policy component by adding `Trait` to **its definition**, not to its carriers.
+The built-in modules mark the traits below in their `init()` methods. `Trait` is only metadata:
+it installs no hooks and is not an enforcement gate. Unmarked components may still be attached
+to definitions, including world-global data stored with `world.set(C, ...)`. Being used on a
+definition does not make a component a trait: `ComponentDef`, `Identity`, `ChildOf`, and a
+component's own singleton data are not policy declarations.
+
 | Trait/declaration | Applies to                                   | Effect                                                                       |
 | ----------------- | -------------------------------------------- | ---------------------------------------------------------------------------- |
 | `Singleton`       | Concrete components                          | Allows at most one carrier entity                                            |
@@ -201,6 +221,10 @@ world.component(Orange).set(Implements, { interfaces: [Fruit] });
 | `OwnedTarget`     | Exclusive relationships other than `ChildOf` | Owns each explicit target through `ChildOf` and destructive edge replacement |
 | `OneOf`           | Relationships                                | Constrains each target to be a direct `ChildOf` child of a declared parent   |
 | `With`            | A component and a target of the same kind    | Adding the component also adds the target (the same targets, for edges)      |
+| `OnSnapshot`      | Components                                   | Selects a [subtree snapshot policy](./snapshots.md)                          |
+
+`ClonePublic`, `DontSnapshot`, and `CustomSnapshot` are policy targets of `OnSnapshot`, not
+traits, and remain unmarked. Phase, query, system, and module definitions are also not traits.
 
 Traits declare policy; their built-in modules install the hooks and maintain the metadata that
 enforce it. Configure traits in feature-module setup rather than opportunistically inside systems.
@@ -227,15 +251,20 @@ invariant.
 Custom traits use the same mechanism. Keep the trait class as data and put its behavior in a module:
 
 ```ts
+import { Module, Trait } from "@vworlds/vecs";
+
 class Audited {}
 
 class AuditModule extends Module {
   public init(): void {
-    this.world.component(Audited).on("add", (component) => {
-      component.on("set", (entity) =>
-        console.log("changed", component.meta.Class.name, entity.eid)
-      );
-    });
+    this.world
+      .component(Audited)
+      .add(Trait)
+      .on("add", (component) => {
+        component.on("set", (entity) =>
+          console.log("changed", component.meta.Class.name, entity.eid)
+        );
+      });
   }
 }
 

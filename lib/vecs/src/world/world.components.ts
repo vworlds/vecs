@@ -1,5 +1,5 @@
 import { Component, type ComponentClass, type ComponentType } from "../component.js";
-import { ComponentDef } from "../component_def.js";
+import { ComponentDef, Trait } from "../component_def.js";
 import { Entity, type EID, type EntityClass } from "../entity/index.js";
 import { type IdPool } from "../util/id_pool.js";
 import { Entities } from "./world.entities.js";
@@ -141,9 +141,11 @@ export class Components extends Entities {
     const component = new Constructor(this, ceid, ComponentClass);
     this._entities.set(ceid, component);
     this._classRegistry.set(ComponentClass, component);
-    // Publish the class before resolving the marker: its own registration then
-    // finds itself, so bootstrap needs neither a special id nor a second pass.
+    // Publish the class before resolving core metadata: recursive registrations
+    // find themselves, so bootstrap needs neither special ids nor a second pass.
+    // Both metadata definitions exist before any module can claim their scope.
     this.component(ComponentDef);
+    this.component(Trait);
     component.add(ComponentDef);
     const parent = this._scope;
     if (parent !== undefined) {

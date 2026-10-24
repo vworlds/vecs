@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Module } from "@vworlds/vecs";
+import { ComponentDef, Module, Trait } from "@vworlds/vecs";
 import { cid_pack, NetworkWorld } from "../src/index.js";
 
 class Position {}
@@ -26,6 +26,12 @@ function fillModulePool(world: NetworkWorld): void {
 }
 
 describe("NetworkWorld", () => {
+  it.each([ComponentDef, Trait])("rejects local schema metadata %s", (Class) => {
+    expect(() => new NetworkWorld({ networkComponents: [Position, Class] })).toThrow(
+      `${Class.name} is local schema metadata and cannot be networked`
+    );
+  });
+
   it("reserves the requested number of module ids and defaults to 100", () => {
     const expanded = new NetworkWorld({ moduleIdCount: 300 });
     fillModulePool(expanded);
