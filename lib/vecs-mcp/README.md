@@ -18,6 +18,7 @@ await mcp.listen(3210); // http://127.0.0.1:3210/mcp
 ```
 
 Nothing runs per tick: tools perform reads or synchronous writes between ticks.
+Inspect declared traits and pair targets with the [tools reference](./docs/tools.md).
 [Watches](./docs/watches.md) add session-owned reactive logs and subscribable local
 resources. Without watches, no watch queries or component hooks are registered.
 The browser-safe `/client` entry exports `installBridge` to reach a

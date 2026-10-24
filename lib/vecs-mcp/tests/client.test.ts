@@ -11,11 +11,13 @@ it("releases the registration-owned schema query on repeated uninstall", () => {
   const baseline = world.queries.length;
   const bridge = installBridge(world);
   expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toHaveLength(1);
-  expect(world.queries.length).toBe(baseline + 1);
+  expect(world.queries.length).toBe(baseline + 2);
+  expect(world.queries.filter((q) => q.name === "vecs-mcp.traits")).toHaveLength(1);
   bridge.uninstall();
   bridge.uninstall();
   expect(world.queries.length).toBe(baseline);
   expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toEqual([]);
+  expect(world.queries.filter((q) => q.name === "vecs-mcp.traits")).toEqual([]);
   world.dispose();
 });
 

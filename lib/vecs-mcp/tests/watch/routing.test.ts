@@ -9,7 +9,7 @@ import { VecsMcpServer } from "../../src/server.js";
 import { installBridge } from "../../src/client.js";
 
 const cleanups: (() => void | Promise<void>)[] = [];
-const registrationQueries = 1;
+const registrationQueries = 2;
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) {
     await cleanup();
@@ -60,9 +60,8 @@ it("routes watch tools and ownership through real peer links, keeping resources 
   const baseline = world.queries.length;
   const hook = world.component(Position).meta._onSet;
   const remote = await node("remote", world);
-  expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toHaveLength(
-    registrationQueries
-  );
+  expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toHaveLength(1);
+  expect(world.queries.filter((q) => q.name === "vecs-mcp.traits")).toHaveLength(1);
   const hub = await node("hub");
   hub.server.mount(`ws://127.0.0.1:${remote.port}/link`);
   const a = await sdk(hub.port);

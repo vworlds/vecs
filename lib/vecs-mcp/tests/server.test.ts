@@ -54,11 +54,13 @@ describe("Streamable HTTP MCP", () => {
     server.registerWorld(world, "first");
     server.registerWorld(world, "alias");
     expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toHaveLength(2);
-    expect(world.queries.length).toBe(baseline + 2);
+    expect(world.queries.length).toBe(baseline + 4);
+    expect(world.queries.filter((q) => q.name === "vecs-mcp.traits")).toHaveLength(2);
     await server.close();
     await server.close();
     expect(world.queries.length).toBe(baseline);
     expect(world.queries.filter((q) => q.name === "vecs-mcp.definitions")).toEqual([]);
+    expect(world.queries.filter((q) => q.name === "vecs-mcp.traits")).toEqual([]);
     world.dispose();
   });
 
