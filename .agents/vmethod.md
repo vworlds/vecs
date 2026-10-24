@@ -80,6 +80,16 @@ regenerates the stubs with `>/dev/null`; the checked-in stubs keep the
 re-arming a watcher, `vmethod watch --replay previous` shows what the last run
 delivered.
 
+## rc.6
+
+Owner-gated model families (`gate: owner`; today astra and fable) need two things:
+the orchestrator's `--owner-approved`, **and** an owner comment on the task issue or
+task PR whose first line is exactly `APPROVE MODEL <family>`, posted after the issue
+body's last edit. Editing the body voids earlier lines. vecs' `models.yaml` has no
+fable family yet. Migration 0005 adds the `fable` Model option to board 4. The
+option already exists there, before `other`, so applying the version stamp is the
+owner's call.
+
 ## Pilot gaps and remaining rollout
 
 rc.3 resolves the rc.1 gaps:
