@@ -23,3 +23,7 @@ the wire: network component snapshots use their `wireType`, and replicated entit
 from `entityIdStart`. Therefore the server and its clients may choose different module counts.
 
 See [Id pools](../../vecs/docs/components.md#id-pools) for the underlying pool behavior.
+
+`networkComponents` rejects local schema metadata (`ComponentDef` and `Trait`). Keep
+[definition and trait declarations](../../vecs/docs/components.md#reflecting-on-component-definitions)
+local to each world rather than assigning them wire type ids.

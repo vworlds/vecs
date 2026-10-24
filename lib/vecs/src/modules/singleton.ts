@@ -1,4 +1,5 @@
 import { type Entity } from "../entity/index.js";
+import { Trait } from "../component_def.js";
 import { Module } from "../module.js";
 
 /**
@@ -18,6 +19,7 @@ export class Singleton {}
 
 /**
  * Built-in world module that enforces the singleton constraint.
+ * Declares `Singleton` as a {@link Trait}.
  *
  * Registered automatically by every {@link World}. When a component entity has
  * the `Singleton` component attached, the module installs an `onAdd` hook on
@@ -25,22 +27,26 @@ export class Singleton {}
  */
 export class SingletonModule extends Module {
   public init(): void {
-    this.world.component(Singleton).on("add", (target: Entity): void => {
-      const targetMeta = target.meta;
-      if (targetMeta.usageCount !== 0) {
-        throw new Error(
-          `Cannot make component ${targetMeta.Class.name} singleton; ${targetMeta.usageCount} instance(s) already exist`
-        );
-      }
-
-      targetMeta.on("add", (entity) => {
-        if (entity !== target || targetMeta.usageCount !== 1) {
+    this.world.component(Trait);
+    this.world
+      .component(Singleton)
+      .add(Trait)
+      .on("add", (target: Entity): void => {
+        const targetMeta = target.meta;
+        if (targetMeta.usageCount !== 0) {
           throw new Error(
-            `Cannot add singleton component ${targetMeta.Class.name} to entity ${entity.eid}; singleton instance is entity ${target.eid}`
+            `Cannot make component ${targetMeta.Class.name} singleton; ${targetMeta.usageCount} instance(s) already exist`
           );
         }
+
+        targetMeta.on("add", (entity) => {
+          if (entity !== target || targetMeta.usageCount !== 1) {
+            throw new Error(
+              `Cannot add singleton component ${targetMeta.Class.name} to entity ${entity.eid}; singleton instance is entity ${target.eid}`
+            );
+          }
+        });
+        target.add(target);
       });
-      target.add(target);
-    });
   }
 }

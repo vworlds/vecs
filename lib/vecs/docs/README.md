@@ -15,7 +15,7 @@ Read in this order the first time through:
    routing. Read this before designing anything non-trivial.
 4. Subsystem guides, in any order:
    - [Components](./components.md) — registration, hooks, traits, exclusivity, cleanup policies,
-     interfaces, singletons, [definition reflection with ComponentDef](./components.md#reflecting-on-component-definitions),
+     interfaces, singletons, [definition and trait reflection with ComponentDef and Trait](./components.md#reflecting-on-component-definitions),
      and [registration provenance](./components.md#registration-provenance).
    - [Entities](./entities.md) — creation, lookup, the component API, relationship targets, lifecycle,
      [synchronous world disposal and allowed call sites](./entities.md#disposing-a-world).
