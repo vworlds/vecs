@@ -9,6 +9,24 @@ An `Entity` (`lib/vecs/src/entity/entity.ts`) is a unique numeric id (`eid`) own
 with an arbitrary set of component instances attached. Never instantiate `Entity` directly —
 create entities through the world.
 
+## Identity and diagnostic summaries
+
+Compare entities and worlds by object reference (`===`, or `expect(a).toBe(b)` in Vitest), never
+by `eid`. An eid is unique only among live entities in one world: freed ids are reused after
+their pool's `reuseWaitFrames`. Each creation gets a new entity object even when its eid is reused.
+Register the [testing equality helper](./testing.md) to prevent Vitest's equality checks and hints
+from recursively comparing entire worlds.
+
+`entity.toJSON()` returns `{ entity: eid, name, components: [componentClassName, ...] }` without
+component data. An unnamed entity's `name` is `undefined`. After destruction it returns
+`{ entity: eid, name: undefined, destroyed: true }`, with no component list.
+`world.toJSON()` returns `{ world: world.constructor.name, entities: world.entities.size }`;
+the count includes infrastructure entities. `ServerWorld` also includes its configured `name`.
+
+`JSON.stringify(entity)` now returns this summary instead of throwing on the circular world
+reference; JSON omits an undefined `name`. Vitest's pretty-formatted assertion values and snapshots
+also use these summaries. They are diagnostic output, not a serialization of ECS state.
+
 ## Creating and looking up entities
 
 ```ts
@@ -297,3 +315,4 @@ is reset in `finally`. Successful disposal leaves nothing, including component-c
 | `on(event, handler, insert?)`                  | Register a handler for a hook event on this component's meta. `insert` defaults to `false` (append); `true` prepends. Returns `this`.                                 |
 | `off(event, handler)`                          | Remove a previously-registered handler by reference. Idempotent. Returns `this`.                                                                                      |
 | `toString()`                                   | Returns `"EntityN"`.                                                                                                                                                  |
+| `toJSON()`                                     | Returns the [diagnostic summary](#identity-and-diagnostic-summaries), without component data.                                                                         |

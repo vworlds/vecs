@@ -71,4 +71,26 @@ export class Entity extends IdentityEntity {
   public get alive(): boolean {
     return !this._destroyed;
   }
+
+  /**
+   * Return a diagnostic summary for JSON and assertion/snapshot formatting.
+   * Live entities include component class names, never component data. Destroyed
+   * entities include `destroyed: true` instead of a component list.
+   * This is not a persistence format or a never-reused identity.
+   */
+  public toJSON(): {
+    entity: EID;
+    name: string | undefined;
+    components?: string[];
+    destroyed?: true;
+  } {
+    if (this.destroyed) {
+      return { entity: this.eid, name: this.name, destroyed: true };
+    }
+    const components: string[] = [];
+    this.components.forEach((_value, eid) => {
+      components.push(this.world.entity(eid).meta.Class.name);
+    });
+    return { entity: this.eid, name: this.name, components };
+  }
 }

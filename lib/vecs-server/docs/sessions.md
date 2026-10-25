@@ -24,6 +24,10 @@ session's own caller attached.
 
 ## The session
 
+For diagnostics, `ServerWorld.toJSON()` adds the configured server `name` to the base
+`{ world: constructor.name, entities: liveEntityCount }` summary. It does not traverse sessions
+or component data. See [testing and diagnostic summaries](../../vecs/docs/testing.md).
+
 On a new socket the server creates an entity, attaches `Networked` and a `NetworkClient` component
 whose `id` is the connection id, and registers that entity as the session's caller. `NetworkClient`
 is the public surface: query it, set components on it, and use its `closeReason` to log why a
