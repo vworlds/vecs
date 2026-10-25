@@ -1,13 +1,53 @@
 import { stringify } from "@vitest/utils/display";
 import { describe, expect, it } from "vitest";
-import { World } from "../src/index.js";
+import { Relationship, World } from "../src/index.js";
 import { vecsEqualityTester } from "../src/testing.js";
 
 expect.addEqualityTesters([vecsEqualityTester]);
 
 class Handle {}
+class Follows extends Relationship {}
 
 describe("diagnostic JSON", () => {
+  it.each([false, true])(
+    "summarizes entity keys without lazy metadata access (cached: %s)",
+    (cached) => {
+      const world = new World();
+      const key = world.entity();
+      const entity = world.entity().add(key);
+      // add() initializes metadata itself. Clear the fixture's cache in one case
+      // to detect metadata allocation caused by diagnostic reads, not by setup.
+      if (!cached) {
+        Object.defineProperty(key, "_meta", { value: undefined, writable: true });
+      }
+      const before = Object.getOwnPropertyDescriptor(key, "_meta")!.value;
+      const summary = entity.toJSON();
+      expect(Object.getOwnPropertyDescriptor(key, "_meta")!.value).toBe(before);
+      expect(summary).toEqual({
+        entity: entity.eid,
+        name: undefined,
+        components: [{ $entity: key.eid }],
+      });
+      expect(JSON.parse(JSON.stringify(entity))).toEqual({
+        entity: entity.eid,
+        components: [{ $entity: key.eid }],
+      });
+      expect(Object.getOwnPropertyDescriptor(key, "_meta")!.value).toBe(before);
+    }
+  );
+
+  it("prints registered relationship class names without traversing their targets", () => {
+    const world = new World();
+    world.component(Follows);
+    const target = world.entity();
+    const entity = world.entity().add(Follows, target);
+    expect(entity.toJSON()).toEqual({
+      entity: entity.eid,
+      name: undefined,
+      components: ["Follows"],
+    });
+  });
+
   it("summarizes live, unnamed, changed and destroyed entities", () => {
     const world = new World();
     world.component(Handle);

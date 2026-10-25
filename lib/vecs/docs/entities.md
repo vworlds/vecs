@@ -18,7 +18,9 @@ Register the [testing equality helper](./testing.md) to prevent Vitest's equalit
 from recursively comparing entire worlds.
 
 `entity.toJSON()` returns `{ entity: eid, name, components: [componentClassName, ...] }` without
-component data. An unnamed entity's `name` is `undefined`. After destruction it returns
+component data. Registered component definitions (including relationships) print their class names;
+other attachment keys print as `{ $entity: eid }`, without initializing metadata on those entities.
+An unnamed entity's `name` is `undefined`. After destruction it returns
 `{ entity: eid, name: undefined, destroyed: true }`, with no component list.
 `world.toJSON()` returns `{ world: world.constructor.name, entities: world.entities.size }`;
 the count includes infrastructure entities. `ServerWorld` also includes its configured `name`.
