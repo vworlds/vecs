@@ -8,6 +8,56 @@ class Value {
 afterEach(() => vi.restoreAllMocks());
 
 describe("idle systems", () => {
+  it.each(["reactive", "each"] as const)(
+    "avoids deferred scopes for idle %s systems and enters one when work arrives",
+    (kind) => {
+      const world = new World();
+      const defer = vi.spyOn(world, "defer");
+      world.component(Value);
+      const callback = vi.fn();
+      const system = world.system(kind).with(Value);
+      const entity = world.entity();
+      if (kind === "reactive") {
+        system.enter(callback).update(Value, callback);
+        entity.add(Value);
+      } else {
+        system.each([Value], callback);
+      }
+      // Finish building and drain the reactive member's initial entry before counting.
+      world.progress(0, 10);
+      expect(system.belongs(entity)).toBe(kind === "reactive");
+      defer.mockClear();
+      callback.mockClear();
+
+      for (let frame = 1; frame <= 3; frame++) {
+        world.progress(frame * 10, 10);
+      }
+      expect(defer).not.toHaveBeenCalled();
+      expect(callback).not.toHaveBeenCalled();
+
+      entity.set(Value, { n: 7 });
+      world.progress(40, 10);
+      expect(defer).toHaveBeenCalledTimes(1);
+      expect(callback).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it("enters one deferred scope per frame for run systems without members", () => {
+    const world = new World();
+    const defer = vi.spyOn(world, "defer");
+    const callback = vi.fn();
+    world.system("run").run(callback);
+    world.progress(0, 10);
+    defer.mockClear();
+    callback.mockClear();
+
+    for (let frame = 1; frame <= 3; frame++) {
+      world.progress(frame * 10, 10);
+      expect(defer).toHaveBeenCalledTimes(frame);
+      expect(callback).toHaveBeenCalledTimes(frame);
+    }
+  });
+
   it("delivers entry, update and exit normally after idle frames, even with members", () => {
     const world = new World();
     world.component(Value);
