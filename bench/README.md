@@ -3,6 +3,21 @@
 Headless, deterministic benchmarks that run against the built `dist` output of the vecs packages,
 the same JavaScript a consumer installs.
 
+## Idle systems
+
+Run `node --import ./bench/register-dist.mjs bench/idle-systems.ts` after building.
+Three separate worlds measure N reactive-only systems with a resting member, N `each` systems over an
+empty query, and N `run` systems without members. `BENCH_SYSTEMS` defaults to 100,
+`BENCH_WARMUP_TICKS` to 10,000, and `BENCH_TICKS` to 108,000 (one simulated hour at
+30 Hz). All overrides must be positive integers. Timing is uninstrumented whole-frame
+cost, including pipeline and flush overhead, divided by N for nanoseconds per system;
+it is not an isolated callback-dispatch measurement. `IDLE_RESULT` reports each
+kind's frame milliseconds, nanoseconds per system, callback count, and checksum.
+The benchmark checks that reactive/empty-query callbacks never fire and `run`
+callbacks fire every frame. Compare alternating builds with identical settings.
+`bench:release-check` includes timing and deterministic fingerprint rows for all
+three kinds.
+
 ## Dead-reckoning eligibility
 
 For the physics-backed dead-reckoning eligibility measurement, run
@@ -180,7 +195,7 @@ specific tag or ref instead. Temporary worktrees and JSON/Markdown reports live 
 `.tmp/release-check/`; matching lockfiles reuse this checkout's dependencies, otherwise the base
 installs its own. Run `npm ci` first.
 
-The check includes sector tick, DR bandwidth, and an optional physics pose-out benchmark
+The check includes sector tick, idle systems, DR bandwidth, and an optional physics pose-out benchmark
 when a matching benchmark file is present. It defaults to three alternating runs per
 build; set `BENCH_ROUNDS` to an integer of at least three for more runs. Missing release
 package APIs produce “no previous data” for that benchmark; benchmark crashes fail the
