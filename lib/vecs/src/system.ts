@@ -292,8 +292,10 @@ export class System<R extends ComponentType[] = []>
    * @internal Execute one tick: drain the inbox in arrival order, then run
    * the `run` callback, then the `each` callback for every tracked entity.
    *
-   * The whole body executes inside a `World.defer` scope; mutations made by
-   * callbacks land in the world queue and are processed when `_run` returns.
+   * When callbacks have work, the body executes inside a `World.defer` scope;
+   * mutations land in the world queue and are processed when `_run` returns.
+   * An empty inbox with no `run` callback and no populated `each` query bypasses
+   * that scope, after updating the injection clock and without changing cadence.
    * Returns whether the enabled and cadence gates admitted execution, even
    * when a reactive system has no pending events or an each query is empty.
    */
@@ -307,6 +309,13 @@ export class System<R extends ComponentType[] = []>
     const tickDelta = this._tickSource.lastFireDelta;
     this._injectNow = now;
     this._injectDelta = tickDelta;
+    if (
+      this._inbox.length === 0 &&
+      this._runCallback === undefined &&
+      (this._eachCallback === undefined || this.count === 0)
+    ) {
+      return true;
+    }
     const prevSource = this.world._currentSource;
     this.world._currentSource = this.entity;
     try {

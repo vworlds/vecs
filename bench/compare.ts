@@ -156,6 +156,7 @@ function releaseCheck(): void {
     const files = [
       "sector-tick.ts",
       "dr-bandwidth.ts",
+      "idle-systems.ts",
       ...readdirSync(benchDir).filter((file) => /(?:physics.*pose|pose.*out).*\.ts$/.test(file)),
     ];
     for (const file of files) {
@@ -312,7 +313,10 @@ function extractMetrics(file: string, result: Record<string, unknown>): Metric[]
     }
     return {
       name,
-      timing: /(?:NsPerBodyStep$|Ms$|\.mean$|\.median$|\.p\d+$|\.min$|\.max$|\.stdev$)/.test(name),
+      timing:
+        /(?:NsPerBodyStep$|nsPerSystem$|Ms$|\.mean$|\.median$|\.p\d+$|\.min$|\.max$|\.stdev$)/.test(
+          name
+        ),
       bytes: /bytes/i.test(name),
       values: [value],
     };

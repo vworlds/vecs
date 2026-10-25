@@ -28,6 +28,13 @@ Newly created systems enter the pipeline the next time `world.progress` runs. Co
 happen before the system is built (the first `progress`/`flush` after creation); builder calls
 after that throw. Reading `world.pipeline` between frames also builds pending queries.
 
+Idle systems avoid entering a deferred callback scope when their inbox is empty,
+they have no `run` callback, and any `each` query has no members. Cadence and injection
+clocks still advance normally, and due systems still count in stats. Events routed
+by an earlier system and new query members are processed in the same frame when
+the system is due. A `run` callback always executes when enabled and due, even
+without members or component changes.
+
 ## Measuring systems
 
 Enable opt-in synchronous timing for benchmarks, cadence guards, or live diagnostics:
