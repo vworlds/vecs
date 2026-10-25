@@ -90,6 +90,17 @@ fable family yet. Migration 0005 adds the `fable` Model option to board 4. The
 option already exists there, before `other`, so applying the version stamp is the
 owner's call.
 
+## rc.8
+
+rc.8 brings the seven-column board: Backlog, Scoping, Spec review, Executing,
+Owner review, Approved, Done. Migrations 0006 and 0007 move board 4 to v7, and
+0006 raises `min_compatible`, so older vmethod checkouts can't write to the board
+after it. Owner moves: Backlog → Scoping starts the discussion, Scoping → Spec
+review agrees the conclusions, and Spec review → Executing approves the exact body
+(`open-task` requires Executing). Task PRs live in Executing, Owner review,
+Approved and Done. Board 4's migration is coordinated on vworlds/vmethod#255:
+VecsMaster runs it alone, after both projects have snapshotted their cards.
+
 ## Pilot gaps and remaining rollout
 
 rc.3 resolves the rc.1 gaps:
