@@ -17,11 +17,13 @@ destination is unknown, the error lists available targets so you can retry with 
 
 The whole batch is checked statically first: op shape, registered component and
 relationship names, entity references, written-field schemas and read-only fields.
-Validators run over the whole draft, including untouched fields; structural
-constraints on untouched current values do not block unrelated writes.
+Core validation hooks run over the whole draft, including untouched fields;
+structural constraints on untouched current values do not block unrelated writes.
+Core range/integer/enum defaults do check untouched reflected members. See
+[component validation](./schema.md#validate-external-writes) for the boundary.
 An invalid op applies nothing, including preceding creates. Validation projects
 explicit preceding writes and creates into an isolated draft; it does not run
-hooks or attempt to predict cascades or relationship policies.
+mutation hooks or attempt to predict cascades or relationship policies.
 
 After validation, each op executes and routes immediately. Each op sees previous
 ops, including merged field writes. Runtime failures (hooks, cleanup policies,

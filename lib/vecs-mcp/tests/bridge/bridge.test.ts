@@ -1,13 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { World, Module, Relationship, DontSnapshot, Entity, Trait } from "@vworlds/vecs";
+import {
+  World,
+  Module,
+  Relationship,
+  DontSnapshot,
+  Entity,
+  Trait,
+  type,
+  range,
+} from "@vworlds/vecs";
 import { Router } from "../../src/bridge/router.js";
 import { LocalWorld } from "../../src/bridge/world.js";
 import { serialize } from "../../src/bridge/serialize.js";
 import { field } from "../../src/schema/index.js";
 
 class Position {
-  @field({ min: -100, max: 100 }) x = 1;
-  y = 2;
+  @type("f64") @range(-100, 100) x = 1;
+  @type("f64") y = 2;
 }
 class Dead {}
 class Likes extends Relationship {}
@@ -193,8 +202,10 @@ describe("local bridge", () => {
     class Rules {
       @field({ readOnly: true }) heat = 0;
       force = 10;
-      @field({ validate: (v, d) => ((v as number) > (d.force as number) ? "too much" : undefined) })
       boost = 0;
+      static vecs_validate(d: Rules) {
+        return d.boost > d.force ? "too much" : true;
+      }
     }
     const { world, a, call } = fixture();
     world.component(Rules);

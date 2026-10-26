@@ -1,66 +1,100 @@
-# Schema decorators
+# Component schemas and validation
 
-Describe component data for agents without changing game-time behavior.
+Describe agent-visible data with core reflection and keep MCP write policy separate.
 
-Import from `@vworlds/vecs-mcp/schema` in shared code. Both legacy TypeScript and
-standard field decorators are supported. Metadata is recorded in a WeakMap;
-validators are not called by game systems. Standard decorator initializers
-register metadata on the first instance of each concrete class; subsequent
-instances skip registration without rewriting the metadata map.
+## Declare shared metadata
+
+Use core decorators from `@vworlds/vecs` for member types, ranges, descriptions,
+units and enum values. Both legacy TypeScript and standard field decorators work.
+Use `@field` from `@vworlds/vecs-mcp/schema` only for MCP-specific `optional` and
+`readOnly` policy. Class-level `@describe` stays in MCP because core has no class
+description.
 
 ```ts
+import { type, range, unit } from "@vworlds/vecs";
 import { describe, field } from "@vworlds/vecs-mcp/schema";
 
 @describe("Engine controls")
 class Thruster {
-  @field({ type: "number", min: 0, max: 50, unit: "N" })
+  @type("f64")
+  @range(0, 50)
+  @unit("N")
   force = 10;
 
-  @field({
-    type: "number",
-    validate: (value, draft) =>
-      (value as number) > (draft.force as number) ? "boost exceeds force" : undefined,
-  })
+  @type("f64")
   boost = 0;
+
+  @type("f64")
+  @field({ readOnly: true })
+  heat = 0;
+
+  static vecs_validate(draft: Thruster) {
+    return draft.boost > draft.force ? "boost exceeds force" : true;
+  }
 }
 ```
 
-`componentSchema(C)` returns `{ schema, fields, description? }`, cached per class.
-Treat the returned objects as read-only. A new `field` or `describe` registration
-invalidates the cache, including inherited descriptions and fields. On a cache
-miss it constructs `new C()` for initializer inference (failed constructors yield no inferred
-fields), overlays `wireFields(C)` metadata, then overlays inherited `@field`
-metadata base-first. Each supplied spec key overrides the lower-priority value.
-Descriptions inherit unless overridden. Inference recurses through plain objects
-and the first array element; empty arrays have unconstrained items. `null` and
-`undefined` infer unknown, optional fields, not a concrete type. Non-plain class
-values are not traversed. Explicitly set `optional: false` to override inferred
-optionality.
+An explicit hook replaces core's default range/integer/enum validator; enforce
+any required ranges inside that hook too. See [core reflection](../../vecs/docs/reflection.md)
+for fluent declarations and validation semantics. Nothing validates automatically
+on game-time `set`; MCP explicitly calls `world.validate` at its write boundary.
 
-| Key                      | Meaning                                                                              |
-| ------------------------ | ------------------------------------------------------------------------------------ |
-| `type`                   | `number`, `integer`, `string`, `boolean`, `entity`, `enum`, `object`, `array`, `any` |
-| `description`, `unit`    | Agent documentation; unit becomes `x-vecs-unit`                                      |
-| `min`, `max`             | Inclusive numeric bounds                                                             |
-| `values`                 | Allowed JSON enum values                                                             |
-| `items`, `fields`        | Array item spec and nested object field specs                                        |
-| `optional`               | Accept `null` or `undefined`; omit from JSON Schema required list                    |
-| `readOnly`               | Reject writes even when the value is unchanged                                       |
-| `validate(value, draft)` | Return an error string or nothing; draft is the merged whole component               |
+## Read schemas
 
-`validateSet(C, draft, patch)` checks types, ranges, enum values and unknown keys
-only for written patch fields, recursively, and rejects written read-only fields
-(nested too). Existing game state need not satisfy structural constraints on
-untouched fields: a mixed array inferred from its first element or an existing
-out-of-range value does not prevent an unrelated write. Validators still run
-over the whole merged draft, including untouched fields.
-The bridge calls it only for `set`, during static validation and again at the
-write boundary to account for hook-induced changes. Validators should therefore
-be pure. Type failures prevent validators from running. No runtime function
-appears in JSON Schema: validators become `x-vecs-validated: true`; entity fields
-become `{ "type": "integer", "x-vecs-entity": true }`. Optional fields use a
-nullable `anyOf`; the schema uses draft 2020-12 vocabulary.
+`componentSchema(C)` returns `{ schema, fields, description? }`. Treat the result
+as read-only. It reads the composed members from `VecsStruct.of(C)`, base class
+first. For a class without reflection members, it keeps the previous fallback:
+construct `new C()` for inference, then overlay `wireFields(C)`. Failed
+constructors yield no inferred fields. Reflected classes expose only declared
+members, not additional instance fields.
 
-`wireFields(C)` in vecs-wire returns a frozen, detached array of `{ key, spec }`
-including inherited fields, or `[]` for an unregistered class. As with standard
-`@wireType`, construct an instance before asking for standard-decorated metadata.
+Inference traverses plain objects and the first array element; empty arrays have
+unconstrained items. `null` and `undefined` infer optional unknown fields.
+Non-plain class values are not traversed. Overlay inherited MCP extras base-first;
+`items` and `fields` can carry nested optional/read-only policy without replacing
+core types. Use `optional: false` to override inherited or inferred optionality.
+Descriptions inherit unless overridden. Cached schemas refresh when core members
+(including nested definitions), MCP extras or class descriptions change.
+
+| Core metadata           | JSON Schema                              |
+| ----------------------- | ---------------------------------------- |
+| `f32`, `f64`            | `type: "number"`                         |
+| Integer types           | `type: "integer"`                        |
+| `bool`, `string`        | `type: "boolean"`, `type: "string"`      |
+| `entity`                | `type: "integer"`, `x-vecs-entity: true` |
+| `enum` with `values`    | `enum`                                   |
+| Nested class / `[type]` | Object properties / array items          |
+| `range`                 | `minimum`, `maximum`                     |
+| `description`, `unit`   | `description`, `x-vecs-unit`             |
+
+`any` and `bytes` add no JSON type constraint. Bigint members remain opaque to
+MCP writes; range bounds are represented as JSON numbers in schemas.
+Optional fields use nullable `anyOf` and are omitted from `required`; read-only
+fields emit `readOnly: true`. Schemas use draft 2020-12 vocabulary.
+
+## Validate external writes
+
+`validateSet(world, C, draft, patch)` first checks written fields structurally:
+types, unknown keys and read-only policy (including nested fields). Then it calls
+`world.validate` on a copy of the whole merged draft with `C.prototype`, so core
+can resolve the registered class and hooks can inspect untouched fields.
+The caller must register `C` in that world and merge the current value with the
+patch before calling. Core violation strings are unchanged; lists are joined
+with newlines in the error. The bridge adds its existing `ops[index]` context.
+
+Structural checks still ignore invalid untouched inferred fields, but core's
+default range/integer/enum checks now cover the **whole draft**, including
+untouched members. MCP checks structural errors before calling hooks. It runs
+validation during batch preflight and again at the write boundary to account for
+hook-induced changes, so validation hooks must be pure.
+
+## Migrate MCP declarations
+
+Replace `@field` type/documentation options with core decorators:
+`number` → `@type("f64")`, `integer` → `@type("i32")`, `boolean` →
+`@type("bool")`, `min`/`max` → `@range`, and `description`, `unit`, `values` →
+the corresponding core decorators. Core enum values are numeric. Declare nested
+objects with a class and arrays with `[type]`. Replace field `validate` callbacks
+with `vecs_validate` or `.on("validate", hook)` on the component; return `true`
+on success. MCP no longer emits the field-specific `x-vecs-validated` extension.
+The old options are removed; `@field` accepts only MCP extras.

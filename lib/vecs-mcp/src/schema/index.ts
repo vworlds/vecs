@@ -1,7 +1,19 @@
 import { wireFields, type WireConstructor, type WireTypeSpec } from "@vworlds/vecs-wire";
-import { Entity, Relationship } from "@vworlds/vecs";
+import { Entity, Relationship, VecsStruct, type World, type VecsMember } from "@vworlds/vecs";
 
-/** A field's bridge-only description and write constraints. */
+/** MCP-only write policy; declare types and documentation with core decorators. */
+export interface FieldExtras {
+  /** Allow null or undefined. */
+  optional?: boolean;
+  /** Reject writes to this field, including nested writes. */
+  readOnly?: boolean;
+  /** MCP-only policy for array elements. */
+  items?: FieldExtras;
+  /** MCP-only policy for nested fields. */
+  fields?: Readonly<Record<string, FieldExtras>>;
+}
+
+/** Effective JSON field constraints derived from core metadata and MCP extras. */
 export interface FieldSpec {
   /** JSON value kind; entity is an integer eid, any imposes no type constraint. */
   type?:
@@ -24,15 +36,13 @@ export interface FieldSpec {
   optional?: boolean;
   /** Reject writes to this field, including nested writes. */
   readOnly?: boolean;
-  /** Return an error string to reject a set; draft is the whole merged component. */
-  validate?: (value: unknown, draft: Readonly<Record<string, unknown>>) => string | void;
 }
 
 /** Merged component schema and bridge validation metadata. */
 export interface ComponentSchema {
   /** JSON Schema using draft 2020-12 vocabulary. */
   schema: Record<string, unknown>;
-  /** Effective fields, with explicit metadata taking precedence over wire and inference. */
+  /** Core members (or metadata-free inference) with inherited MCP extras. */
   fields: Readonly<Record<string, FieldSpec>>;
   /** Inherited class description, if declared. */
   description?: string;
@@ -46,14 +56,19 @@ interface StandardContext {
   addInitializer(fn: (this: object) => void): void;
 }
 
-const metadata = new WeakMap<Function, Map<string, FieldSpec>>();
+const extras = new WeakMap<Function, Map<string, FieldExtras>>();
 const descriptions = new WeakMap<Function, string>();
-const schemas = new WeakMap<Function, { generation: number; value: ComponentSchema }>();
+const schemas = new WeakMap<
+  Function,
+  { generation: number; reflection: unknown[]; value: ComponentSchema }
+>();
 let generation = 0;
 
-/** Record a field description in legacy or standard decorator mode. No game hooks are installed. */
-export function field(spec: FieldSpec): PropertyDecorator {
-  return (target, key) => {
+/** Record MCP-only optional/readOnly policy in legacy or standard decorator mode. */
+export function field(
+  spec: FieldExtras
+): PropertyDecorator & ((value: undefined, context: ClassFieldDecoratorContext) => void) {
+  return ((target: object, key: unknown) => {
     if (typeof key === "object" && key !== null) {
       const context = key as unknown as StandardContext;
       if (
@@ -81,7 +96,7 @@ export function field(spec: FieldSpec): PropertyDecorator {
       }
       register(target.constructor, key, spec);
     }
-  };
+  }) as ReturnType<typeof field>;
 }
 
 /** Record a component's human-readable description; works in both decorator modes. */
@@ -94,13 +109,19 @@ export function describe(text: string): <T extends Function>(C: T) => T {
 }
 
 /**
- * Merge inference, wire metadata, and inherited declarations. Cached per class
- * until a field or description registers; cache misses construct one example.
+ * Read core members, falling back to instance/wire inference only when absent.
+ * Overlay inherited MCP extras. Cached until reflection or MCP metadata changes;
+ * cache misses construct one example for inference and standard initializers.
  * Treat the returned schema and metadata as read-only.
  */
 export function componentSchema(C: abstract new () => unknown): ComponentSchema {
   const cached = schemas.get(C);
-  if (cached?.generation === generation) {
+  const reflection = reflectionSignature(C);
+  if (
+    cached?.generation === generation &&
+    cached.reflection.length === reflection.length &&
+    cached.reflection.every((v, i) => v === reflection[i])
+  ) {
     return cached.value;
   }
   let example: object = {};
@@ -110,13 +131,20 @@ export function componentSchema(C: abstract new () => unknown): ComponentSchema 
     /* Resource types need not have a usable default constructor. */
   }
   const fields: Record<string, FieldSpec> = Object.create(null);
-  for (const [key, value] of Object.entries(example)) {
-    if (!(C.prototype instanceof Relationship && key === "_targets")) {
-      fields[key] = infer(value, new Set());
+  const members = VecsStruct.of(C)?.members;
+  if (members) {
+    for (const [key, member] of Object.entries(members)) {
+      fields[key] = fromMember(member);
     }
-  }
-  for (const { key, spec } of wireFields(C)) {
-    fields[key] = { ...fields[key], ...fromWire(spec) };
+  } else {
+    for (const [key, value] of Object.entries(example)) {
+      if (!(C.prototype instanceof Relationship && key === "_targets")) {
+        fields[key] = infer(value, new Set());
+      }
+    }
+    for (const { key, spec } of wireFields(C)) {
+      fields[key] = { ...fields[key], ...fromWire(spec) };
+    }
   }
   const chain: Function[] = [];
   for (
@@ -129,8 +157,8 @@ export function componentSchema(C: abstract new () => unknown): ComponentSchema 
   let description: string | undefined;
   for (const ancestor of chain) {
     description = descriptions.get(ancestor) ?? description;
-    for (const [key, spec] of metadata.get(ancestor) ?? []) {
-      fields[key] = { ...fields[key], ...spec };
+    for (const [key, spec] of extras.get(ancestor) ?? []) {
+      fields[key] = mergeExtras(fields[key] ?? {}, spec);
     }
   }
   const schema = objectSchema(fields);
@@ -144,37 +172,92 @@ export function componentSchema(C: abstract new () => unknown): ComponentSchema 
     },
   };
   // Constructing the example can register standard decorators and advance generation.
-  schemas.set(C, { generation, value });
+  schemas.set(C, { generation, reflection: reflectionSignature(C), value });
   return value;
 }
 
 /**
  * Check structural constraints only for patch keys, recursively, and reject
- * written read-only fields. Then run validators over the whole merged draft,
- * including untouched fields. Throws TypeError with field paths.
+ * written read-only fields. Then call world.validate on a class-prototyped copy
+ * of the whole merged draft. Violation messages are preserved (lists joined by newlines).
  * The caller owns merging patch over the current instance before calling.
+ * Register C in the target world first. Hooks must be pure: the bridge calls
+ * this during preflight and again immediately before writing.
  */
 export function validateSet(
+  world: World,
   C: abstract new () => unknown,
   draft: Record<string, unknown>,
   patch: Record<string, unknown>
 ): void {
   const { fields } = componentSchema(C);
   checkObject(fields, draft, patch, "");
-  validateRules(fields, draft, draft);
+  const result = world.validate(Object.assign(Object.create(C.prototype), draft));
+  if (result !== true) {
+    throw new TypeError(typeof result === "string" ? result : result.join("\n"));
+  }
 }
 
-function register(C: Function, key: string, spec: FieldSpec): void {
-  let fields = metadata.get(C);
+function register(C: Function, key: string, spec: FieldExtras): void {
+  let fields = extras.get(C);
   if (fields?.get(key) === spec) {
     return;
   }
   if (!fields) {
     fields = new Map();
-    metadata.set(C, fields);
+    extras.set(C, fields);
   }
   fields.set(key, spec);
   generation++;
+}
+
+function reflectionSignature(C: Function, seen = new Set<Function>()): unknown[] {
+  if (seen.has(C)) {
+    return [];
+  }
+  seen.add(C);
+  const members = VecsStruct.of(C)?.members;
+  return [
+    C,
+    members,
+    ...Object.values(members ?? {}).flatMap(({ type }) => {
+      const element = Array.isArray(type) ? type[0] : type;
+      return typeof element === "function" ? reflectionSignature(element, seen) : [];
+    }),
+  ];
+}
+
+function mergeExtras(spec: FieldSpec, policy: FieldExtras): FieldSpec {
+  const result = { ...spec, ...policy } as FieldSpec;
+  if (policy.items) {
+    result.items = mergeExtras(spec.items ?? {}, policy.items);
+  }
+  if (policy.fields) {
+    result.fields = {
+      ...spec.fields,
+      ...Object.fromEntries(
+        Object.entries(policy.fields).map(([key, value]) => [
+          key,
+          mergeExtras(spec.fields?.[key] ?? {}, value),
+        ])
+      ),
+    };
+  }
+  return result;
+}
+
+function fromMember(member: VecsMember): FieldSpec {
+  const spec = fromWire(member.type);
+  const constraints = {
+    ...(member.range ? { min: Number(member.range[0]), max: Number(member.range[1]) } : {}),
+    ...(member.values === undefined ? {} : { values: member.values }),
+  };
+  return {
+    ...spec,
+    ...(spec.type === "array" ? { items: { ...spec.items, ...constraints } } : constraints),
+    ...(member.description === undefined ? {} : { description: member.description }),
+    ...(member.unit === undefined ? {} : { unit: member.unit }),
+  };
 }
 
 function infer(value: unknown, seen: Set<object>): FieldSpec {
@@ -223,6 +306,8 @@ function fromWire(spec: WireTypeSpec): FieldSpec {
       return { type: "entity" };
     case "any":
       return { type: "any" };
+    case "enum":
+      return { type: "enum" };
     case "bytes":
       return {};
     case "f32":
@@ -276,9 +361,6 @@ function jsonSchema(spec: FieldSpec): Record<string, unknown> {
   }
   if (spec.readOnly) {
     result.readOnly = true;
-  }
-  if (spec.validate) {
-    result["x-vecs-validated"] = true;
   }
   return result;
 }
@@ -367,38 +449,6 @@ function checkValue(spec: FieldSpec, value: unknown, patch: unknown, path: strin
         );
       });
       break;
-  }
-  if (spec.values && !spec.values.some((v) => JSON.stringify(v) === JSON.stringify(value))) {
-    fail("not an enum member");
-  }
-  if (spec.min !== undefined && (typeof value !== "number" || value < spec.min)) {
-    fail(`minimum ${spec.min}`);
-  }
-  if (spec.max !== undefined && (typeof value !== "number" || value > spec.max)) {
-    fail(`maximum ${spec.max}`);
-  }
-}
-
-function validateRules(
-  fields: Readonly<Record<string, FieldSpec>>,
-  value: Record<string, unknown>,
-  draft: Record<string, unknown>,
-  path = ""
-): void {
-  for (const [key, spec] of Object.entries(fields)) {
-    const v = value[key];
-    const message = spec.validate?.(v, draft);
-    if (message) {
-      throw new TypeError(`${path}${key}: ${message}`);
-    }
-    if (isPlain(v) && spec.fields) {
-      validateRules(spec.fields, v, draft, `${path}${key}.`);
-    }
-    if (Array.isArray(v) && spec.items) {
-      v.forEach((item, i) =>
-        validateRules({ [i]: spec.items! }, { [i]: item }, draft, `${path}${key}.`)
-      );
-    }
   }
 }
 
