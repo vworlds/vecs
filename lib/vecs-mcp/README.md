@@ -3,8 +3,9 @@
 Inspect and mutate registered vecs worlds and their opted-in browser clients with an MCP agent.
 
 The Node entry exports `VecsMcpServer`, `Link` and their configuration/state types. The isomorphic `/schema` entry exports
-`field`, `describe`, `componentSchema`, `validateSet`, `FieldSpec` and `ComponentSchema`;
+`field`, `describe`, `componentSchema`, `validateSet`, `FieldExtras`, `FieldSpec` and `ComponentSchema`;
 it imports only vecs and vecs-wire, never Node, the MCP SDK or zod.
+Declare shared member metadata with [core decorators](./docs/schema.md); MCP keeps only write-policy extras.
 
 ```ts
 import { World } from "@vworlds/vecs";

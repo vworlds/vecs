@@ -182,11 +182,11 @@ function preflight(
         if (!plain(op.value)) {
           throw new Error("set.value must be a plain object patch");
         }
-        entityPatch(world, componentSchema(c.meta.Class).fields, op.value);
+        const patch = entityPatch(world, componentSchema(c.meta.Class).fields, op.value);
         const current = shadow.values.get(c) ?? { ...instantiate(c) };
         checkWritable(current, op.value);
-        const draft = { ...current, ...op.value };
-        validateSet(c.meta.Class, draft, op.value);
+        const draft = { ...current, ...patch };
+        validateSet(world, c.meta.Class, draft, op.value);
         shadow.values.set(c, draft);
       } else if (op.add && !shadow.values.has(c)) {
         shadow.values.set(c, { ...instantiate(c) });
@@ -235,17 +235,15 @@ function apply(world: World, registry: Map<string, Component>, op: Op, created: 
       entity.remove(c, ref(op.to));
     } else if (op.set) {
       const current = entity.get(c) ?? instantiate(c);
-      const draft = { ...current, ...(op.value as object) };
-      checkWritable(current as Record<string, unknown>, op.value as Record<string, unknown>);
-      validateSet(c.meta.Class, draft, op.value as Record<string, unknown>);
-      entity.set(
-        c,
-        entityPatch(
-          world,
-          componentSchema(c.meta.Class).fields,
-          op.value as Record<string, unknown>
-        )
+      const patch = entityPatch(
+        world,
+        componentSchema(c.meta.Class).fields,
+        op.value as Record<string, unknown>
       );
+      const draft = { ...current, ...patch };
+      checkWritable(current as Record<string, unknown>, op.value as Record<string, unknown>);
+      validateSet(world, c.meta.Class, draft, op.value as Record<string, unknown>);
+      entity.set(c, patch);
     }
   }
   return { eid: entity.eid };
