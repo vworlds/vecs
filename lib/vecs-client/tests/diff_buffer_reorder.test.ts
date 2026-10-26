@@ -9,7 +9,11 @@ import {
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
 import { Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
-import { ClientWorld } from "../src/index.js";
+import {
+  CLOSE_PROTOCOL_ERROR_CODE,
+  ClientWorld,
+  type ClientWorldDisconnectEvent,
+} from "../src/index.js";
 import { Diff, DiffBuffer } from "../src/diff_buffer.js";
 import { History } from "../../vecs-server/src/history.js";
 
@@ -22,6 +26,7 @@ class TowedBy extends Relationship {}
 
 const EID_A = 1000;
 const EID_B = 1001;
+const EID_C = 1002;
 const RESOURCE = 1;
 const TOWED_BY = 2;
 
@@ -68,9 +73,9 @@ function resource(amount = 0): EncodedSnapshot {
   return snapshot(EID_A, RESOURCE, encode(component));
 }
 
-function tow(): EncodedSnapshot {
+function tow(targets: EID[] = [EID_B]): EncodedSnapshot {
   const encoder = new Encoder(new Uint8Array(1024));
-  encodeRelationshipSnapshot(encoder, [EID_B], new TowedBy());
+  encodeRelationshipSnapshot(encoder, targets, new TowedBy());
   return snapshot(EID_A, TOWED_BY, encoder.getBuffer());
 }
 
@@ -206,6 +211,79 @@ it("#245: clears the old tow edge when history folds a lost exit with untowed re
     world.dispose();
   }
 });
+
+it.each(["zero targets", "old duplicate", "towed re-entry"] as const)(
+  "handles %s after history folding without retaining the old target",
+  (scenario) => {
+    const { world, socket } = client(`relationship-frames-${scenario}`);
+    const disconnects: Array<ClientWorldDisconnectEvent | undefined> = [];
+    world.events.on("disconnect", (notice) => disconnects.push(notice));
+    const cargo = resource();
+    const baseline = new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [cargo, tow()] });
+    try {
+      receive(socket, baseline);
+      world.apply(0);
+      world.apply(1000);
+      expect(world.getEntity(EID_A)?.target(TowedBy)?.eid).toBe(EID_B);
+
+      const history = new History(64, 1);
+      history.push(
+        new StateDiff({
+          fromFrame: 1,
+          toFrame: 2,
+          snapshots: scenario === "zero targets" ? [tow([])] : [],
+          removed: scenario === "old duplicate" ? [[EID_A, TOWED_BY]] : [],
+          resets: scenario === "towed re-entry" ? [[EID_A, 2]] : [],
+        })
+      );
+      history.push(
+        new StateDiff({
+          fromFrame: 2,
+          toFrame: 3,
+          snapshots: scenario === "towed re-entry" ? [cargo, tow([EID_C])] : [cargo],
+        })
+      );
+      receive(socket, history.pull(1, 3));
+      world.apply(2000);
+
+      if (scenario === "zero targets") {
+        // Last-edge removal must be a component tombstone, not an empty snapshot.
+        expect(disconnects).toHaveLength(1);
+        expect(disconnects[0]?.code).toBe(CLOSE_PROTOCOL_ERROR_CODE);
+        expect(disconnects[0]?.reason).toContain("must contain at least one target");
+        return;
+      }
+
+      expect(disconnects).toEqual([]);
+      expect(world.getEntity(EID_A)?.has(ResourceContainer)).toBe(true);
+      expect(
+        world
+          .getEntity(EID_A)
+          ?.targets(TowedBy)
+          .map((target) => target.eid)
+      ).toEqual(scenario === "towed re-entry" ? [EID_C] : []);
+      expect(world.renderFrame).toBe(3);
+
+      if (scenario === "towed re-entry") {
+        return;
+      }
+
+      receive(socket, baseline);
+      world.apply(3000);
+      expect(disconnects).toEqual([]);
+      expect(world.getEntity(EID_A)?.has(ResourceContainer)).toBe(true);
+      expect(
+        world
+          .getEntity(EID_A)
+          ?.targets(TowedBy)
+          .map((target) => target.eid)
+      ).toEqual([]);
+      expect(world.renderFrame).toBe(3);
+    } finally {
+      world.dispose();
+    }
+  }
+);
 
 it("#246: accepts a delayed older delta between newer ack-based deltas", () => {
   const { world, socket } = client("issue-246-order");
