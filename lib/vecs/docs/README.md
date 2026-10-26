@@ -37,6 +37,8 @@ Read in this order the first time through:
 
 Keep the [Glossary](./glossary.md) at hand for terminology.
 
+For reference comparisons, safe diagnostics and Vitest setup, see [Testing entity and world identity](./testing.md).
+
 ## Map
 
 For Node clients that need replicated Phaser poses, see [Headless clients](../../vecs-phaser-client/README.md#headless-clients).
@@ -59,6 +61,7 @@ after reading the execution-model and systems guides.
 | [design-guide.md](./design-guide.md)               | Patterns, anti-patterns, and a Phaser render-layer case study.                                                          |
 | [utilities.md](./utilities.md)                     | Public helper classes: `Events`, `ArrayMap`, `IterableArrayMap`, plus `Bitset` cross-ref.                               |
 | [glossary.md](./glossary.md)                       | ECS and vecs terminology.                                                                                               |
+| [testing.md](./testing.md)                         | Reference equality registration and safe JSON/assertion summaries.                                                      |
 
 Networking (wire encoding with `@wireType`, protocol component ordering, replication, RPCs, server
 sessions, and the client world) lives in the `@vworlds/vecs-wire`, `@vworlds/vecs-protocol`,

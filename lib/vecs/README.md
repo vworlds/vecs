@@ -61,6 +61,9 @@ world.progress(performance.now(), 16); // call once per frame
 
 ## Documentation
 
+Use the optional [`@vworlds/vecs/testing`](./docs/testing.md) equality tester for cheap reference
+comparisons in Vitest; entities and worlds also provide safe diagnostic JSON summaries.
+
 For synchronous world teardown and its allowed call sites, see
 [Disposing a world](./docs/entities.md#disposing-a-world).
 

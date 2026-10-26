@@ -21,6 +21,15 @@ export class Storage extends Pools {
     return this._entities;
   }
 
+  /**
+   * Return the runtime class name and live entity count (including infrastructure)
+   * for JSON and assertion/snapshot formatting, without traversing entity data.
+   * This diagnostic summary is not a persistence format.
+   */
+  public toJSON(): { world: string; entities: number } {
+    return { world: this.constructor.name, entities: this.entities.size };
+  }
+
   /** @internal Remove an entity from the world's entity map (called by `Entity._destroy`). */
   public _unregisterEntity(entity: Entity): void {
     this._entities.delete(entity.eid);

@@ -866,6 +866,11 @@ export class ServerWorld extends NetworkWorld {
     }
   }
 
+  /** Return the base diagnostic summary plus this server world's configured name. */
+  public override toJSON(): { world: string; entities: number; name: string } {
+    return { ...super.toJSON(), name: this.name };
+  }
+
   private _prepareAndSend(sendSocket: SocketSend): void {
     const toFrame = this._frame++;
     if (this._sessions.size === 0) {
