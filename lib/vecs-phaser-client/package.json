@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-phaser-client",
-  "version": "1.0.61",
+  "version": "1.0.62",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -28,8 +28,8 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@vworlds/vecs-client": "1.0.61",
-    "@vworlds/vecs-phaser": "1.0.61"
+    "@vworlds/vecs-client": "1.0.62",
+    "@vworlds/vecs-phaser": "1.0.62"
   },
   "peerDependencies": {
     "phaser": "^4.1.0"
