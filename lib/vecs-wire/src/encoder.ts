@@ -1,4 +1,5 @@
 import { AnyType, TagSize } from "./any.js";
+import { compileWireType, type WireConstructor } from "./decorators.js";
 
 const textEncoder = new TextEncoder();
 
@@ -261,10 +262,14 @@ export class Encoder {
     }
   }
 
+  /** Write a custom wire value or compile its reflection layout on first use. */
   write(value: IEncodable | object): void {
     const encodable = value as IEncodable;
     if (typeof encodable.wireEncode !== "function") {
-      throw new TypeError("vecs-wire/encoder write requires a wireEncode method");
+      compileWireType(value.constructor as WireConstructor);
+      if (typeof encodable.wireEncode !== "function") {
+        throw new TypeError("vecs-wire/encoder write requires a wireEncode method");
+      }
     }
     encodable.wireEncode(this);
   }

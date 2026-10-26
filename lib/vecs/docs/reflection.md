@@ -97,12 +97,19 @@ import { VecsStruct } from "@vworlds/vecs";
 
 const struct = world.component(Position).get(VecsStruct);
 struct?.members.x; // { type: "i32", range: [-100, 100], unit: "m", description: "The X coordinate" }
+
+// Read the same frozen instance without creating a world or constructing Position.
+VecsStruct.of(Position) === struct; // true
 ```
 
 Members are inherited along the class chain, however the base class declared them: a subclass of a
 class with fluent declarations gets the same members as a subclass of a decorated one. They are
 listed base class first, then in declaration order. A subclass may repeat an inherited member to add
 fields, such as a `unit`, but not to change one.
+
+Use `VecsStruct.of(C)` for world-free access. It reads decorators and existing fluent declarations,
+returning `undefined` if neither the class nor its bases declares members. Its `members` view stays
+live, just like the instance attached to each world.
 
 The definition is **per class, for the whole process**:
 
@@ -121,6 +128,21 @@ The definition is **per class, for the whole process**:
 declarations keep their component ids. Look it up with `world.getEntity(VecsStruct)`, because
 `entity.get(VecsStruct)` throws in a world that has never registered it. Like `ComponentDef`, it has
 the `DontSnapshot` policy.
+
+## Wire encoding
+
+`@vworlds/vecs-wire` uses reflection as a **per-class-chain fallback**: if any class in the chain
+declares `@wireType` fields, only those fields are encoded and reflection is ignored. Otherwise,
+unless the chain is explicitly registered with `tag`, the codec uses the members from
+`VecsStruct.of(C)`, base class first, with each member's `type` as its wire spec. Ranges, units,
+descriptions and enum `values` do not affect encoding. A class with neither definition is not
+wire-encodable; explicit tags remain presence-only.
+
+Declare reflection members **before the class's first network use**. The encoder/decoder compiles
+the layout at the first encode or decode; members declared later remain visible to reflection but
+are not encoded. See the [wire guide](../../vecs-wire/README.md#reflection-fallback) for examples
+and the entity-reference encoding rule. Keep existing `@wireType` declarations unchanged when
+adding reflection; there is no rename or migration.
 
 ## Validating and normalizing
 

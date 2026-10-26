@@ -8,6 +8,10 @@ specs are frozen too. An unregistered class or presence-only tag returns `[]`.
 Conflicting inherited declarations retain the same error behavior as wire
 compilation.
 
+This accessor reports only explicit wire declarations, not the
+[reflection fallback](../README.md#reflection-fallback). Use
+[`VecsStruct.of(C)`](../../vecs/docs/reflection.md#reading-the-definition) for reflection members.
+
 ```ts
 import { wireFields, wireType } from "@vworlds/vecs-wire";
 
