@@ -26,6 +26,7 @@ class TowedBy extends Relationship {}
 
 const EID_A = 1000;
 const EID_B = 1001;
+const EID_C = 1002;
 const RESOURCE = 1;
 const TOWED_BY = 2;
 
@@ -211,7 +212,7 @@ it("#245: clears the old tow edge when history folds a lost exit with untowed re
   }
 });
 
-it.each(["zero targets", "old duplicate"] as const)(
+it.each(["zero targets", "old duplicate", "towed re-entry"] as const)(
   "handles %s after history folding without retaining the old target",
   (scenario) => {
     const { world, socket } = client(`relationship-frames-${scenario}`);
@@ -231,10 +232,17 @@ it.each(["zero targets", "old duplicate"] as const)(
           fromFrame: 1,
           toFrame: 2,
           snapshots: scenario === "zero targets" ? [tow([])] : [],
-          removed: scenario === "zero targets" ? [] : [[EID_A, TOWED_BY]],
+          removed: scenario === "old duplicate" ? [[EID_A, TOWED_BY]] : [],
+          resets: scenario === "towed re-entry" ? [[EID_A, 2]] : [],
         })
       );
-      history.push(new StateDiff({ fromFrame: 2, toFrame: 3, snapshots: [cargo] }));
+      history.push(
+        new StateDiff({
+          fromFrame: 2,
+          toFrame: 3,
+          snapshots: scenario === "towed re-entry" ? [cargo, tow([EID_C])] : [cargo],
+        })
+      );
       receive(socket, history.pull(1, 3));
       world.apply(2000);
 
@@ -253,8 +261,12 @@ it.each(["zero targets", "old duplicate"] as const)(
           .getEntity(EID_A)
           ?.targets(TowedBy)
           .map((target) => target.eid)
-      ).toEqual([]);
+      ).toEqual(scenario === "towed re-entry" ? [EID_C] : []);
       expect(world.renderFrame).toBe(3);
+
+      if (scenario === "towed re-entry") {
+        return;
+      }
 
       receive(socket, baseline);
       world.apply(3000);
