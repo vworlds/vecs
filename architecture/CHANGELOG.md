@@ -3,6 +3,18 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## v1.0.61 (2026-10-26)
+
+- [tooling] Tests: Make release publish polling deadlines deterministic without removing real stalled-command timeout coverage (#410).
+- [vecs] Docs: standardize Mermaid ECS schema, instance, and systems diagrams with copyable templates and worked relationship examples.
+- [vecs] Added: safe diagnostic `toJSON()` summaries for entities and worlds and the optional `@vworlds/vecs/testing` reference equality tester; server world summaries include their configured name.
+- [vecs] Changed: `JSON.stringify(entity)` returns a diagnostic summary instead of throwing on its circular world reference.
+- [vecs] Fixed: diagnostic summaries preserve entity-keyed attachments as `{ $entity: eid }` without initializing metadata on their keys.
+- [vecs] Changed: Bypass deferred callback scopes for idle systems; with 100 systems, amortized whole-frame cost fell from 76.3 to 8.8 ns per reactive system and 92.4 to 13.6 ns per empty-query each system in three alternating built-package runs (#402).
+- [vecs] Tests: Guard idle-system deferred-scope elimination with deterministic call counts and mutation-verified reactive and empty-query each cases (#402).
+- [vecs-physics] Docs: Clarify that contact-begin edges do not guarantee placement after a body-type change; use release-time occupancy or shape casts for deterministic stack reflow (#399).
+- [vecs-physics] Tests: Characterize released-column contact identities and support shape casts with contact-event opt-in before and after release (#399).
+
 ## v1.0.60 (2026-10-24)
 
 - [vecs-mcp] Changed: Component inspection output now separates `kind` (`module`, `relationship`, `component`) from declared `trait` membership and returns uniform `{ name, targets? }` trait entries, preserving pair targets as registry names or entity references. Usage, definition data and singleton self-carry no longer imply traits (#395).
