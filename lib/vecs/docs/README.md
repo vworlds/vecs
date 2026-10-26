@@ -30,6 +30,8 @@ Read in this order the first time through:
    - [Modules](./modules.md) — packaging features, composition, scopes and module provenance, built-in modules.
    - [Subtree snapshots](./snapshots.md) — capturing, restoring, and moving an entity forest
      between two worlds.
+   - [Component reflection](./reflection.md) — member types, `VecsStruct`, and the `validate` /
+     `normalize` hooks.
 5. [Design guide](./design-guide.md) — opinionated patterns and anti-patterns distilled from real
    designs. Read it once you know the machinery.
 6. [Utilities](./utilities.md) — helper classes exported by `@vworlds/vecs` but not part of the ECS
@@ -60,6 +62,7 @@ after reading the execution-model and systems guides.
 | [relationships.md](./relationships.md)             | Relationships, target creation, projection and ownership, hierarchy, traversal, and cleanup.                            |
 | [modules.md](./modules.md)                         | `Module<Config>`, `world.module`, `world.scope`, hierarchy provenance, built-in modules.                                |
 | [snapshots.md](./snapshots.md)                     | `snapshotSubtree`, `restoreSubtree`, `moveSubtree`, and `OnSnapshot` capture policies.                                  |
+| [reflection.md](./reflection.md)                   | Member types and metadata, `VecsStruct`, `validate` / `normalize` hooks, `vecs_` static hooks.                          |
 | [design-guide.md](./design-guide.md)               | Patterns, anti-patterns, and a Phaser render-layer case study.                                                          |
 | [diagrams.md](./diagrams.md)                       | Mermaid notation and copyable schema, instance, and systems templates for ECS designs.                                  |
 | [utilities.md](./utilities.md)                     | Public helper classes: `Events`, `ArrayMap`, `IterableArrayMap`, plus `Bitset` cross-ref.                               |

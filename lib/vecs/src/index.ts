@@ -46,8 +46,28 @@ export {
   type HookEvent,
   type HookEventMap,
   type HookHandler,
+  type NormalizeHandler,
   type TargetHandler,
+  type ValidateHandler,
 } from "./component.js";
+export { VecsStruct } from "./reflection/vecs_struct.js";
+export {
+  description,
+  range,
+  type,
+  unit,
+  values,
+  type MemberDecorator,
+} from "./reflection/decorators.js";
+export type {
+  MemberClass,
+  MemberElementType,
+  MemberScalarType,
+  MemberType,
+  RangeBound,
+  VecsMember,
+} from "./reflection/member_types.js";
+export type { ValidationResult, Violations } from "./reflection/defaults.js";
 export { Entity, type EID, type EntityClass, Identity } from "./entity/index.js";
 export { Module, type ModuleConfig } from "./module.js";
 export { MoveSubtreeError } from "./world/world.transfers.js";

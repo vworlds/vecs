@@ -1,11 +1,39 @@
-import { Component, type ComponentClass, type ComponentType } from "../component.js";
+import {
+  Component,
+  type ComponentClass,
+  type ComponentInstance,
+  type ComponentMeta,
+  type ComponentType,
+  type HookEvent,
+} from "../component.js";
 import { ComponentDef, Trait } from "../component_def.js";
+import { Relationship, _slotHandlers } from "../component_meta.js";
 import { Entity, type EID, type EntityClass } from "../entity/index.js";
+import {
+  _defaultNormalize,
+  _defaultValidate,
+  _hasDefaultChecks,
+  type ValidationResult,
+} from "../reflection/defaults.js";
+import { _ownDecoratedMembers } from "../reflection/decorators.js";
+import { _attachVecsStruct } from "../reflection/component_members.js";
+import { _classChain, _declareMembers } from "../reflection/vecs_struct.js";
 import { type IdPool } from "../util/id_pool.js";
 import { Entities } from "./world.entities.js";
 import { type World } from "./world.js";
 
 const RESERVED_EID = 0;
+
+/** Hook events a class can implement as a static `vecs_<event>` method. */
+const STATIC_HOOK_EVENTS: readonly HookEvent[] = [
+  "add",
+  "set",
+  "remove",
+  "targetAdd",
+  "targetRemove",
+  "validate",
+  "normalize",
+];
 
 export class Components extends Entities {
   /**
@@ -19,6 +47,14 @@ export class Components extends Entities {
    * Every registered definition carries the local-only `ComponentDef` tag.
    * A newly registered definition inherits the current scope parent immediately.
    * Scopes must be entered outside deferred mode. Existing lookups do not reparent it.
+   *
+   * On first registration the class's member decorators ({@link type},
+   * {@link range}, …) are read into its {@link VecsStruct} definition, which
+   * is attached to the component entity when the class declares any member.
+   * Static `vecs_<event>` methods (`vecs_add`, `vecs_set`, `vecs_remove`,
+   * `vecs_targetAdd`, `vecs_targetRemove`, `vecs_validate`, `vecs_normalize`)
+   * are registered as hooks for `<event>`, ahead of hooks added with `.on(…)`.
+   * A class without decorators or statics registers exactly as before.
    *
    * Pass an explicit numeric `ceid` to pin the component to a server-assigned
    * stable id instead of auto-allocating one.
@@ -101,6 +137,78 @@ export class Components extends Entities {
     return this.component(Class).set(Class, props);
   }
 
+  /**
+   * Check `component` with its class's `validate` hooks.
+   *
+   * Hooks run in registration order and the first failure is returned. When
+   * the class has no explicit hook but declares ranges or integer member
+   * types, a default hook is created on first use: it checks each such member
+   * against its range and its type's bounds (for example `u8` is 0–255), that
+   * integers are whole, and that an `enum` with `values` holds one of them. It
+   * reads the live definition, inherited members included. A class with
+   * neither ranges nor integer types is valid.
+   *
+   * Nothing calls this on `set`; call it where your code accepts external data.
+   *
+   * @param component - An instance of a class registered in this world.
+   * @returns `true`, or the violations: one message or a list of them.
+   * @throws When `component.constructor` is not registered in this world.
+   */
+  public validate(this: World, component: ComponentInstance): ValidationResult {
+    const meta = this._reflectedMeta(component, "validate");
+    if (meta._onValidate === undefined) {
+      if (!_hasDefaultChecks(meta.Class)) {
+        return true;
+      }
+      meta._onValidate = _defaultValidate(meta.Class);
+      meta._validateIsDefault = true;
+    }
+    for (const hook of _slotHandlers(meta._onValidate)) {
+      const result = hook(component);
+      if (result !== true) {
+        return result;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Return whether {@link validate} accepts `component`.
+   *
+   * @throws When `component.constructor` is not registered in this world.
+   */
+  public isValid(this: World, component: ComponentInstance): boolean {
+    return this.validate(component) === true;
+  }
+
+  /**
+   * Modify `component` in place with its class's `normalize` hooks, so it
+   * becomes valid.
+   *
+   * Hooks run in registration order, each on the result of the previous one.
+   * When the class has no explicit hook but declares ranges or integer member
+   * types, a default hook is created on first use: it truncates integers and
+   * clamps each such member to its range and its type's bounds. Values of the
+   * wrong JavaScript type and `enum` values outside their `values` are left as
+   * they are; `NaN` becomes `0` first.
+   *
+   * @param component - An instance of a class registered in this world.
+   * @returns `component`, for chaining.
+   * @throws When `component.constructor` is not registered in this world.
+   */
+  public normalize<C extends ComponentInstance>(this: World, component: C): C {
+    const meta = this._reflectedMeta(component, "normalize");
+    if (meta._onNormalize === undefined) {
+      if (!_hasDefaultChecks(meta.Class)) {
+        return component;
+      }
+      meta._onNormalize = _defaultNormalize(meta.Class);
+      meta._normalizeIsDefault = true;
+    }
+    meta._onNormalize(component);
+    return component;
+  }
+
   /** Declare a group of mutually exclusive components. */
   public setExclusiveComponents(this: World, ...components: ComponentClass[]): void {
     const componentMetas = components.map((C) => this.entity(C).meta);
@@ -130,6 +238,12 @@ export class Components extends Entities {
         `Component class ${ComponentClass.name} is already registered with eid ${existingComponent.eid}`
       );
     }
+    // Validate declarations before allocating an id, so a throw leaves no
+    // half-registered class behind.
+    for (const Class of _classChain(ComponentClass)) {
+      _declareMembers(Class, _ownDecoratedMembers(Class));
+    }
+    const staticHooks = staticHooksOf(ComponentClass);
     if (ceid === undefined) {
       ceid = pool.alloc();
     } else {
@@ -141,12 +255,16 @@ export class Components extends Entities {
     const component = new Constructor(this, ceid, ComponentClass);
     this._entities.set(ceid, component);
     this._classRegistry.set(ComponentClass, component);
+    for (const [event, hook] of staticHooks) {
+      component.meta.on(event, hook as never);
+    }
     // Publish the class before resolving core metadata: recursive registrations
     // find themselves, so bootstrap needs neither special ids nor a second pass.
     // Both metadata definitions exist before any module can claim their scope.
     this.component(ComponentDef);
     this.component(Trait);
     component.add(ComponentDef);
+    _attachVecsStruct(component as unknown as Component);
     const parent = this._scope;
     if (parent !== undefined) {
       component.childOf(parent);
@@ -157,4 +275,37 @@ export class Components extends Entities {
     this._notifyEntityCreated(component as unknown as Entity);
     return component;
   }
+
+  /** Resolve the meta of a component instance's class for the reflection API. */
+  private _reflectedMeta(this: World, component: ComponentInstance, api: string): ComponentMeta {
+    const Class = (component as { constructor?: Function } | null)?.constructor;
+    const registered = Class === undefined ? undefined : this._classRegistry.get(Class);
+    if (registered === undefined) {
+      throw new Error(
+        `world.${api}: component class ${Class?.name || "<unknown>"} is not registered in this world`
+      );
+    }
+    return registered.meta;
+  }
+}
+
+/**
+ * Collect a class's static `vecs_<event>` methods, bound to the class.
+ *
+ * @throws When a class that is not a relationship declares a `target*` static.
+ */
+function staticHooksOf(Class: ComponentType): [HookEvent, Function][] {
+  const statics = Class as unknown as Record<string, unknown>;
+  const hooks: [HookEvent, Function][] = [];
+  for (const event of STATIC_HOOK_EVENTS) {
+    const hook = statics[`vecs_${event}`];
+    if (typeof hook !== "function") {
+      continue;
+    }
+    if (event.startsWith("target") && !(Class.prototype instanceof Relationship)) {
+      throw new Error(`"${event}" hooks can only be registered on a Relationship component`);
+    }
+    hooks.push([event, hook.bind(Class)]);
+  }
+  return hooks;
 }

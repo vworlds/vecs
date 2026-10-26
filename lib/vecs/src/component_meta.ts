@@ -1,6 +1,7 @@
 import { BitPtr } from "./util/bitset.js";
 import { DenseSet } from "./util/dense_set.js";
 import type { EID, Entity, EntityClass } from "./entity/index.js";
+import type { ValidationResult } from "./reflection/defaults.js";
 
 export enum CleanupPolicy {
   Throw = "throw",
@@ -111,6 +112,22 @@ export type HookHandler<C extends ComponentInstance = ComponentInstance> = (
   component: C
 ) => void;
 
+/**
+ * `validate` hook: return `true` when `component` is valid, otherwise the
+ * violations (a message or a list of them). Run by {@link World.validate}.
+ */
+export type ValidateHandler<C extends ComponentInstance = ComponentInstance> = (
+  component: C
+) => ValidationResult;
+
+/**
+ * `normalize` hook: modify `component` in place so it becomes valid. Run by
+ * {@link World.normalize}.
+ */
+export type NormalizeHandler<C extends ComponentInstance = ComponentInstance> = (
+  component: C
+) => void;
+
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
 
@@ -133,6 +150,10 @@ export interface HookEventMap {
   targetAdd: TargetHandler;
   /** Fired after a relationship edge is removed. Relationship metas only. */
   targetRemove: TargetHandler;
+  /** Checks a component; run by {@link World.validate}, never on `set`. */
+  validate: ValidateHandler;
+  /** Fixes a component in place; run by {@link World.normalize}, never on `set`. */
+  normalize: NormalizeHandler;
   /** @internal Framework policy applied when this component is attached. */
   policyAdd: HookHandler;
   /** @internal Framework policy applied when this component is removed. */
@@ -356,6 +377,14 @@ export class ComponentMeta {
   public _onTargetPolicyRemove: HookSlot<TargetHandler> = undefined;
   /** @internal Handlers fired when a component's data is set or modified. */
   public _onSet: HookSlot<HookHandler> = undefined;
+  /** @internal `validate` hooks, run in order by `World.validate`. */
+  public _onValidate: HookSlot<ValidateHandler> = undefined;
+  /** @internal `normalize` hooks, run in order by `World.normalize`. */
+  public _onNormalize: HookSlot<NormalizeHandler> = undefined;
+  /** @internal Whether `_onValidate` holds only the metadata-derived default. */
+  public _validateIsDefault = false;
+  /** @internal Whether `_onNormalize` holds only the metadata-derived default. */
+  public _normalizeIsDefault = false;
 
   /**
    * @internal Reverse index of entities currently carrying this component eid.
@@ -400,8 +429,13 @@ export class ComponentMeta {
    * events require this meta to be a relationship; registering one on a
    * non-relationship meta throws at registration time.
    *
+   * `validate` and `normalize` hooks run only through {@link World.validate},
+   * {@link World.isValid} and {@link World.normalize}, never on `set`. The first
+   * one registered replaces the default hook derived from member metadata.
+   *
    * @param event - One of `add`, `remove`, `set`, `targetAdd`, `targetRemove`,
-   *   `policyAdd`, `policyRemove`, `targetPolicyAdd`, `targetPolicyRemove`.
+   *   `validate`, `normalize`, `policyAdd`, `policyRemove`, `targetPolicyAdd`,
+   *   `targetPolicyRemove`.
    * @param handler - Handler whose signature is constrained by `event`.
    * @param insert - When `true`, prepend the handler; when `false` (default), append.
    * @returns This meta, for chaining.
@@ -424,6 +458,20 @@ export class ComponentMeta {
       case "targetRemove":
         this._requireRelationship(event);
         this._onTargetRemove = _installHook(this._onTargetRemove, handler as TargetHandler, insert);
+        break;
+      case "validate":
+        if (this._validateIsDefault) {
+          this._onValidate = undefined;
+          this._validateIsDefault = false;
+        }
+        this._onValidate = _installHook(this._onValidate, handler as ValidateHandler, insert);
+        break;
+      case "normalize":
+        if (this._normalizeIsDefault) {
+          this._onNormalize = undefined;
+          this._normalizeIsDefault = false;
+        }
+        this._onNormalize = _installHook(this._onNormalize, handler as NormalizeHandler, insert);
         break;
       case "policyAdd":
         this._onPolicyAdd = _installHook(this._onPolicyAdd, handler as HookHandler, insert);
@@ -481,6 +529,12 @@ export class ComponentMeta {
       case "targetRemove":
         this._requireRelationship(event);
         this._onTargetRemove = _removeHook(this._onTargetRemove, handler as TargetHandler);
+        break;
+      case "validate":
+        this._onValidate = _removeHook(this._onValidate, handler as ValidateHandler);
+        break;
+      case "normalize":
+        this._onNormalize = _removeHook(this._onNormalize, handler as NormalizeHandler);
         break;
       case "policyAdd":
         this._onPolicyAdd = _removeHook(this._onPolicyAdd, handler as HookHandler);

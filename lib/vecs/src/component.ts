@@ -6,8 +6,13 @@ import {
   type HookEvent,
   type HookEventMap,
   type HookHandler,
+  type NormalizeHandler,
   type TargetHandler,
+  type ValidateHandler,
 } from "./component_meta.js";
+import { _declareComponentMember } from "./reflection/component_members.js";
+import { type MemberType, type RangeBound } from "./reflection/member_types.js";
+import { type MemberDeclaration } from "./reflection/vecs_struct.js";
 import {
   type SnapshotCapture,
   type SnapshotMaterialize,
@@ -31,12 +36,15 @@ export {
   type HookEvent,
   type HookEventMap,
   type HookHandler,
+  type NormalizeHandler,
   type TargetHandler,
+  type ValidateHandler,
 } from "./component_meta.js";
 
 /**
  * A per-component event map that narrows `add` / `remove` / `set` handlers to
- * the instance type `T` produces, and narrows `targetAdd` / `targetRemove` /
+ * the instance type `T` produces, narrows `validate` / `normalize` handlers to
+ * that instance type, and narrows `targetAdd` / `targetRemove` /
  * `targetPolicyAdd` / `targetPolicyRemove` handlers to `T`'s relationship
  * instance type when `T` produces a relationship.
  */
@@ -46,6 +54,8 @@ type ComponentEventMap<T extends ComponentType> = {
   set: HookHandler<InstanceType<T>>;
   targetAdd: TargetHandler<InstanceType<T> & Relationship>;
   targetRemove: TargetHandler<InstanceType<T> & Relationship>;
+  validate: ValidateHandler<InstanceType<T>>;
+  normalize: NormalizeHandler<InstanceType<T>>;
   targetPolicyAdd: TargetHandler<InstanceType<T> & Relationship>;
   targetPolicyRemove: TargetHandler<InstanceType<T> & Relationship>;
   policyAdd: HookHandler;
@@ -65,6 +75,54 @@ export interface CustomSnapshotOptions<T extends ComponentInstance = ComponentIn
  */
 export class Component<T extends ComponentType = ComponentType> extends Entity {
   /**
+   * @internal The member most recently declared with {@link member} on this
+   * component entity, which the member modifiers apply to.
+   */
+  private _currentMember: string | undefined = undefined;
+
+  /**
+   * Declare the human-readable description of the member most recently
+   * declared with {@link member}.
+   *
+   * @throws When no member has been declared on this component yet.
+   */
+  public description(text: string): this {
+    return this._declareCurrent("description", { description: text });
+  }
+
+  /**
+   * Declare a member of this component class and its type, for reflection.
+   *
+   * Member modifiers apply to the member most recently declared here, as in
+   * Flecs: chain `.range(min, max)`, `.description(text)`, `.unit(text)` and
+   * `.values([...])` after this call, then `.member(...)` for the next member.
+   * The chain stays on this component entity, so it can continue with `.on(…)`
+   * or any other component method:
+   *
+   * ```ts
+   * world.component(Position)
+   *   .member("x", "i32").range(-100, 100).unit("m")
+   *   .member("y", "i32").range(-100, 100)
+   *   .on("set", (entity, position) => sync(entity, position));
+   * ```
+   *
+   * The declaration merges into the class's process-wide {@link VecsStruct}
+   * definition, which this component entity carries; repeating an identical
+   * declaration in another world is a no-op. Subclasses inherit the member, as
+   * they inherit decorator declarations.
+   *
+   * @param name - The member's property name.
+   * @param type - A scalar type name, a nested component class, or an array `[type]`.
+   * @returns This component entity, for chaining.
+   * @throws When the declaration contradicts the existing definition.
+   */
+  public member<K extends keyof InstanceType<T> & string>(name: K, type: MemberType): this {
+    _declareComponentMember(this, name, { type });
+    this._currentMember = name;
+    return this;
+  }
+
+  /**
    * Register a handler for a hook event, with the handler signature narrowed
    * to this component's instance type (for `add` / `remove` / `set`) or its
    * relationship instance type (for the `target*` events). See
@@ -81,6 +139,17 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
   /** Remove a previously-registered handler by reference. See {@link ComponentMeta.off}. */
   public override off<E extends HookEvent>(event: E, handler: ComponentEventMap<T>[E]): this {
     return super.off(event, handler as HookEventMap[E]);
+  }
+
+  /**
+   * Declare the inclusive `[min, max]` range of the numeric member most
+   * recently declared with {@link member}. Metadata only: nothing checks it on
+   * `set`.
+   *
+   * @throws When no member has been declared on this component yet.
+   */
+  public range(min: RangeBound, max: RangeBound): this {
+    return this._declareCurrent("range", { range: [min, max] });
   }
 
   /**
@@ -130,6 +199,34 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
     } else {
       _declareSnapshotPolicy(this, policy);
     }
+    return this;
+  }
+
+  /**
+   * Declare the unit of measure, for example `"m"`, of the member most recently
+   * declared with {@link member}.
+   *
+   * @throws When no member has been declared on this component yet.
+   */
+  public unit(text: string): this {
+    return this._declareCurrent("unit", { unit: text });
+  }
+
+  /**
+   * Declare the allowed values of the `enum` member most recently declared
+   * with {@link member}.
+   *
+   * @throws When no member has been declared on this component yet.
+   */
+  public values(allowed: readonly number[]): this {
+    return this._declareCurrent("values", { values: allowed });
+  }
+
+  private _declareCurrent(modifier: string, declaration: MemberDeclaration): this {
+    if (this._currentMember === undefined) {
+      throw new Error(`${modifier}() on ${this.meta.Class.name}: call .member(name, type) first`);
+    }
+    _declareComponentMember(this, this._currentMember, declaration);
     return this;
   }
 }

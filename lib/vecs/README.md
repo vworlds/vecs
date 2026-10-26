@@ -70,6 +70,9 @@ For synchronous world teardown and its allowed call sites, see
 For local schema reflection, query [`ComponentDef`](./docs/components.md#reflecting-on-component-definitions)
 to enumerate registered component and module entities, and combine it with `Trait` to enumerate
 explicitly declared policy components.
+To reflect on a component's members, declare their types with `@type` or `component.member(...)`
+and read [`VecsStruct`](./docs/reflection.md); `world.validate` and `world.normalize` check and fix
+instances on demand.
 
 System entity callbacks can inject [`Now` and `Delta`](./docs/systems.md#clock-injection) alongside
 components to read the processing tick's timestamp and the system's accumulated tick delta.
@@ -93,7 +96,7 @@ The full documentation lives in [`docs/`](./docs/README.md). Recommended reading
 4. Subsystem guides: [Components and traits](./docs/components.md) · [Entities](./docs/entities.md) ·
    [Systems](./docs/systems.md) · [Queries and filters](./docs/queries-and-filters.md) ·
    [Relationships, edges, targets, and ownership](./docs/relationships.md) · [Modules](./docs/modules.md) ·
-   [Subtree snapshots](./docs/snapshots.md)
+   [Subtree snapshots](./docs/snapshots.md) · [Component reflection](./docs/reflection.md)
 5. [Design guide](./docs/design-guide.md) — patterns and anti-patterns from real designs.
 
 Use [ECS design diagrams](./docs/diagrams.md) for Mermaid schema, instance, and systems views in
