@@ -154,6 +154,12 @@ world
 | `set`    | `entity.set(C, props)` applies ordinary data, `entity.attach(instance)` stores an instance, `entity.modified(C)` is called, or `getMut` / `ensure` marks it dirty. |
 | `remove` | The component is detached (`entity.remove(C)`), or the owning entity is destroyed.                                                                                 |
 
+Two more events, `validate` and `normalize`, check or fix a component instance. They run only
+through `world.validate` and `world.normalize`, never on a mutation; see
+[Component reflection](./reflection.md#validating-and-normalizing). A class can also declare any hook
+as a static `vecs_<event>` method, which runs ahead of hooks added with `on`; see
+[`vecs_` statics](./reflection.md#vecs_-statics).
+
 Relationship component entities additionally expose the `targetAdd` and `targetRemove` events. Both
 receive `(source, relationshipInstance, target)` after the edge and reverse index reach their new
 state. An exclusive replacement fires `targetRemove` for the old edge before `targetAdd` for
@@ -450,17 +456,20 @@ interface markers for polymorphic dispatch — is in the
 | `get(Class)`                         | Singleton read: `component(Class).get(Class)`.                                                     |
 | `set(Class, props)`                  | Singleton write: `component(Class).set(Class, props)`.                                             |
 | `setExclusiveComponents(...classes)` | Declare one mutually exclusive group.                                                              |
+| `validate(c)` / `isValid(c)`         | Run the class's `validate` hooks; see [Component reflection](./reflection.md).                     |
+| `normalize(c)`                       | Run the class's `normalize` hooks, modifying `c` in place.                                         |
 
 ### `Component` entity (`lib/vecs/src/component.ts`)
 
 A `Component<T>` is an `Entity` subclass, so the full [entity API](./entities.md#reference)
 applies. On top of it:
 
-| Member                        | Description                                                                                                                                                                                                                                                                                                      |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `on(event, handler, insert?)` | Register a handler for `add` / `remove` / `set` / `targetAdd` / `targetRemove` (plus the internal `policyAdd` / `policyRemove` / `targetPolicyAdd` / `targetPolicyRemove` events). `insert` defaults to `false` (append); `true` prepends. Rejects `target*` events on non-relationships. Returns the component. |
-| `off(event, handler)`         | Remove a previously-registered handler by reference. Idempotent. Returns the component.                                                                                                                                                                                                                          |
-| `meta`                        | The `ComponentMeta` bookkeeping record.                                                                                                                                                                                                                                                                          |
+| Member                        | Description                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `member(name, type)`          | Declare a member for [reflection](./reflection.md); chain `.range` / `.description` / `.unit` / `.values`.                                                                                                                                                                                                                                  |
+| `on(event, handler, insert?)` | Register a handler for `add` / `remove` / `set` / `targetAdd` / `targetRemove` / `validate` / `normalize` (plus the internal `policyAdd` / `policyRemove` / `targetPolicyAdd` / `targetPolicyRemove` events). `insert` defaults to `false` (append); `true` prepends. Rejects `target*` events on non-relationships. Returns the component. |
+| `off(event, handler)`         | Remove a previously-registered handler by reference. Idempotent. Returns the component.                                                                                                                                                                                                                                                     |
+| `meta`                        | The `ComponentMeta` bookkeeping record.                                                                                                                                                                                                                                                                                                     |
 
 ### `ComponentMeta` (`lib/vecs/src/component_meta.ts`)
 

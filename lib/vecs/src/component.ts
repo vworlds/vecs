@@ -6,8 +6,12 @@ import {
   type HookEvent,
   type HookEventMap,
   type HookHandler,
+  type NormalizeHandler,
   type TargetHandler,
+  type ValidateHandler,
 } from "./component_meta.js";
+import { ComponentMember, _declareComponentMember } from "./reflection/member_builder.js";
+import { type MemberType } from "./reflection/member_types.js";
 import {
   type SnapshotCapture,
   type SnapshotMaterialize,
@@ -31,12 +35,15 @@ export {
   type HookEvent,
   type HookEventMap,
   type HookHandler,
+  type NormalizeHandler,
   type TargetHandler,
+  type ValidateHandler,
 } from "./component_meta.js";
 
 /**
  * A per-component event map that narrows `add` / `remove` / `set` handlers to
- * the instance type `T` produces, and narrows `targetAdd` / `targetRemove` /
+ * the instance type `T` produces, narrows `validate` / `normalize` handlers to
+ * that instance type, and narrows `targetAdd` / `targetRemove` /
  * `targetPolicyAdd` / `targetPolicyRemove` handlers to `T`'s relationship
  * instance type when `T` produces a relationship.
  */
@@ -46,6 +53,8 @@ type ComponentEventMap<T extends ComponentType> = {
   set: HookHandler<InstanceType<T>>;
   targetAdd: TargetHandler<InstanceType<T> & Relationship>;
   targetRemove: TargetHandler<InstanceType<T> & Relationship>;
+  validate: ValidateHandler<InstanceType<T>>;
+  normalize: NormalizeHandler<InstanceType<T>>;
   targetPolicyAdd: TargetHandler<InstanceType<T> & Relationship>;
   targetPolicyRemove: TargetHandler<InstanceType<T> & Relationship>;
   policyAdd: HookHandler;
@@ -64,6 +73,28 @@ export interface CustomSnapshotOptions<T extends ComponentInstance = ComponentIn
  * A component entity created by {@link World.component}.
  */
 export class Component<T extends ComponentType = ComponentType> extends Entity {
+  /**
+   * Declare a member of this component class and its type, for reflection.
+   *
+   * Chain `.range(min, max)`, `.description(text)`, `.unit(text)` and
+   * `.values([...])` onto the result, then `.member(...)` for the next member.
+   * The declaration merges into the class's process-wide {@link VecsStruct}
+   * definition, which this component entity carries; repeating an identical
+   * declaration in another world is a no-op.
+   *
+   * @param name - The member's property name.
+   * @param type - A scalar type name, a nested component class, or an array `[type]`.
+   * @returns A builder for this member's metadata.
+   * @throws When the declaration contradicts the existing definition.
+   */
+  public member<K extends keyof InstanceType<T> & string>(
+    name: K,
+    type: MemberType
+  ): ComponentMember<T> {
+    _declareComponentMember(this, name, { type });
+    return new ComponentMember(this, name);
+  }
+
   /**
    * Register a handler for a hook event, with the handler signature narrowed
    * to this component's instance type (for `add` / `remove` / `set`) or its

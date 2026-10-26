@@ -6,6 +6,7 @@
     "tests/diagnostic-json.test.ts",
     "tests/clock-inject.test.ts",
     "tests/world-scope.test.ts",
-    "tests/system-introspection.test.ts"
+    "tests/system-introspection.test.ts",
+    "tests/reflection"
   ]
 }

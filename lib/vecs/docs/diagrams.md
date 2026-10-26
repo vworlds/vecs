@@ -43,6 +43,19 @@ Quote edge labels containing emoji. Only `ChildOf` uses a dotted relationship ed
 (`child -. "1️⃣ChildOf" .-> parent`); every other relationship uses a solid edge
 (`ship -- "1️⃣TowedBy" --> tug`). Do not use dotted edges for other parent-like relationships.
 
+### Member types
+
+When a design depends on what a component holds, list its members under the component in a
+schema box, one indented line each. Use the [reflection member type](./reflection.md#member-types-libvecssrcreflectionmember_typests)
+names and add a range or unit only when it matters to the design:
+
+```mermaid
+flowchart BT
+  ship["<b>Ship</b><br/>📦 Position<br/>&nbsp;&nbsp;x: i32 [-100, 100] m<br/>&nbsp;&nbsp;y: i32 [-100, 100] m<br/>📦 Cargo<br/>&nbsp;&nbsp;items: [u16]<br/>🏷️ Networked"]
+```
+
+Leave members out where the component's name says enough. Tags have no members.
+
 ## Schema template
 
 Use a box for each entity kind: a **bold** name, then one line per component. Relationships live
