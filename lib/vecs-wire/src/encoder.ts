@@ -267,9 +267,9 @@ export class Encoder {
     const encodable = value as IEncodable;
     if (typeof encodable.wireEncode !== "function") {
       compileWireType(value.constructor as WireConstructor);
-    }
-    if (typeof encodable.wireEncode !== "function") {
-      throw new TypeError("vecs-wire/encoder write requires a wireEncode method");
+      if (typeof encodable.wireEncode !== "function") {
+        throw new TypeError("vecs-wire/encoder write requires a wireEncode method");
+      }
     }
     encodable.wireEncode(this);
   }
