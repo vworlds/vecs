@@ -64,10 +64,31 @@ export POLL_INTERVAL_SEC=1 PUBLISH_MAX_WAIT_SEC=5 REGISTRY_MAX_WAIT_SEC=4
 
 run_case() {
   export SCENARIO="$1"
-  rm -f "$TMP/gh-count" "$TMP/alpha-count" "$TMP/beta-count" "$TMP/npm-calls"
+  rm -f "$TMP/gh-count" "$TMP/alpha-count" "$TMP/beta-count" "$TMP/vecs-wire-count" "$TMP/npm-calls"
   local code=0
   (
     set -e
+    # Removing Bash's special SECONDS variable makes it an ordinary fake clock.
+    # Only polling pauses advance it, so process scheduling cannot consume a
+    # deadline halfway through a poll. Only intentional stalls use real timeout;
+    # ordinary fixture lookups must not race a wall-clock subprocess deadline.
+    # External gh/npm stubs still use real sleep for termination coverage.
+    unset SECONDS
+    SECONDS=0
+    sleep() { SECONDS=$((SECONDS + $1)); }
+    timeout() {
+      [[ "$1" =~ ^[1-9][0-9]*s$ ]] || return 1
+      local duration="$1"
+      shift
+      case "$SCENARIO:$1:${3:-}" in
+        gh-stall:gh:* | npm-stall:npm:@vworlds/beta) command timeout "$duration" "$@" ;;
+        *:gh:* | *:npm:*) "$@" ;;
+        *)
+          echo "Unexpected timeout command: $*" >&2
+          return 1
+          ;;
+      esac
+    }
     wait_release_publish pushed-sha 1.2.3 "$TMP/repo"
   ) > "$TMP/output" 2>&1 || code=$?
   if [ "$code" -ne "$2" ]; then
@@ -76,7 +97,13 @@ run_case() {
     exit 1
   fi
 }
-assert_output() { grep -Fq -- "$1" "$TMP/output"; }
+assert_output() {
+  if ! grep -Fq -- "$1" "$TMP/output"; then
+    cat "$TMP/output"
+    echo "FAIL: $SCENARIO missing output: $1" >&2
+    exit 1
+  fi
+}
 
 run_case lag 0
 assert_output 'npm: 3/3 packages at 1.2.3'
@@ -100,28 +127,36 @@ echo 'PASS: failed publish run stops before registry'
 PUBLISH_MAX_WAIT_SEC=1 run_case publish-timeout 1
 assert_output 'Publish run timeout'
 assert_output 'https://example.test/run/42'
+test "$(cat "$TMP/gh-count")" -eq 1
 test ! -e "$TMP/npm-calls"
 echo 'PASS: publish deadline'
 
 REGISTRY_MAX_WAIT_SEC=1 run_case registry-timeout 1
 assert_output 'Registry timeout: still behind 1.2.3: @vworlds/beta.'
 assert_output 'nothing needs repairing in git'
+test "$(cat "$TMP/alpha-count")" -eq 1
+test "$(cat "$TMP/beta-count")" -eq 1
+test "$(cat "$TMP/vecs-wire-count")" -eq 1
 echo 'PASS: registry timeout identifies only the lagging package'
 
 REGISTRY_MAX_WAIT_SEC=1 run_case npm-error 1
 assert_output 'Registry timeout: still behind 1.2.3: @vworlds/beta.'
+test "$(cat "$TMP/beta-count")" -eq 1
 echo 'PASS: npm errors remain pending until deadline'
 
 started=$SECONDS
 PUBLISH_MAX_WAIT_SEC=1 run_case gh-stall 1
 test "$((SECONDS - started))" -lt 10
 assert_output 'Publish run timeout'
+test "$(cat "$TMP/gh-count")" -eq 1
+test ! -e "$TMP/npm-calls"
 echo 'PASS: stalled gh request is bounded'
 
 started=$SECONDS
 REGISTRY_MAX_WAIT_SEC=1 run_case npm-stall 1
 test "$((SECONDS - started))" -lt 10
 assert_output 'Registry timeout: still behind 1.2.3: @vworlds/beta'
+diff -u <(printf '@vworlds/alpha\n@vworlds/beta\n@vworlds/vecs-wire\n') "$TMP/npm-calls"
 echo 'PASS: stalled npm request is bounded'
 
 run_case success 0
