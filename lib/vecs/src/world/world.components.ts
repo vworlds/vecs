@@ -16,7 +16,7 @@ import {
   type ValidationResult,
 } from "../reflection/defaults.js";
 import { _ownDecoratedMembers } from "../reflection/decorators.js";
-import { _attachVecsStruct } from "../reflection/member_builder.js";
+import { _attachVecsStruct } from "../reflection/component_members.js";
 import { _classChain, _declareMembers } from "../reflection/vecs_struct.js";
 import { type IdPool } from "../util/id_pool.js";
 import { Entities } from "./world.entities.js";

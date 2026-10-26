@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
+  Component,
   ComponentDef,
   description,
   range,
@@ -113,6 +114,62 @@ describe("VecsStruct", () => {
       expect(struct?.members).toEqual(POSITION_STRUCT);
       expect(Object.keys(struct!.members)).toEqual(["x", "y"]);
     }
+  });
+
+  it("returns the component from member() and applies modifiers to the last member", () => {
+    class Three {
+      public a = 0;
+      public b = 0;
+      public c = 0;
+    }
+    const world = new World();
+    const onSet = vi.fn();
+    const chained = world
+      .component(Three)
+      .member("a", "u8")
+      .range(0, 9)
+      .member("b", "f32")
+      .unit("m")
+      .description("Bee")
+      .member("c", "enum")
+      .values([1, 2])
+      .on("set", onSet);
+
+    expect(chained).toBeInstanceOf(Component);
+    expect(chained).toBe(world.component(Three));
+    expect(world.component(Three).member("a", "u8")).toBe(world.component(Three));
+    expect(chained.get(VecsStruct)!.members).toEqual({
+      a: { type: "u8", range: [0, 9] },
+      b: { type: "f32", unit: "m", description: "Bee" },
+      c: { type: "enum", values: [1, 2] },
+    });
+    const entity = world.entity().set(Three, { a: 1 });
+    expect(onSet).toHaveBeenCalledWith(entity, entity.get(Three));
+  });
+
+  it("throws for a modifier before any member() on that component", () => {
+    class Bare {
+      public v = 0;
+    }
+    class Other {
+      public v = 0;
+    }
+    const world = new World();
+    world.component(Other).member("v", "u8");
+    const bare = world.component(Bare);
+
+    for (const modifier of [
+      () => bare.range(0, 1),
+      () => bare.description("d"),
+      () => bare.unit("m"),
+      () => bare.values([1]),
+    ]) {
+      expect(modifier).toThrow("on Bare: call .member(name, type) first");
+    }
+    expect(() => new World().component(Other).range(0, 1)).toThrow(
+      "range() on Other: call .member(name, type) first"
+    );
+    expect(bare.has(VecsStruct)).toBe(false);
   });
 
   it("lists base class members first, then declaration order", () => {

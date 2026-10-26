@@ -51,7 +51,6 @@ export {
   type ValidateHandler,
 } from "./component.js";
 export { VecsStruct } from "./reflection/vecs_struct.js";
-export { ComponentMember } from "./reflection/member_builder.js";
 export {
   description,
   range,

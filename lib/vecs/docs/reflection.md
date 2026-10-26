@@ -50,6 +50,27 @@ world
   .unit("m/s");
 ```
 
+The fluent form follows Flecs: `.member(name, type)` returns the `Component` itself, and each
+modifier (`.range`, `.description`, `.unit`, `.values`) applies to the member most recently
+declared with `.member` on that component entity, in that world. Because the chain stays on the
+`Component`, it can carry on with `.on(…)` or any other component method:
+
+```ts
+class Score {
+  value = 0;
+}
+
+const score = world
+  .component(Score)
+  .member("value", "u32")
+  .description("Points scored")
+  .on("set", (entity, s) => console.log(entity.eid, s.value));
+score === world.component(Score); // true
+```
+
+A modifier called before any `.member` on that component throws, telling you to call
+`.member(name, type)` first.
+
 You can also mix the forms. A fluent call that repeats a decorated member with the same type adds
 the fields it is missing:
 
@@ -214,8 +235,8 @@ The names match the `@wireType` vocabulary of `@vworlds/vecs-wire`.
 | `@unit(text)`        | `.unit(text)`                        | `unit`        |
 | `@values([...])`     | `.values([...])`                     | `values`      |
 
-Each fluent call returns the member builder, and `.member(…)` on it starts the next member. A
-`range` needs a numeric type and is inclusive. For `u64` and `i64` it is stored as `bigint`.
+Each fluent call returns the `Component`, and each modifier applies to the member last declared
+with `.member` on it. A `range` needs a numeric type and is inclusive. For `u64` and `i64` it is stored as `bigint`.
 `values` needs an `enum` type.
 
 ### `World` reflection methods (`lib/vecs/src/world/world.components.ts`)
