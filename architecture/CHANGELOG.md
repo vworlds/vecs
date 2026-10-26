@@ -3,6 +3,12 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## v1.0.62 (2026-10-26)
+
+- [vecs] Added: Component reflection: member types, `VecsStruct` definitions declared with `@type` / `@range` / `@description` / `@unit` / `@values` or `component.member(...)`, `validate` / `normalize` hooks with metadata-derived defaults, `world.validate` / `isValid` / `normalize`, and static `vecs_<event>` hooks (#416).
+- [vecs] Docs: Add the component reflection guide and member types in ECS design diagrams (#416).
+- [vecs-client] Tests: Port SpaceRocks history-folded zero-target rejection, old relationship-frame duplicate, and retargeted re-entry cases (#411).
+
 ## v1.0.61 (2026-10-26)
 
 - [tooling] Tests: Make release publish polling deadlines deterministic without removing real stalled-command timeout coverage (#410).
