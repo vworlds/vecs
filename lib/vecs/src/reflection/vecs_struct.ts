@@ -1,3 +1,4 @@
+import { _ownDecoratedMembers } from "./decorators.js";
 import {
   assertMemberType,
   elementType,
@@ -31,6 +32,20 @@ import {
 export class VecsStruct {
   /** Member metadata keyed by member name. */
   public readonly members: Readonly<Record<string, VecsMember>> = {};
+
+  /**
+   * Read a class's process-wide, frozen definition without a world or instance.
+   * Reads decorator and fluent declarations, composing base classes first.
+   * Returns the same instance every world attaches, or `undefined` when neither
+   * the class nor its bases declares members. Later declarations remain visible
+   * through its `members` view.
+   */
+  public static of(Class: Function): VecsStruct | undefined {
+    for (const C of _classChain(Class)) {
+      _declareMembers(C, _ownDecoratedMembers(C));
+    }
+    return _structInstance(Class);
+  }
 }
 
 /** A member declaration whose fields may still be incomplete. */

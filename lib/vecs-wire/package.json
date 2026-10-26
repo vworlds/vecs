@@ -11,6 +11,9 @@
     "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --no-error-on-unmatched-pattern",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@vworlds/vecs": "1.0.62"
+  },
   "license": "UNLICENSED",
   "repository": {
     "type": "git",

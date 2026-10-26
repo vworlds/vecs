@@ -1,5 +1,6 @@
-import { Decoder } from "./decoder.js";
-import { Encoder, type IEncodable } from "./encoder.js";
+import { VecsStruct } from "@vworlds/vecs";
+import type { Decoder } from "./decoder.js";
+import type { Encoder, IEncodable } from "./encoder.js";
 
 export type WireScalarType =
   | "bool"
@@ -67,7 +68,8 @@ const compiledConstructors = new WeakSet<Function>();
 
 /**
  * Read a detached, frozen snapshot of registered wire fields, base classes first.
- * Non-wire classes return an empty array. Standard decorators register when an
+ * Reflection-only and non-wire classes return an empty array; use `VecsStruct.of(C)`
+ * for reflection members. Standard decorators register when an
  * instance is constructed; construct one before reading their metadata.
  */
 export function wireFields(
@@ -83,6 +85,11 @@ export function wireFields(
   );
 }
 
+/**
+ * Declare an encoded field. Any wire fields in the class chain take precedence
+ * over all reflection members. Without wire fields or an explicit tag, the codec
+ * snapshots `VecsStruct.of(C)` at first encode/decode; declare members before use.
+ */
 export function wireType(spec: WireTypeSpec): PropertyDecorator {
   assertValidSpec(spec);
 
@@ -166,14 +173,21 @@ function installTrampolines(C: DecoratedConstructor): void {
   }
 }
 
-function compileWireType(C: DecoratedConstructor): void {
+/** @internal Compile a registered wire layout or reflection fallback, if present. */
+export function compileWireType(Class: WireConstructor): void {
+  const C = Class as DecoratedConstructor;
   if (compiledConstructors.has(C)) {
     return;
   }
 
-  const fields = getWireFields(C);
-  if (fields.length === 0 && !hasRegisteredWireType(C)) {
-    throw new Error(`vecs-wire/wireType ${C.name || "anonymous class"} is not a wire type`);
+  let fields = getWireFields(C);
+  const reflected = fields.length === 0 && !hasRegisteredWireType(C);
+  if (reflected) {
+    const struct = VecsStruct.of(C);
+    if (struct === undefined) {
+      return;
+    }
+    fields = Object.entries(struct.members).map(([key, member]) => ({ key, spec: member.type }));
   }
 
   const nestedTypes: WireConstructor[] = [];
@@ -188,17 +202,27 @@ function compileWireType(C: DecoratedConstructor): void {
 
   const encodeFactory = new Function(
     "C",
+    "compile",
     ...nestedTypes.map((_, index) => `T${index}`),
-    `return function wireEncode(encoder) {\n${encodeLines.join("\n")}\n};`
+    `return function wireEncode(encoder) {
+      ${reflected ? "if (this.constructor !== C) { compile(this.constructor); return this.wireEncode(encoder); }" : ""}
+      ${encodeLines.join("\n")}
+    };`
   ) as (...args: unknown[]) => (encoder: Encoder) => void;
 
   const decodeFactory = new Function(
     "C",
+    "compile",
     ...nestedTypes.map((_, index) => `T${index}`),
-    `return function wireDecode(decoder) {\n${decodeLines.join("\n")}\n};`
+    `return function wireDecode(decoder) {
+      ${reflected ? "if (this !== C) { compile(this); return this.wireDecode(decoder); }" : ""}
+      ${decodeLines.join("\n")}
+    };`
   ) as (...args: unknown[]) => (decoder: Decoder) => unknown;
 
-  const args = [C, ...nestedTypes];
+  const args = [C, compileWireType, ...nestedTypes];
+  // Reflection-only subclasses have no decorator-installed trampolines. The
+  // generated guards compile their own snapshot instead of reusing a base codec.
   C.prototype.wireEncode = encodeFactory(...args);
   C.wireDecode = decodeFactory(...args);
   compiledConstructors.add(C);

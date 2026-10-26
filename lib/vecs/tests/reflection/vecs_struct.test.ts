@@ -64,6 +64,39 @@ const POSITION_STRUCT = {
 };
 
 describe("VecsStruct", () => {
+  it("reads inherited decorators without a world or constructing an instance", () => {
+    class Base {
+      @type("u8") public first = 0;
+      constructor() {
+        throw new Error("must not construct");
+      }
+    }
+    class Derived extends Base {
+      @type("string") public last = "";
+    }
+    const struct = VecsStruct.of(Derived)!;
+    expect(struct.members).toEqual({ first: { type: "u8" }, last: { type: "string" } });
+    expect(Object.keys(struct.members)).toEqual(["first", "last"]);
+    expect(VecsStruct.of(Derived)).toBe(struct);
+    expect(Object.isFrozen(struct)).toBe(true);
+    expect(Object.isFrozen(struct.members)).toBe(true);
+  });
+
+  it("returns the same live frozen instance worlds attach, or undefined for no members", () => {
+    class Plain {
+      public value = 0;
+    }
+    class Inherited extends Plain {}
+    expect(VecsStruct.of(Plain)).toBeUndefined();
+    expect(VecsStruct.of(Inherited)).toBeUndefined();
+    const world = new World();
+    world.component(Plain).member("value", "u8");
+    const struct = VecsStruct.of(Inherited)!;
+    expect(struct.members).toEqual({ value: { type: "u8" } });
+    expect(world.component(Inherited).get(VecsStruct)).toBe(struct);
+    expect(new World().component(Inherited).get(VecsStruct)).toBe(struct);
+  });
+
   it("builds the same definition from fluent, decorator, standard and mixed declarations", () => {
     class Fluent {
       public x = 0;
@@ -109,7 +142,9 @@ describe("VecsStruct", () => {
       .range(-100, 100);
 
     for (const Class of [Fluent, Decorated, Standard, Mixed]) {
+      const worldFree = VecsStruct.of(Class);
       const struct = world.component(Class).get(VecsStruct);
+      expect(worldFree).toBe(struct);
       expect(struct).toBeInstanceOf(VecsStruct);
       expect(struct?.members).toEqual(POSITION_STRUCT);
       expect(Object.keys(struct!.members)).toEqual(["x", "y"]);

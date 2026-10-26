@@ -171,6 +171,45 @@ public trail: Position[] = [];
 
 Decorated classes are best for compact fixed-layout payloads. They do not write field names or optional field tags, so changing the decorated field list changes the wire format.
 
+## Reflection Fallback
+
+You can encode a class using core [member reflection](../vecs/docs/reflection.md) instead of
+declaring a separate wire layout:
+
+```ts
+import { type } from "@vworlds/vecs";
+import { Decoder, Encoder } from "@vworlds/vecs-wire";
+
+class Position {
+  @type("f32") public x = 0;
+  @type("f32") public y = 0;
+}
+
+const encoder = new Encoder(new Uint8Array(128));
+encoder.write(Object.assign(new Position(), { x: 1, y: 2 }));
+const position = new Decoder(encoder.getBuffer()).read(Position);
+```
+
+The choice is **per class chain**, not per field:
+
+| Definition in the class chain       | Encoded fields                                                            |
+| ----------------------------------- | ------------------------------------------------------------------------- |
+| Any `@wireType` fields              | Exactly those fields; all reflection is ignored.                          |
+| Explicit `tag`, without wire fields | No fields (presence-only), as before.                                     |
+| Reflection only                     | `VecsStruct.of(C).members`, base class first, using each member's `type`. |
+| Neither                             | Not wire-encodable.                                                       |
+
+The fallback accepts both decorators and the fluent `world.component(C).member(...)` API.
+It uses the same scalar, nested-class and array encoding paths as `@wireType`. An `entity`
+member writes its value's `.eid` and decodes to a raw number (also for arrays of entities).
+Ranges, `unit`, `description` and enum `values` do not affect the wire or validate the payload.
+Custom `wireEncode` / `wireDecode` implementations still take precedence.
+
+**Declare reflection members before the class's first network use.** The codec reads
+`VecsStruct.of(C)` when compiling on the first encode or decode. Later member declarations
+are not encoded, even though reflection itself stays live. Keep both peers' layouts identical.
+Existing `@wireType` declarations need no rename or migration and retain their bytes.
+
 ## Presence-Only Tags
 
 Some components carry no data — their mere presence on an entity is the entire payload. Use the `tag` decorator to register a class as a zero-byte wire type. It encodes to nothing and decodes to a fresh `new C()`.

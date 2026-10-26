@@ -71,7 +71,8 @@ For local schema reflection, query [`ComponentDef`](./docs/components.md#reflect
 to enumerate registered component and module entities, and combine it with `Trait` to enumerate
 explicitly declared policy components.
 To reflect on a component's members, declare their types with `@type` or `component.member(...)`
-and read [`VecsStruct`](./docs/reflection.md); `world.validate` and `world.normalize` check and fix
+and read [`VecsStruct`](./docs/reflection.md) through a world or `VecsStruct.of(C)` without one;
+`world.validate` and `world.normalize` check and fix
 instances on demand.
 
 System entity callbacks can inject [`Now` and `Delta`](./docs/systems.md#clock-injection) alongside

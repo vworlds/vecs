@@ -1,4 +1,5 @@
 import { AnyType, TagSize } from "./any.js";
+import { compileWireType } from "./decorators.js";
 
 const textDecoder = new TextDecoder();
 
@@ -210,10 +211,14 @@ export class Decoder {
     }
   }
 
+  /** Read a custom wire value or compile its reflection layout on first use. */
   read<T>(C: DecodableType<T>): T {
     let decodable = C as IDecodable<T>;
     if (typeof decodable.wireDecode !== "function") {
       probeStandardDecoratedType(C);
+      if (isConstructor(C)) {
+        compileWireType(C);
+      }
       decodable = C as IDecodable<T>;
     }
 
