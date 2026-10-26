@@ -96,6 +96,9 @@ The full documentation lives in [`docs/`](./docs/README.md). Recommended reading
    [Subtree snapshots](./docs/snapshots.md)
 5. [Design guide](./docs/design-guide.md) — patterns and anti-patterns from real designs.
 
+Use [ECS design diagrams](./docs/diagrams.md) for Mermaid schema, instance, and systems views in
+docs, issues, and PR discussions.
+
 Plus the [Utilities](./docs/utilities.md) guide for helper classes and the
 [Glossary](./docs/glossary.md) for terminology. The exhaustive per-symbol reference is the JSDoc on
 the source under [`src/`](./src/) — read it in your IDE.
