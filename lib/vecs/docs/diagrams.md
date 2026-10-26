@@ -107,8 +107,11 @@ Use `flowchart TB` to follow execution down the page:
   `.each(…)`, `.run()`, or `.enter(…)` / `.update(…)` / `.exit(…)` as appropriate. Include cadence
   or disabled state in the label when relevant. These labels summarize callbacks and query
   membership; see [Systems](./systems.md) for API signatures.
+  When the callback's arguments show the query, show it only once; add a separate `query:`
+  line only when the callback and query differ.
 - Draw components as parallelograms `[/…/]`, with **one node per component** across the entire
-  diagram, even when several systems use it.
+  diagram, even when several systems use it. Place each component node in the phase of its first
+  writer in the diagram, or, if nothing in the diagram writes it, in the phase of its first reader.
 - Draw a read as a thin arrow (`-->`) entering the system's top, and a write as a thick arrow
   (`==>`) leaving its bottom, where the layout allows.
 - If a read only sees the previous frame's write, draw a dotted arrow labelled `next frame`
@@ -124,12 +127,12 @@ declare component ownership or lifetime.
 ```mermaid
 flowchart TB
   subgraph ON_UPDATE
-    move{{"move<br/><small>.each(Position, Velocity)<br/>query: Position + Velocity</small>"}}
+    move{{"move<br/><small>.each(Position, Velocity)</small>"}}
     Position[/"📦 Position"/]
-    Winch[/"📦 Winch"/]
   end
   subgraph POST_UPDATE
     tow{{"tow<br/><small>.update(TowedBy)<br/>query: TowedBy + Position + Winch</small>"}}
+    Winch[/"📦 Winch"/]
     Velocity[/"📦 Velocity"/]
   end
   move ==> Position

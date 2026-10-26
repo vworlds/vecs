@@ -79,7 +79,8 @@ Use the [ECS diagram notation](./diagrams.md) to distinguish a schema from a con
 This schema shows carrier-to-target edges for the three built-ins and two custom examples:
 `InCell` is configured as `Exclusive` (see [Exclusive one-target relationships](#exclusive-one-target-relationships));
 `VisibleTo` allows many targets. Each box names an entity kind, not a particular entity.
-The pipeline branch shows a system attached to a phase, not a `ChildOf` hierarchy.
+The pipeline branch shows a system attached to a phase and phases chained to other phases,
+not a `ChildOf` hierarchy. The self-edge connects instances of the phase kind, not a phase to itself.
 
 ```mermaid
 flowchart BT
@@ -96,6 +97,7 @@ flowchart BT
   unit -- "♾️VisibleTo" --> viewer
   query -- "1️⃣SilenceSource" --> silence
   system -- "1️⃣DependsOn" --> phase
+  phase -- "1️⃣DependsOn" --> phase
 ```
 
 At frame N, a squad and two units form a small `ChildOf` hierarchy under sector-3. Unit #1100
