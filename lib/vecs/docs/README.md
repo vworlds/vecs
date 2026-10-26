@@ -35,6 +35,8 @@ Read in this order the first time through:
 6. [Utilities](./utilities.md) — helper classes exported by `@vworlds/vecs` but not part of the ECS
    lifecycle model.
 
+Use [ECS design diagrams](./diagrams.md) when illustrating a design in docs, issues, or PR discussions.
+
 Keep the [Glossary](./glossary.md) at hand for terminology.
 
 For reference comparisons, safe diagnostics and Vitest setup, see [Testing entity and world identity](./testing.md).
@@ -59,6 +61,7 @@ after reading the execution-model and systems guides.
 | [modules.md](./modules.md)                         | `Module<Config>`, `world.module`, `world.scope`, hierarchy provenance, built-in modules.                                |
 | [snapshots.md](./snapshots.md)                     | `snapshotSubtree`, `restoreSubtree`, `moveSubtree`, and `OnSnapshot` capture policies.                                  |
 | [design-guide.md](./design-guide.md)               | Patterns, anti-patterns, and a Phaser render-layer case study.                                                          |
+| [diagrams.md](./diagrams.md)                       | Mermaid notation and copyable schema, instance, and systems templates for ECS designs.                                  |
 | [utilities.md](./utilities.md)                     | Public helper classes: `Events`, `ArrayMap`, `IterableArrayMap`, plus `Bitset` cross-ref.                               |
 | [glossary.md](./glossary.md)                       | ECS and vecs terminology.                                                                                               |
 | [testing.md](./testing.md)                         | Reference equality registration and safe JSON/assertion summaries.                                                      |

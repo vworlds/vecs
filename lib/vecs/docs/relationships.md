@@ -73,6 +73,49 @@ contact events), and hooks that run while an entity or an edge target is being d
 
 `ChildOf` and `DependsOn` are also `Traversable`; all three built-ins above are `Exclusive`.
 
+## Diagram examples
+
+Use the [ECS diagram notation](./diagrams.md) to distinguish a schema from a concrete scene.
+This schema shows carrier-to-target edges for the three built-ins and two custom examples:
+`InCell` is configured as `Exclusive` (see [Exclusive one-target relationships](#exclusive-one-target-relationships));
+`VisibleTo` allows many targets. Each box names an entity kind, not a particular entity.
+The pipeline branch shows a system attached to a phase, not a `ChildOf` hierarchy.
+
+```mermaid
+flowchart BT
+  squad["<b>Squad</b>"]
+  unit["<b>Unit</b><br/>📦 Position"]
+  cell["<b>Cell</b><br/>📦 Bounds"]
+  viewer["<b>Viewer</b>"]
+  query["<b>Listening query entity</b>"]
+  silence["<b>Source query entity</b>"]
+  system["<b>System entity</b>"]
+  phase["<b>Phase entity</b>"]
+  unit -. "1️⃣ChildOf" .-> squad
+  unit -- "1️⃣InCell" --> cell
+  unit -- "♾️VisibleTo" --> viewer
+  query -- "1️⃣SilenceSource" --> silence
+  system -- "1️⃣DependsOn" --> phase
+```
+
+At frame N, a squad and two units form a small `ChildOf` hierarchy under sector-3. Unit #1100
+has two `VisibleTo` targets: the two edges belong to one many-target relationship component.
+
+```mermaid
+flowchart BT
+  sector(["sector-3"])
+  squad(["squad #1090"])
+  unitA(["unit #1100<br/>📦 Position"])
+  unitB(["unit #1101<br/>📦 Position"])
+  viewerA(["viewer #1200"])
+  viewerB(["viewer #1201"])
+  squad -. "1️⃣ChildOf" .-> sector
+  unitA -. "1️⃣ChildOf" .-> squad
+  unitB -. "1️⃣ChildOf" .-> squad
+  unitA -- "♾️VisibleTo" --> viewerA
+  unitA -- "♾️VisibleTo" --> viewerB
+```
+
 ## Adding, removing, and setting
 
 Create edges explicitly with `add(Relationship, target)`:

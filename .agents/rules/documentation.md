@@ -34,3 +34,6 @@ Follow the established doc style:
 Run `npm run format` and `npm run format:check` after editing Markdown; Prettier formats docs.
 
 Place future documentation policy and package-specific conventions in this file.
+
+ECS design diagrams in docs, issues, and PR comments follow
+[`lib/vecs/docs/diagrams.md`](../../lib/vecs/docs/diagrams.md).
