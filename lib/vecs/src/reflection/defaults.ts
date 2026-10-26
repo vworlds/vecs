@@ -10,7 +10,7 @@ import {
   type MemberElementType,
   type VecsMember,
 } from "./member_types.js";
-import { type StructDefinition } from "./vecs_struct.js";
+import { _structMembers } from "./vecs_struct.js";
 
 /** Violations returned by a failing `validate` hook: one message or a list of them. */
 export type Violations = string | readonly string[];
@@ -25,31 +25,26 @@ interface Check {
   readonly bigint: boolean;
   readonly min: number | bigint;
   readonly max: number | bigint;
+  readonly values: readonly number[] | undefined;
 }
 
 /**
- * @internal Whether `definition` declares a range or an integer type, so a
- * default hook has something to check.
+ * @internal Whether the definition of `Class` declares a range or an integer
+ * type, so a default hook has something to check.
  */
-export function _hasDefaultChecks(definition: StructDefinition): boolean {
-  for (const member of definition.members.values()) {
-    if (checkFor("", member) !== undefined) {
-      return true;
-    }
-  }
-  return false;
+export function _hasDefaultChecks(Class: Function): boolean {
+  return checks(Class).length > 0;
 }
 
 /**
- * @internal Build the default `validate` hook. It reads the definition on every
- * call, so members declared later are checked too.
+ * @internal Build the default `validate` hook. It derives its checks from the
+ * live definition on every call, so members declared later, in any world or on
+ * a base class, are checked too.
  */
-export function _defaultValidate(
-  definition: StructDefinition
-): (component: object) => ValidationResult {
+export function _defaultValidate(Class: Function): (component: object) => ValidationResult {
   return (component) => {
     const violations: string[] = [];
-    for (const check of checks(definition)) {
+    for (const check of checks(Class)) {
       const value = (component as Record<string, unknown>)[check.name];
       if (!check.array) {
         validateValue(check, check.name, value, violations);
@@ -63,11 +58,14 @@ export function _defaultValidate(
   };
 }
 
-/** @internal Build the default `normalize` hook: truncate integers and clamp to bounds. */
-export function _defaultNormalize(definition: StructDefinition): (component: object) => void {
+/**
+ * @internal Build the default `normalize` hook: truncate integers and clamp to
+ * bounds. Like the default `validate`, it reads the live definition.
+ */
+export function _defaultNormalize(Class: Function): (component: object) => void {
   return (component) => {
     const record = component as Record<string, unknown>;
-    for (const check of checks(definition)) {
+    for (const check of checks(Class)) {
       const value = record[check.name];
       if (!check.array) {
         record[check.name] = normalizeValue(check, value);
@@ -80,9 +78,9 @@ export function _defaultNormalize(definition: StructDefinition): (component: obj
   };
 }
 
-function checks(definition: StructDefinition): Check[] {
+function checks(Class: Function): Check[] {
   const result: Check[] = [];
-  for (const [name, member] of definition.members) {
+  for (const [name, member] of _structMembers(Class) ?? []) {
     const check = checkFor(name, member);
     if (check !== undefined) {
       result.push(check);
@@ -117,7 +115,15 @@ function checkFor(name: string, member: VecsMember): Check | undefined {
     min = Math.ceil(min as number);
     max = Math.floor(max as number);
   }
-  return { name, array: isArrayType(member.type), integer, bigint, min, max };
+  return {
+    name,
+    array: isArrayType(member.type),
+    integer,
+    bigint,
+    min,
+    max,
+    values: member.values,
+  };
 }
 
 function validateValue(check: Check, path: string, value: unknown, violations: string[]): void {
@@ -131,6 +137,10 @@ function validateValue(check: Check, path: string, value: unknown, violations: s
     return;
   } else if (check.integer && !Number.isInteger(value)) {
     violations.push(`${path}: ${value} is not an integer`);
+    return;
+  }
+  if (check.values !== undefined && !check.values.includes(value as number)) {
+    violations.push(`${path}: ${value} is not one of [${check.values.join(", ")}]`);
     return;
   }
   if (value < check.min) {

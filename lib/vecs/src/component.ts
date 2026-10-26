@@ -80,7 +80,8 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
    * `.values([...])` onto the result, then `.member(...)` for the next member.
    * The declaration merges into the class's process-wide {@link VecsStruct}
    * definition, which this component entity carries; repeating an identical
-   * declaration in another world is a no-op.
+   * declaration in another world is a no-op. Subclasses inherit the member, as
+   * they inherit decorator declarations.
    *
    * @param name - The member's property name.
    * @param type - A scalar type name, a nested component class, or an array `[type]`.

@@ -3,7 +3,7 @@ import { DontSnapshot } from "../modules/snapshot_types.js";
 import { type MemberType, type RangeBound } from "./member_types.js";
 import {
   _declareMembers,
-  _structDefinition,
+  _structInstance,
   VecsStruct,
   type MemberDeclaration,
 } from "./vecs_struct.js";
@@ -64,26 +64,37 @@ export class ComponentMember<T extends ComponentType = ComponentType> {
   }
 }
 
-/** @internal Merge one declaration and keep this world's `VecsStruct` in step. */
+/**
+ * @internal Merge one declaration and keep this world's `VecsStruct` in step,
+ * on this class and on any registered subclass that inherits the member.
+ */
 export function _declareComponentMember(
   component: Component,
   name: string,
   declaration: MemberDeclaration
 ): void {
-  const changed = _declareMembers(component.meta.Class, [[name, declaration]]);
-  if (!component.has(_vecsStructComponent(component))) {
-    _attachVecsStruct(component);
-  } else if (changed) {
-    component.modified(VecsStruct);
+  const Class = component.meta.Class;
+  const changed = _declareMembers(Class, [[name, declaration]]);
+  const vecsStruct = _vecsStructComponent(component);
+  for (const registered of component.world._classRegistry.values()) {
+    const RegisteredClass = registered.meta.Class;
+    if (RegisteredClass !== Class && !(RegisteredClass.prototype instanceof Class)) {
+      continue;
+    }
+    if (!registered.has(vecsStruct)) {
+      _attachVecsStruct(registered as Component);
+    } else if (changed) {
+      registered.modified(VecsStruct);
+    }
   }
 }
 
 /** @internal Attach the class's definition to its component entity, if it has one. */
 export function _attachVecsStruct(component: Component): void {
-  const definition = _structDefinition(component.meta.Class);
-  if (definition !== undefined) {
+  const instance = _structInstance(component.meta.Class);
+  if (instance !== undefined) {
     _vecsStructComponent(component);
-    component.attach(VecsStruct, definition.instance);
+    component.attach(VecsStruct, instance);
   }
 }
 

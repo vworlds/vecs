@@ -15,9 +15,9 @@ import {
   _hasDefaultChecks,
   type ValidationResult,
 } from "../reflection/defaults.js";
-import { _decoratedMembers } from "../reflection/decorators.js";
+import { _ownDecoratedMembers } from "../reflection/decorators.js";
 import { _attachVecsStruct } from "../reflection/member_builder.js";
-import { _declareMembers, _structDefinition } from "../reflection/vecs_struct.js";
+import { _classChain, _declareMembers } from "../reflection/vecs_struct.js";
 import { type IdPool } from "../util/id_pool.js";
 import { Entities } from "./world.entities.js";
 import { type World } from "./world.js";
@@ -143,8 +143,10 @@ export class Components extends Entities {
    * Hooks run in registration order and the first failure is returned. When
    * the class has no explicit hook but declares ranges or integer member
    * types, a default hook is created on first use: it checks each such member
-   * against its range and its type's bounds (for example `u8` is 0–255), and
-   * that integers are whole. A class with neither is valid.
+   * against its range and its type's bounds (for example `u8` is 0–255), that
+   * integers are whole, and that an `enum` with `values` holds one of them. It
+   * reads the live definition, inherited members included. A class with
+   * neither ranges nor integer types is valid.
    *
    * Nothing calls this on `set`; call it where your code accepts external data.
    *
@@ -155,11 +157,10 @@ export class Components extends Entities {
   public validate(this: World, component: ComponentInstance): ValidationResult {
     const meta = this._reflectedMeta(component, "validate");
     if (meta._onValidate === undefined) {
-      const definition = _structDefinition(meta.Class);
-      if (definition === undefined || !_hasDefaultChecks(definition)) {
+      if (!_hasDefaultChecks(meta.Class)) {
         return true;
       }
-      meta._onValidate = _defaultValidate(definition);
+      meta._onValidate = _defaultValidate(meta.Class);
       meta._validateIsDefault = true;
     }
     for (const hook of _slotHandlers(meta._onValidate)) {
@@ -188,7 +189,8 @@ export class Components extends Entities {
    * When the class has no explicit hook but declares ranges or integer member
    * types, a default hook is created on first use: it truncates integers and
    * clamps each such member to its range and its type's bounds. Values of the
-   * wrong JavaScript type are left as they are; `NaN` becomes `0` first.
+   * wrong JavaScript type and `enum` values outside their `values` are left as
+   * they are; `NaN` becomes `0` first.
    *
    * @param component - An instance of a class registered in this world.
    * @returns `component`, for chaining.
@@ -197,11 +199,10 @@ export class Components extends Entities {
   public normalize<C extends ComponentInstance>(this: World, component: C): C {
     const meta = this._reflectedMeta(component, "normalize");
     if (meta._onNormalize === undefined) {
-      const definition = _structDefinition(meta.Class);
-      if (definition === undefined || !_hasDefaultChecks(definition)) {
+      if (!_hasDefaultChecks(meta.Class)) {
         return component;
       }
-      meta._onNormalize = _defaultNormalize(definition);
+      meta._onNormalize = _defaultNormalize(meta.Class);
       meta._normalizeIsDefault = true;
     }
     meta._onNormalize(component);
@@ -239,7 +240,9 @@ export class Components extends Entities {
     }
     // Validate declarations before allocating an id, so a throw leaves no
     // half-registered class behind.
-    _declareMembers(ComponentClass, _decoratedMembers(ComponentClass));
+    for (const Class of _classChain(ComponentClass)) {
+      _declareMembers(Class, _ownDecoratedMembers(Class));
+    }
     const staticHooks = staticHooksOf(ComponentClass);
     if (ceid === undefined) {
       ceid = pool.alloc();
@@ -261,9 +264,7 @@ export class Components extends Entities {
     this.component(ComponentDef);
     this.component(Trait);
     component.add(ComponentDef);
-    if (_structDefinition(ComponentClass) !== undefined) {
-      _attachVecsStruct(component as unknown as Component);
-    }
+    _attachVecsStruct(component as unknown as Component);
     const parent = this._scope;
     if (parent !== undefined) {
       component.childOf(parent);

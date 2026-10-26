@@ -78,8 +78,10 @@ const struct = world.component(Position).get(VecsStruct);
 struct?.members.x; // { type: "i32", range: [-100, 100], unit: "m", description: "The X coordinate" }
 ```
 
-Members are listed base class first, then in declaration order. Decorators are inherited along the
-class chain. Fluent declarations apply only to the class you call them on.
+Members are inherited along the class chain, however the base class declared them: a subclass of a
+class with fluent declarations gets the same members as a subclass of a decorated one. They are
+listed base class first, then in declaration order. A subclass may repeat an inherited member to add
+fields, such as a `unit`, but not to change one.
 
 The definition is **per class, for the whole process**:
 
@@ -87,10 +89,12 @@ The definition is **per class, for the whole process**:
 - A declaration that repeats the definition is a no-op. That makes it safe to run the same
   registration code for every world.
 - A declaration that contradicts it (a different type, range, unit, description or set of values)
-  throws, naming the class and the member.
+  throws, naming the class and the member. That includes a base class declaration contradicting a
+  subclass that repeated the member.
 - Every world attaches the **same frozen instance**. `getMut(VecsStruct, …)` throws on any write.
-  A later declaration is visible through that instance in every world. The world that makes the
-  declaration marks it modified.
+  A later declaration, on the class or a base class, is visible through that instance in every
+  world. The world that makes the declaration attaches or marks modified the `VecsStruct` of the
+  class and of its registered subclasses.
 
 `VecsStruct` is registered in a world only when the world first attaches one, so worlds without
 declarations keep their component ids. Look it up with `world.getEntity(VecsStruct)`, because
@@ -117,17 +121,19 @@ When a class declares ranges or integer types and has no explicit hook, the firs
 `world.validate` or `world.normalize` creates a default hook from the definition:
 
 - `validate` checks each such member against its range and its type's bounds, and checks that
-  integer values are whole. For example, `u8` is 0–255. It returns every violation.
+  integer values are whole. For example, `u8` is 0–255. An `enum` member with `values` must hold
+  one of them. It returns every violation.
 - `normalize` truncates integers, then clamps each such member to its range and its type's bounds.
-  `NaN` becomes `0` first. It leaves a value of the wrong JavaScript type unchanged, but `validate`
-  reports it.
+  `NaN` becomes `0` first. It leaves a value of the wrong JavaScript type, or an `enum` value outside
+  its `values`, unchanged, since neither has a sensible fix; `validate` reports both.
 - `u64` and `i64` hold `bigint` values. `normalize` converts a finite `number` to a `bigint`.
 - For an array member, the checks apply to each element.
 - Floats are checked against their range only. A `string`, `bool` or nested member without a range
   is not checked.
 
-The default reads the current definition on every call. It stays until you register a hook
-explicitly, and the first explicit hook replaces it.
+The default derives its checks from the current definition on every call, so it covers members
+declared later, in any world or on a base class. It stays until you register a hook explicitly, and
+the first explicit hook replaces it.
 
 ### Explicit hooks
 

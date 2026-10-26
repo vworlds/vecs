@@ -14,8 +14,9 @@ import {
  * Core component holding a component class's member reflection metadata.
  *
  * `world.component(C)` attaches it to the **component entity** of `C` as soon
- * as `C` declares a member, through decorators ({@link type}, {@link range},
- * …) or the fluent {@link Component.member} API. Query it like any component:
+ * as `C` or a base class declares a member, through decorators ({@link type},
+ * {@link range}, …) or the fluent {@link Component.member} API. Query it like
+ * any component:
  *
  * ```ts
  * world.component(Position).get(VecsStruct)?.members.x; // { type: "i32", range: [-100, 100] }
@@ -23,8 +24,9 @@ import {
  *
  * The definition is per class for the whole process: every world attaches the
  * same frozen instance, so `getMut(VecsStruct, …)` on it throws. Members are
- * listed base class first, then in declaration order. A declaration that
- * contradicts the definition throws, naming the class and the member.
+ * inherited, whichever way the base class declared them, and are listed base
+ * class first, then in declaration order. A declaration that contradicts the
+ * definition throws, naming the class and the member.
  */
 export class VecsStruct {
   /** Member metadata keyed by member name. */
@@ -40,33 +42,63 @@ export interface MemberDeclaration {
   values?: readonly number[];
 }
 
-/** @internal The process-wide definition of one class. */
-export interface StructDefinition {
-  /** Declared members, in definition order. */
-  readonly members: ReadonlyMap<string, VecsMember>;
-  /** The frozen instance every world attaches. */
-  readonly instance: VecsStruct;
-}
-
-interface MutableDefinition extends StructDefinition {
+/** One class's own declarations and the frozen instance worlds attach for it. */
+interface ClassDefinition {
   readonly Class: Function;
-  readonly members: Map<string, VecsMember>;
-  view: Readonly<Record<string, VecsMember>> | undefined;
+  /** Members this class declared, each already merged with what its bases declared then. */
+  readonly own: Map<string, VecsMember>;
+  readonly instance: VecsStruct;
+  /** Composed members and their frozen view, valid while `version` is current. */
+  cache: { version: number; members: Map<string, VecsMember>; view: object } | undefined;
 }
 
-const definitions = new WeakMap<Function, MutableDefinition>();
+const definitions = new WeakMap<Function, ClassDefinition>();
+/** Base class → definitions of its subclasses that declare members of their own. */
+const descendants = new WeakMap<Function, Set<ClassDefinition>>();
+/** Bumped by every change, so composed caches along any class chain stay correct. */
+let version = 0;
 
-/** @internal The process-wide definition of `Class`, or `undefined` when it declares no member. */
-export function _structDefinition(Class: Function): StructDefinition | undefined {
-  return definitions.get(Class);
+/**
+ * @internal The class and its base classes, base class first.
+ */
+export function _classChain(Class: Function): Function[] {
+  const chain: Function[] = [];
+  for (
+    let current: Function | null = Class;
+    current !== null && current !== Function.prototype;
+    current = Object.getPrototypeOf(current) as Function | null
+  ) {
+    chain.push(current);
+  }
+  return chain.reverse();
 }
 
 /**
- * @internal Merge member declarations into the process-wide definition of
- * `Class`, creating the definition on the first declaration.
+ * @internal The composed members of `Class`, base class first, or `undefined`
+ * when neither it nor a base class declares any. Reads the live definition.
+ */
+export function _structMembers(Class: Function): ReadonlyMap<string, VecsMember> | undefined {
+  const members = composed(Class);
+  return members.size === 0 ? undefined : members;
+}
+
+/**
+ * @internal The frozen `VecsStruct` instance of `Class`, or `undefined` when it
+ * has no members.
+ */
+export function _structInstance(Class: Function): VecsStruct | undefined {
+  if (_structMembers(Class) === undefined) {
+    return undefined;
+  }
+  return (definitions.get(Class) ?? createDefinition(Class)).instance;
+}
+
+/**
+ * @internal Merge member declarations into the definition of `Class`.
  *
  * @returns `true` when the definition changed.
- * @throws When a declaration contradicts the definition or is malformed.
+ * @throws When a declaration contradicts the definition of `Class`, of a base
+ *   class, or of a subclass, or is malformed.
  */
 export function _declareMembers(
   Class: Function,
@@ -74,36 +106,77 @@ export function _declareMembers(
 ): boolean {
   let changed = false;
   for (const [name, declaration] of declarations) {
-    let definition = definitions.get(Class);
-    const existing = definition?.members.get(name);
-    const merged = mergeMember(Class, name, existing, declaration);
-    if (merged === existing) {
+    const current = composed(Class).get(name);
+    const merged = mergeMember(Class, name, current, declaration);
+    if (merged === current) {
       continue;
     }
-    definition ??= createDefinition(Class);
-    definition.members.set(name, merged);
-    definition.view = undefined;
+    for (const descendant of descendants.get(Class) ?? []) {
+      const own = descendant.own.get(name);
+      if (own !== undefined) {
+        mergeMember(descendant.Class, name, merged, own);
+      }
+    }
+    const definition = definitions.get(Class) ?? createDefinition(Class);
+    if (definition.own.size === 0) {
+      for (const base of _classChain(Class).slice(0, -1)) {
+        let set = descendants.get(base);
+        if (set === undefined) {
+          set = new Set();
+          descendants.set(base, set);
+        }
+        set.add(definition);
+      }
+    }
+    definition.own.set(name, merged);
+    version++;
     changed = true;
   }
   return changed;
 }
 
-function createDefinition(Class: Function): MutableDefinition {
+function composed(Class: Function): Map<string, VecsMember> {
+  const definition = definitions.get(Class);
+  if (definition?.cache?.version === version) {
+    return definition.cache.members;
+  }
+  const members = new Map<string, VecsMember>();
+  for (const C of _classChain(Class)) {
+    definitions.get(C)?.own.forEach((member, name) => {
+      const inherited = members.get(name);
+      members.set(name, inherited === undefined ? member : combine(inherited, member));
+    });
+  }
+  if (definition !== undefined) {
+    definition.cache = { version, members, view: freezeMembers(members) };
+  }
+  return members;
+}
+
+/** Fill a subclass's member with fields a base class declared after it. */
+function combine(inherited: VecsMember, member: VecsMember): VecsMember {
+  const next = { ...member } as { -readonly [K in keyof VecsMember]: VecsMember[K] };
+  next.range ??= inherited.range;
+  next.description ??= inherited.description;
+  next.unit ??= inherited.unit;
+  next.values ??= inherited.values;
+  return membersEqual(next, member) ? member : Object.freeze(next);
+}
+
+function createDefinition(Class: Function): ClassDefinition {
   const instance = Object.create(VecsStruct.prototype) as VecsStruct;
-  const definition: MutableDefinition = {
-    Class,
-    members: new Map(),
-    view: undefined,
-    instance,
-  };
-  // One instance per class: worlds that registered the class before a later
-  // declaration read the extended definition through the same object.
+  const definition: ClassDefinition = { Class, own: new Map(), instance, cache: undefined };
+  definitions.set(Class, definition);
+  // One instance per class: worlds that attached it before a later declaration,
+  // here or on a base class, read the extended definition through it.
   Object.defineProperty(instance, "members", {
     enumerable: true,
-    get: () => (definition.view ??= freezeMembers(definition.members)),
+    get: () => {
+      composed(Class);
+      return definition.cache!.view;
+    },
   });
   Object.freeze(instance);
-  definitions.set(Class, definition);
   return definition;
 }
 

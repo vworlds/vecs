@@ -137,6 +137,113 @@ describe("VecsStruct", () => {
     ]);
   });
 
+  it("inherits fluent declarations made on a base class before the subclass registers", () => {
+    class Base {
+      public x = 0;
+    }
+    class Derived extends Base {
+      @type("u8") public d = 0;
+    }
+    const world = new World();
+    world.component(Base).member("x", "i32").range(-5, 5);
+    const derived = world.component(Derived);
+
+    expect(derived.get(VecsStruct)!.members).toEqual({
+      x: { type: "i32", range: [-5, 5] },
+      d: { type: "u8" },
+    });
+    expect(Object.keys(derived.get(VecsStruct)!.members)).toEqual(["x", "d"]);
+  });
+
+  it("inherits fluent declarations made on a base class after the subclass registered", () => {
+    class Base {
+      public x = 0;
+    }
+    class Derived extends Base {
+      public d = 0;
+    }
+    class Unrelated {
+      public u = 0;
+    }
+    const world = new World();
+    const derived = world.component(Derived);
+    const unrelated = world.component(Unrelated);
+    world.component(Base).member("x", "i32").range(-5, 5);
+    derived.member("d", "u8");
+
+    expect(derived.get(VecsStruct)!.members).toEqual({
+      x: { type: "i32", range: [-5, 5] },
+      d: { type: "u8" },
+    });
+    expect(unrelated.has(VecsStruct)).toBe(false);
+    // Another world sees the same inherited definition.
+    expect(new World().component(Derived).get(VecsStruct)).toBe(derived.get(VecsStruct));
+  });
+
+  it("builds the same subclass definition whether the base used decorators or fluent calls", () => {
+    class DecoratedBase {
+      @type("f32") @unit("m") public x = 0;
+    }
+    class FluentBase {
+      public x = 0;
+    }
+    class FromDecorated extends DecoratedBase {
+      @type("bool") public flag = false;
+    }
+    class FromFluent extends FluentBase {
+      @type("bool") public flag = false;
+    }
+    const world = new World();
+    world.component(FluentBase).member("x", "f32").unit("m");
+
+    expect(world.component(FromFluent).get(VecsStruct)!.members).toEqual(
+      world.component(FromDecorated).get(VecsStruct)!.members
+    );
+  });
+
+  it("fills a subclass member with fields its base class declares later", () => {
+    class Base {
+      public x = 0;
+    }
+    class Derived extends Base {}
+    const world = new World();
+    world.component(Base).member("x", "i32");
+    world.component(Derived).member("x", "i32").unit("m");
+    world.component(Base).member("x", "i32").range(0, 9);
+
+    expect(world.component(Derived).get(VecsStruct)!.members.x).toEqual({
+      type: "i32",
+      range: [0, 9],
+      unit: "m",
+    });
+    expect(world.component(Base).get(VecsStruct)!.members.x).toEqual({
+      type: "i32",
+      range: [0, 9],
+    });
+  });
+
+  it("throws when a base class declaration contradicts a subclass", () => {
+    class Base {
+      public x = 0;
+    }
+    class Derived extends Base {
+      @type("i32") @range(0, 10) public override x = 0;
+    }
+    const world = new World();
+    world.component(Derived);
+
+    expect(() => world.component(Base).member("x", "u8")).toThrow(
+      "VecsStruct Derived.x: type i32 contradicts the existing type u8"
+    );
+    expect(() => world.component(Base).member("x", "i32").range(0, 20)).toThrow(
+      "VecsStruct Derived.x: range [0, 10] contradicts the existing range [0, 20]"
+    );
+    expect(world.component(Derived).get(VecsStruct)!.members.x).toEqual({
+      type: "i32",
+      range: [0, 10],
+    });
+  });
+
   it("records nested classes, arrays and enum values", () => {
     class Inner {
       @type("f64") public v = 0;

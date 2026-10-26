@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   range,
   Relationship,
+  values,
   type,
   World,
   type Entity,
@@ -125,6 +126,62 @@ describe("default validate and normalize hooks", () => {
 
     world.component(Late).member("value", "f32").range(0, 10);
     expect(world.validate(late)).toEqual(["value: 50 is above the maximum 10"]);
+  });
+
+  it("reports an enum value outside its values and leaves it to normalize as is", () => {
+    class Mode {
+      @type("enum") @values([1, 2, 4]) public mode = 1;
+      @type(["enum"]) @values([0, 1]) public flags: number[] = [];
+    }
+    const world = new World();
+    world.component(Mode);
+    const mode = Object.assign(new Mode(), { mode: 3, flags: [1, 5] });
+
+    expect(world.validate(mode)).toEqual([
+      "mode: 3 is not one of [1, 2, 4]",
+      "flags[1]: 5 is not one of [0, 1]",
+    ]);
+    world.normalize(mode);
+    expect(mode).toEqual({ mode: 3, flags: [1, 5] });
+    expect(world.isValid(Object.assign(new Mode(), { mode: 4, flags: [0] }))).toBe(true);
+  });
+
+  it("checks a ranged member another world declares after the first validate", () => {
+    class Shared {
+      public a = 0;
+      public b = 0;
+    }
+    const first = new World();
+    // `a` gives the first world a default hook before `b` exists.
+    first.component(Shared).member("a", "u8");
+    const shared = Object.assign(new Shared(), { a: 1, b: 50 });
+    expect(first.validate(shared)).toBe(true);
+    first.normalize(shared);
+
+    new World().component(Shared).member("b", "f32").range(0, 10);
+
+    expect(first.validate(shared)).toEqual(["b: 50 is above the maximum 10"]);
+    first.normalize(shared);
+    expect(shared.b).toBe(10);
+  });
+
+  it("checks members inherited from a base class", () => {
+    class Base {
+      @type("u8") public level = 0;
+    }
+    class Derived extends Base {
+      public extra = 0;
+    }
+    const world = new World();
+    world.component(Derived);
+
+    expect(world.validate(Object.assign(new Derived(), { level: 256 }))).toEqual([
+      "level: 256 is above the maximum 255",
+    ]);
+    world.component(Base).member("level", "u8").range(0, 9);
+    expect(world.validate(Object.assign(new Derived(), { level: 10 }))).toEqual([
+      "level: 10 is above the maximum 9",
+    ]);
   });
 
   it("is replaced by the first explicit hook", () => {

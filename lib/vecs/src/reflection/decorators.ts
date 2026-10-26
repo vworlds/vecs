@@ -69,29 +69,9 @@ export function values(allowed: readonly number[]): MemberDecorator {
   return memberDecorator("@values", { values: [...allowed] });
 }
 
-/**
- * @internal Read the decorator declarations of `Class` and its base classes,
- * base class first.
- */
-export function _decoratedMembers(Class: Function): [string, MemberDeclaration][] {
-  const chain: Function[] = [];
-  for (
-    let current: Function | null = Class;
-    current !== null && current !== Function.prototype;
-    current = Object.getPrototypeOf(current) as Function | null
-  ) {
-    chain.push(current);
-  }
-  const result: [string, MemberDeclaration][] = [];
-  for (const constructor of chain.reverse()) {
-    declarationsByClass.get(constructor)?.forEach((declaration, name) => {
-      result.push([name, declaration]);
-    });
-    ownMetadataDeclarations(constructor)?.forEach((declaration, name) => {
-      result.push([name, declaration]);
-    });
-  }
-  return result;
+/** @internal Read the decorator declarations `Class` itself makes, in declaration order. */
+export function _ownDecoratedMembers(Class: Function): [string, MemberDeclaration][] {
+  return [...(declarationsByClass.get(Class) ?? []), ...(ownMetadataDeclarations(Class) ?? [])];
 }
 
 function memberDecorator(name: string, declaration: MemberDeclaration): MemberDecorator {
