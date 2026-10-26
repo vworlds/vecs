@@ -101,6 +101,16 @@ review agrees the conclusions, and Spec review → Executing approves the exact 
 Approved and Done. Board 4's migration is coordinated on vworlds/vmethod#255:
 VecsMaster runs it alone, after both projects have snapshotted their cards.
 
+## rc.9
+
+rc.9 needs no board migration: board 4 stays at v7. It adds `board set <n>
+Assignees owner|orchestrator|--clear` for stale assignees, reads archived cards in
+migrations, and makes `grade` work after merge cleanup. `review`, `ask` and
+`scope-review` now refuse body files that already start with a protocol header,
+and `check-markdown` rejects Mermaid flowchart edges that Mermaid marks invalid.
+The watcher adds a reminder line every two hours: chat holds `#n` pointers only.
+Coordinated on vworlds/vmethod#272.
+
 ## Pilot gaps and remaining rollout
 
 rc.3 resolves the rc.1 gaps:
