@@ -4,7 +4,8 @@ Use the pinned package for shared automation and keep vecs recipes local.
 
 ## Commands and hooks
 
-Install with `npm ci` in each worktree. Run `npm exec --no -- vmethod <verb>`;
+Install with `npm ci` in each worktree. Run `vmethod <verb>` through the per-machine
+PATH launcher, which runs the current checkout's own install;
 compatibility scripts in `scripts/agent/` and `scripts/orchestrator/` only route to
 that local install. `scripts/orchestrator/watch-prs.sh` and `board.sh` preserve
 the old entry-point paths, not old argument conventions. See the installed
@@ -46,14 +47,11 @@ owner authority comes only from `people.yaml`, never a legacy owner override.
 There are no old-prefix aliases. The local beta script accepts `VMETHOD_REPO`.
 Credential settings contain environment variable names only.
 
-The orchestrator and the workers run as the same OS account (`jm`), so
-`vmethod.yaml` sets neither `workerUser` nor `workerGroup`: either one switches
-vmethod to two-user worktree access, which requires a group shared by both users.
-
-Before switching watchers, the owner/orchestrator stops the old watchers, runs
-`npm ci`, supplies `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`,
-`GIT_COMMITTER_EMAIL` and configured credentials in its wrapper environment, then
-starts one `vmethod watch` reader per track. Do not read identity from git config.
+Each checkout's identity comes from its gitignored `.claude/settings.local.json`
+`env` block: `VMETHOD_ROLE`, the `GH_CONFIG_DIR` of its gh login, `GIT_SSH_COMMAND`
+and the `GIT_AUTHOR_*`/`GIT_COMMITTER_*` identity. Do not read identity from git
+config. Before switching watchers, the owner/orchestrator stops the old watchers,
+runs `npm ci`, then starts one `vmethod watch` reader per track.
 Only `vecs-watch` (or `vecs-watch-<track>`) is imported into `stateName: vecs`;
 never import another project's state. Keep `.agents/model-log.md` checked in for
 calibration; after each merge append PR, family, points, rounds and findings,
@@ -111,6 +109,21 @@ and `check-markdown` rejects Mermaid flowchart edges that Mermaid marks invalid.
 The watcher adds a reminder line every two hours: chat holds `#n` pointers only.
 Coordinated on vworlds/vmethod#272.
 
+## rc.10
+
+rc.10 needs no board migration. Since vworlds/vmethod#285, workers never run in this
+checkout: `worker start` creates each task worktree through OpenCode's worktree API
+from the worker checkout `~/src/vecs-worker` (`workerCheckout: ../vecs-worker`),
+under OpenCode's worktree directory, then runs `npm ci` and writes `.vmethod/.env`.
+The worker checkout holds the worker identity (alfredjpr79) in its own
+`.claude/settings.local.json`. vmethod reads GitHub only from each checkout's
+`GH_CONFIG_DIR` gh login and never `GH_TOKEN`, so `credentials` keeps only
+`sshKey`. The `claude -p` backend is gone: the sonnet and opus families are
+`kind: opencode` on OpenCode's `claude-code` provider, which reports cost 0, so
+their cost comes from the `models.yaml` prices. New verbs: `close-task <pr>`
+closes a task PR without merging, `board add <issue>` repairs a failed board
+follow-up, and `read pr|issue <n> --new` shows only what changed since the last read.
+
 ## Pilot gaps and remaining rollout
 
 rc.3 resolves the rc.1 gaps:
@@ -122,7 +135,8 @@ rc.3 resolves the rc.1 gaps:
   the permissions at 1.0, where it is rejected.
 
 - [vmethod#58](https://github.com/vworlds/vmethod/issues/58): `branches.worktreePrefix`
-  is set to `auto-`, matching the existing `.worktrees/auto-<branch>` worktrees.
+  is set to `auto-`, which names task worktrees (under `.worktrees/` until rc.10,
+  in OpenCode's worktree directory since).
 - [vmethod#59](https://github.com/vworlds/vmethod/issues/59): the watcher checks
   workers started by `worker start`; no local monitoring is added.
 - [vmethod#63](https://github.com/vworlds/vmethod/issues/63): the watcher emits
