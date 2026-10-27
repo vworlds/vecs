@@ -70,8 +70,8 @@ test(
 test("dependency pins and peer versions match the installed release", () => {
   const manifest = JSON.parse(readFileSync(join(root, "package.json")));
   const lock = JSON.parse(readFileSync(join(root, "package-lock.json")));
-  assert.equal(manifest.devDependencies["@vworlds/vmethod"], "1.0.0-rc.9");
-  assert.equal(lock.packages["node_modules/@vworlds/vmethod"].version, "1.0.0-rc.9");
+  assert.equal(manifest.devDependencies["@vworlds/vmethod"], "1.0.0-rc.10");
+  assert.equal(lock.packages["node_modules/@vworlds/vmethod"].version, "1.0.0-rc.10");
   assert.equal(manifest.devDependencies.mermaid, "12.1.0");
   assert.equal(manifest.devDependencies.jsdom, "26.1.0");
 });
@@ -101,7 +101,7 @@ test(
         count++;
       }
     }
-    assert.equal(count, 39);
+    assert.equal(count, 40);
     rmSync(fake);
     const missing = run("bash", [join(root, "scripts/agent/push.sh")], {
       env: { PATH: process.env.PATH, VMETHOD_ROOT: directory },

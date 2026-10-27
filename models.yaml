@@ -2,7 +2,9 @@
 # price: API list rates in USD per million tokens { input, output, cached }.
 # opencode families copy vmethod's models.yaml at v1.0.0-rc.3 (OpenRouter rates
 # fetched 2026-10-18; big-pickle is the vmethod owner's 90% of glm-5.3). Claude
-# families use Anthropic's first-party API rates as of 2026-10-06.
+# families run through OpenCode's claude-code provider, which reports cost 0, so
+# their cost comes from these prices: Anthropic's first-party API rates as of
+# 2026-10-06.
 - family: sol
   model: codexbal/gpt-6.1-sol
   price: { input: 2.0, output: 10.0, cached: 0.1 }
@@ -26,15 +28,15 @@
   gate: owner
   tier: expensive
 - family: sonnet
-  model: claude-sonnet-5-5
+  model: claude-code/claude-sonnet-5-5
   price: { input: 2.0, output: 10.0, cached: 0.2 }
-  kind: claude
+  kind: opencode
   gate: none
   tier: standard
 - family: opus
-  model: claude-opus-5-5
+  model: claude-code/claude-opus-5-5[1m]
   price: { input: 4.0, output: 20.0, cached: 0.2 }
-  kind: claude
+  kind: opencode
   gate: none
   tier: standard
 - family: glm

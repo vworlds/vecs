@@ -2,9 +2,9 @@ repo: vworlds/vecs
 org: vworlds
 baseBranch: dev
 releaseBranch: master
-# Orchestrator and workers share the jm account: no workerUser/workerGroup, which
-# would switch vmethod to two-user worktree access.
 stateName: vecs
+# Workers run in OpenCode worktrees of this second clone, never in this checkout.
+workerCheckout: ../vecs-worker
 legacyState: [vecs-watch]
 legacyWorkers:
   - vecs-orchestrator/workers
@@ -53,7 +53,4 @@ changelog:
   directory: architecture/unreleased
   kinds: [Added, Changed, Fixed, Removed, Docs, Tests, Internal]
 credentials:
-  githubToken: GH_TOKEN
   sshKey: VMETHOD_SSH_KEY
-  workerPassword: OPENCODE_SERVER_PASSWORD
-  workerGithubToken: WORKER_GITHUB_TOKEN
