@@ -48,7 +48,6 @@ test(
   () => {
     assert.equal(config("repo"), "vworlds/vecs");
     assert.equal(config("stateName"), "vecs");
-    assert.equal(config("legacyState"), "- vecs-watch");
     const workerUser = run(process.execPath, [cli, "config", "get", "workerUser"]);
     assert.equal(workerUser.status, 1);
     assert.match(workerUser.stderr, /Unknown config key: workerUser/);
@@ -57,10 +56,6 @@ test(
     assert.equal(config("merge.requireCurrentBase"), "false");
     assert.equal(config("branches.worktreePrefix"), "auto-");
     assert.equal(config("branches.mainCheckout"), "/home/jm/src/vecs");
-    assert.equal(
-      config("legacyWorkers"),
-      "- vecs-orchestrator/workers\n- vecs-orchestrator/claude-workers"
-    );
     assert.equal(config("scope.fastPath"), "- bug");
     assert.equal(config("vmethod.repo"), "off");
     assert.equal(config("board.repos"), "- vworlds/vecs\n- vworlds/spacerocks");
@@ -70,8 +65,8 @@ test(
 test("dependency pins and peer versions match the installed release", () => {
   const manifest = JSON.parse(readFileSync(join(root, "package.json")));
   const lock = JSON.parse(readFileSync(join(root, "package-lock.json")));
-  assert.equal(manifest.devDependencies["@vworlds/vmethod"], "1.0.0-rc.10");
-  assert.equal(lock.packages["node_modules/@vworlds/vmethod"].version, "1.0.0-rc.10");
+  assert.equal(manifest.devDependencies["@vworlds/vmethod"], "1.0.0-rc.13");
+  assert.equal(lock.packages["node_modules/@vworlds/vmethod"].version, "1.0.0-rc.13");
   assert.equal(manifest.devDependencies.mermaid, "12.1.0");
   assert.equal(manifest.devDependencies.jsdom, "26.1.0");
 });
@@ -101,7 +96,7 @@ test(
         count++;
       }
     }
-    assert.equal(count, 40);
+    assert.equal(count, 41);
     rmSync(fake);
     const missing = run("bash", [join(root, "scripts/agent/push.sh")], {
       env: { PATH: process.env.PATH, VMETHOD_ROOT: directory },

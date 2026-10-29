@@ -11,4 +11,4 @@ if [ -z "$root" ] || [ ! -x "$root/node_modules/.bin/vmethod" ]; then
   echo "vmethod: run npm ci (set VMETHOD_ROOT when no repository is available)" >&2
   exit 2
 fi
-exec "$root/node_modules/.bin/vmethod" wait-review "$@"
+exec "$root/node_modules/.bin/vmethod" limits "$@"
