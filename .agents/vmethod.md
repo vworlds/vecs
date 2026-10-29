@@ -51,9 +51,9 @@ Each checkout's identity comes from its gitignored `.claude/settings.local.json`
 `env` block: `VMETHOD_ROLE`, the `GH_CONFIG_DIR` of its gh login, `GIT_SSH_COMMAND`
 and the `GIT_AUTHOR_*`/`GIT_COMMITTER_*` identity. Do not read identity from git
 config. Before switching watchers, the owner/orchestrator stops the old watchers,
-runs `npm ci`, then starts one `vmethod watch` reader per track.
-Only `vecs-watch` (or `vecs-watch-<track>`) is imported into `stateName: vecs`;
-never import another project's state. Keep `.agents/model-log.md` checked in for
+runs `npm ci`, then starts one `vmethod watch` reader per track. Stop a watcher
+with `vmethod watch --stop`, never `pkill`. Never import another project's
+state. Keep `.agents/model-log.md` checked in for
 calibration; after each merge append PR, family, points, rounds and findings,
 separating design churn and owner questions from model errors. The package's
 `.vmethod/model-log.jsonl` does not replace this checked-in project calibration.
@@ -124,6 +124,22 @@ their cost comes from the `models.yaml` prices. New verbs: `close-task <pr>`
 closes a task PR without merging, `board add <issue>` repairs a failed board
 follow-up, and `read pr|issue <n> --new` shows only what changed since the last read.
 
+## rc.13
+
+rc.13 (via rc.11 and rc.12) needs no board migration: board 4 stays at v7. Its
+breaking change (vworlds/vmethod#435, #445) removes every legacy path: the
+`legacyState` and `legacyWorkers` keys, `worker adopt --from-legacy` (explicit
+`worker adopt <pr> <session-id>` remains), non-`opencode` worker records, the
+`Closes #n` task-header fallback, and approvals that rest only on a historical move
+to Approved. Such an issue needs a fresh `scope-review` and an owner Spec review →
+Executing move. Such a delivery needs a fresh `review <pr> owner`. Unknown
+configuration keys are now errors. The `limits` key (default on) reads provider
+quotas through OpenCode's oc-limits plugin and emits QUOTA watcher events; without
+the plugin, quotas read as unknown. New verbs: `limits`; `pr open|edit|merge` for
+non-task PRs; `release`; `upstream`, unused while `vmethod.repo` is `off`; `issue
+parent|unparent|reopen`; and `issue edit --scope-review`, which re-approves in the
+same step.
+
 ## Pilot gaps and remaining rollout
 
 rc.3 resolves the rc.1 gaps:
@@ -143,11 +159,6 @@ rc.3 resolves the rc.1 gaps:
   `button-merge` rather than completing owner button merges. The orchestrator runs
   `merge-task <pr>` for the idempotent follow-up (issues, board cleanup,
   branch/main-checkout refresh and dependency reinstall).
-- [vmethod#61](https://github.com/vworlds/vmethod/issues/61): `legacyWorkers` lists
-  `vecs-orchestrator/workers` and `vecs-orchestrator/claude-workers`. Run
-  `worker adopt --from-legacy` as the orchestrator and review every result; records
-  whose opencode session no longer resolves (the pre-move `/home/vecsmaster` paths)
-  are reported skips, never relocated or rewritten.
 
 `scope.fastPath: [bug]` keeps the vecs gating: an issue labelled `bug` still needs a
 SCOPE REVIEW but does not wait for owner scope approval. Delivery approval is

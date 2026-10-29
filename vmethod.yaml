@@ -5,10 +5,6 @@ releaseBranch: master
 stateName: vecs
 # Workers run in OpenCode worktrees of this second clone, never in this checkout.
 workerCheckout: ../vecs-worker
-legacyState: [vecs-watch]
-legacyWorkers:
-  - vecs-orchestrator/workers
-  - vecs-orchestrator/claude-workers
 # Owner decision (2026-10-19): the owner handles communication with vmethod, so
 # the watcher follows only this repository and board 4.
 vmethod:
