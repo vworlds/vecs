@@ -190,8 +190,8 @@ export class RateTickSource extends BaseTickSource {
   }
 }
 
-/** @internal Singleton source used by systems with no explicit cadence. */
-class _AlwaysTickSource implements ITickSource {
+/** Every-frame clock owned by one world; see {@link World.alwaysTickSource}. */
+export class AlwaysTickSource implements ITickSource {
   private _lastDelta = 0;
 
   public get didTick(): boolean {
@@ -212,5 +212,13 @@ class _AlwaysTickSource implements ITickSource {
   public _register(_world: World): void {}
 }
 
-/** Shared every-frame clock. Compare with `system.cadence` to identify default cadence. */
-export const ALWAYS_TICK_SOURCE: ITickSource = new _AlwaysTickSource();
+/**
+ * Legacy every-frame clock marker. Passing it to `system.tickSource()` or
+ * `system.rate()` resolves to the system's own world clock, but `system.cadence`
+ * never returns it.
+ *
+ * @deprecated Compare `system.cadence` with `system.world.alwaysTickSource`
+ * instead. Each world owns its own every-frame clock so nested worlds do not
+ * share deltas. This constant will be removed in the next release.
+ */
+export const ALWAYS_TICK_SOURCE: ITickSource = new AlwaysTickSource();

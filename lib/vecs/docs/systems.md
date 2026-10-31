@@ -483,7 +483,6 @@ not a live subscription. Read-only means the TypeScript array API; do not cast a
 
 ```ts
 import {
-  ALWAYS_TICK_SOURCE,
   DependsOn,
   IntervalTickSource,
   RateTickSource,
@@ -492,12 +491,12 @@ import {
   type ITickSource,
 } from "@vworlds/vecs";
 
-function describeCadence(source: ITickSource): string {
-  if (source === ALWAYS_TICK_SOURCE) return "every tick";
+function describeCadence(world: World, source: ITickSource): string {
+  if (source === world.alwaysTickSource) return "every tick";
   if (source instanceof IntervalTickSource) return `every ${source.seconds}s`;
   if (source instanceof RateTickSource) {
     return `every ${source.rate} ticks of ${
-      source.source ? describeCadence(source.source) : "world frames"
+      source.source ? describeCadence(world, source.source) : "world frames"
     }`;
   }
   if (source instanceof System) return `system ${source.name}`;
@@ -514,15 +513,18 @@ for (const [order, system] of world.pipeline.entries()) {
     order,
     name: system.name,
     phase: system.entity.target(DependsOn)?.name,
-    cadence: describeCadence(system.cadence),
+    cadence: describeCadence(world, system.cadence),
     enabled: system.enabled,
   });
 }
 ```
 
 `system.cadence` exposes the current source; the existing `.tickSource(source)` method configures
-it. Compare cadence by identity with the exported `ALWAYS_TICK_SOURCE` for the default every-tick
-case. `IntervalTickSource.seconds`, `RateTickSource.rate`, and `RateTickSource.source` are getters;
+it. Compare cadence by identity with `world.alwaysTickSource` for the default every-tick case.
+Each world owns its own every-frame clock, so stepping one world inside a system of another never
+leaks deltas between them. The module constant `ALWAYS_TICK_SOURCE` is deprecated and will be
+removed next release; `tickSource()` and `rate()` still accept it and resolve it to the system's
+world clock, but `system.cadence` returns the world clock, never the constant. `IntervalTickSource.seconds`, `RateTickSource.rate`, and `RateTickSource.source` are getters;
 an unconfigured standalone rate source has no upstream source and counts world frames. Replacing
 cadence changes the getter immediately. A source's existing `start`/`stop` controls still work.
 
@@ -533,7 +535,7 @@ reflect builder registrations immediately, including before the system is built:
 ```ts
 const perTickSystems = world.pipeline.filter(
   (system) =>
-    system.cadence === ALWAYS_TICK_SOURCE &&
+    system.cadence === world.alwaysTickSource &&
     (system.callbacks.includes("each") || system.callbacks.includes("run"))
 );
 const watchedComponents = world.pipeline.flatMap((system) => system.watched);

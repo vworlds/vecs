@@ -2,7 +2,7 @@ import { type QuerySpec } from "../dsl.js";
 import { type Entity } from "../entity/index.js";
 import { Query } from "../query/index.js";
 import { System } from "../system.js";
-import { ALWAYS_TICK_SOURCE, type ITickSource } from "../timer.js";
+import { AlwaysTickSource, type ITickSource } from "../timer.js";
 import type { WorldOptions } from "./world.base.js";
 import { Disposal } from "./world.disposal.js";
 import { WorldStats } from "./stats.js";
@@ -14,6 +14,8 @@ export class Pipeline extends Disposal {
   public _pipeline: System[] = [];
   /** @internal Query whose ordered result defines the system pipeline. */
   protected _pipelineQuery: Query<[typeof System]> | undefined = undefined;
+  /** @internal This world's every-frame clock, the default cadence of its systems. */
+  protected readonly _alwaysTickSource = new AlwaysTickSource();
   /** @internal World-owned tick sources evaluated once per frame. */
   protected _tickSources: Set<ITickSource> = new Set();
   /** @internal Monotonic frame id used to memoize tick-source evaluation. */
@@ -21,7 +23,17 @@ export class Pipeline extends Disposal {
 
   public constructor(options: WorldOptions = {}) {
     super(options);
-    this._tickSources.add(ALWAYS_TICK_SOURCE);
+    this._tickSources.add(this._alwaysTickSource);
+  }
+
+  /**
+   * This world's every-frame clock. Systems without an explicit cadence use it,
+   * so `system.cadence === system.world.alwaysTickSource` identifies the
+   * default cadence. Each world owns its own, so nested `progress` calls never
+   * share deltas.
+   */
+  public get alwaysTickSource(): ITickSource {
+    return this._alwaysTickSource;
   }
 
   /**
