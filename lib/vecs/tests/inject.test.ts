@@ -217,8 +217,7 @@ describe("Iter cursor", () => {
       const e = w.entity().add(Position);
       const seen: unknown[] = [];
       q.forEach({ cursor: Iter, inject: [Position] }, (it) => seen.push([it.entity, it.src[0]]));
-      expect(seen[0][0]).toBe(e);
-      expect(seen[0][1]).toBe(e);
+      expect(seen[0]).toEqual([e, e]);
     });
   });
 

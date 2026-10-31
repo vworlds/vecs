@@ -5,6 +5,7 @@ import {
   ComponentDef,
   CustomSnapshot,
   DontSnapshot,
+  type Entity,
   Exclusive,
   Identity,
   Implements,
@@ -72,7 +73,7 @@ describe("Trait", () => {
 
   it("marks exactly the eight built-in policy definitions in a fresh world", () => {
     const world = new World();
-    const expected = new Set(
+    const expected = new Set<Entity>(
       [Exclusive, Traversable, OwnedTarget, With, OneOf, Singleton, Implements, OnSnapshot].map(
         (Class) => world.component(Class)
       )

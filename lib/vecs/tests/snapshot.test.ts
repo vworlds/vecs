@@ -11,6 +11,7 @@ import {
   type Entity,
   World,
 } from "../src/index.js";
+import type { ComponentType } from "../src/component.js";
 
 class Position {
   x = 0;
@@ -56,7 +57,7 @@ function captureError(operation: () => void): unknown {
 }
 
 /** Number of entities in `world` carrying `component`. */
-function carried(world: World, component: typeof Position): number {
+function carried(world: World, component: ComponentType): number {
   return world.component(component).meta.usageCount;
 }
 
@@ -303,16 +304,20 @@ describe("snapshot capture — ClonePublic", () => {
     class Armor {
       plating = 2;
     }
+    class ArmoredPosition extends Position implements Health, Armor {
+      hp = 10;
+      plating = 2;
+    }
     w.component(Health);
     w.component(Armor);
-    w.component(Position).set(Implements, { interfaces: [Health, Armor] });
-    const root = w.entity().add(Position);
-    root.set(Position, { hp: 4, plating: 1 });
+    w.component(ArmoredPosition).set(Implements, { interfaces: [Health, Armor] });
+    const root = w.entity().add(ArmoredPosition);
+    root.set(ArmoredPosition, { hp: 4, plating: 1 });
 
     const [record] = w.snapshotSubtree(root).entities;
 
     expect(record.components).toHaveLength(1);
-    expect(record.components[0].Class).toBe(Position);
+    expect(record.components[0].Class).toBe(ArmoredPosition);
     expect(record.components[0].data).toMatchObject({ hp: 4, plating: 1 });
   });
 });
@@ -372,7 +377,9 @@ describe("snapshot capture — DontSnapshot", () => {
     const w = makeWorld();
     const other = makeWorld();
     const root = w.entity().add(Session);
-    root.get(Session)!.id = "bound";
+    root.getMut(Session, (session) => {
+      session.id = "bound";
+    });
     const snapshot = w.snapshotSubtree(root);
 
     // Declared after the capture: the snapshot must ignore it.
@@ -390,7 +397,9 @@ describe("snapshot capture — DontSnapshot", () => {
     const w = makeWorld();
     const other = makeWorld();
     const root = w.entity().add(Session);
-    root.get(Session)!.id = "captured";
+    root.getMut(Session, (session) => {
+      session.id = "captured";
+    });
     w.component(Session).snapshotPolicy(CustomSnapshot, {
       capture: (session) => ({ id: String((session as Session).id).toUpperCase() }),
       materialize: (data) => Object.assign(new Session(), data),
@@ -613,7 +622,7 @@ describe("snapshot capture — deep copy", () => {
       ],
       hull: { hp: 100, tag: "outer" },
     };
-    root.add(Rig, root).get(Rig)!.data = live;
+    root.add(Rig, root).set(Rig, { data: live });
 
     const result = w.restoreSubtree(other, w.snapshotSubtree(root));
     const restored = result.roots[0].get(Rig)!.data as typeof live;
@@ -633,17 +642,19 @@ describe("snapshot capture — deep copy", () => {
   it("copies Map, Set, Date, and typed arrays", () => {
     const w = makeWorld();
     const other = makeWorld();
-    const root = w.entity().add(Position);
-    const live = {
-      when: new Date(1_700_000_000_000),
-      tags: new Set(["a", "b"]),
-      weights: new Map<string, number>([["ore", 3]]),
-      bytes: new Uint8Array([1, 2, 3]),
-    };
-    Object.assign(root.get(Position)!, live);
+    class Collections {
+      when = new Date(1_700_000_000_000);
+      tags = new Set(["a", "b"]);
+      weights = new Map<string, number>([["ore", 3]]);
+      bytes = new Uint8Array([1, 2, 3]);
+    }
+    w.component(Collections);
+    other.component(Collections);
+    const live = new Collections();
+    const root = w.entity().set(Collections, live);
 
     const result = w.restoreSubtree(other, w.snapshotSubtree(root));
-    const restored = result.roots[0].get(Position)!;
+    const restored = result.roots[0].get(Collections)!;
 
     expect(restored.when).toEqual(live.when);
     expect(restored.when).not.toBe(live.when);
@@ -661,7 +672,9 @@ describe("snapshot capture — deep copy", () => {
     const root = w.entity().add(Position);
     const live: Record<string, unknown> = { name: "loop" };
     live.self = live;
-    Object.assign(root.get(Position)!, live);
+    root.getMut(Position, (position) => {
+      Object.assign(position, live);
+    });
 
     const result = w.restoreSubtree(other, w.snapshotSubtree(root));
     const detached = (result.roots[0].get(Position)! as unknown as Record<string, unknown>)
@@ -724,7 +737,7 @@ describe("snapshotSubtree — edges outside the forest", () => {
     const other = makeWorld();
     const outside = w.entity().add(Position);
     const root = w.entity().add(Position);
-    w.entity().add(Carries, root).get(Carries)!.weight = 3;
+    w.entity().add(Carries, root).set(Carries, { weight: 3 });
     outside.add(TetheredTo, root);
 
     const snapshot = w.snapshotSubtree(root);
@@ -1067,9 +1080,21 @@ describe("restoreSubtree", () => {
     const root = w.entity().add(Position);
     const child = w.entity().add(ChildOf, root);
     const snapshot = w.snapshotSubtree(root);
-    snapshot.entities.find((r) => r.source === child)!.relationships[0].targets = [999_999];
+    const malformed = {
+      ...snapshot,
+      entities: snapshot.entities.map((record) =>
+        record.source === child
+          ? {
+              ...record,
+              relationships: record.relationships.map((relationship, index) =>
+                index === 0 ? { ...relationship, targets: [999_999] } : relationship
+              ),
+            }
+          : record
+      ),
+    };
 
-    expect(() => w.restoreSubtree(other, snapshot)).toThrow(/is not part of the snapshot/);
+    expect(() => w.restoreSubtree(other, malformed)).toThrow(/is not part of the snapshot/);
     expect(carried(other, Position)).toBe(0);
   });
 
