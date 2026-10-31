@@ -931,8 +931,9 @@ system after whatever produces the entity/companion.
 - **`exit` retains injected references captured at exit** (components are not deep-cloned).
 - **A `remove` hook also fires while the entity is being destroyed,** with `entity.destroyed`
   already `true`. Write to its own entity without a guard in a `remove` hook or `exit`: every write,
-  including `ensure`, is silently dropped on a dying entity; `ensure` returns a fresh inert instance
-  when needed, and any writes to it are discarded ([#423](https://github.com/vworlds/vecs/issues/423)). Check `destroyed` only to skip other
+  including `ensure`, is silently dropped on a dying entity; `ensure` returns a fresh inert
+  instance when needed, and any writes to it are discarded
+  ([#423](https://github.com/vworlds/vecs/issues/423)). Check `destroyed` only to skip other
   pointless or unsafe work, such as re-projecting a view, refreshing other entities, or releasing
   shared state. In `exit`, it distinguishes death from merely leaving the query (see §4).
   A check on an entity looked up from a stored link still signals a missing edge (see §8 and
