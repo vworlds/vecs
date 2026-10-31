@@ -9,6 +9,9 @@ client/server pair.
 
 ## Start here
 
+Browser deployments require `'unsafe-eval'` in `script-src` for generated wire codecs; see the
+[Content Security Policy note](./lib/vecs-wire/README.md#content-security-policy).
+
 New to vecs? Start with the core library: **[`lib/vecs`](./lib/vecs/README.md)** and its
 [documentation](./lib/vecs/docs/README.md). Deeper docs for the other libraries will follow; today
 [`lib/vecs-physics/docs`](./lib/vecs-physics/docs/index.md) and the networking stack —

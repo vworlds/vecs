@@ -185,6 +185,9 @@ destroying a target removes that target's bucket according to normal relationshi
 
 ## Filters: one-shot scans
 
+Query compilation also uses `new Function`, so browser pages using queries need `'unsafe-eval'` in
+their `script-src` policy; see [issue #432](https://github.com/vworlds/vecs/issues/432).
+
 `world.filter(spec)` returns a `Filter` (`lib/vecs/src/filter.ts`): a non-reactive predicate that
 walks entities on each `forEach` call. It accepts the same DSL (including the filter-only
 `source` / `children` operators):

@@ -20,6 +20,10 @@ also knows when to let go of all of it.
 
 ## Connecting
 
+In browsers, query compilation and `@wireType` codecs require `'unsafe-eval'`; see the [query
+policy note](../../vecs/docs/queries-and-filters.md#filters-one-shot-scans) and [wire codec policy
+note](../../vecs-wire/README.md#content-security-policy).
+
 Either build the world with a socket or let `connectDgram` do both. The world installs its own
 `Pull` and `Apply` systems in the `ON_LOAD` phase, so a normal `progress()` loop applies everything
 that has arrived.
