@@ -24,9 +24,13 @@ const injected = (_e: unknown, [a, b]: readonly [A?, B?]): void => {
 };
 
 function time(run: () => void): number {
-  for (let i = 0; i < 200_000; i++) {run();}
+  for (let i = 0; i < 200_000; i++) {
+    run();
+  }
   const start = process.hrtime.bigint();
-  for (let i = 0; i < calls; i++) {run();}
+  for (let i = 0; i < calls; i++) {
+    run();
+  }
   return Number(process.hrtime.bigint() - start) / calls;
 }
 
