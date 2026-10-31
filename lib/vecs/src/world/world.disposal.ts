@@ -1,4 +1,5 @@
 import { CommandKind } from "../command.js";
+import { CleanupPolicy } from "../component_meta.js";
 import { Component } from "../component.js";
 import { type Entity } from "../entity/index.js";
 import { Phase } from "../modules/pipeline.js";
@@ -77,47 +78,42 @@ export class Disposal extends Transfers {
       });
       applications = this._destroyOrder();
     }
-    this._tearingDownInfrastructure = true;
-    try {
-      while (this._entities.size > 0) {
-        const entities = this._entities.values().filter((entity) => !entity.destroyed);
-        // The class registry is insertion-ordered; the dense entity map swaps entries on deletion.
-        const modules = [...this._classRegistry.values()]
-          .filter((entity) => entity instanceof Module && !entity.destroyed)
-          .reverse();
-        const queryEid = this.getEntity(Query)?.eid;
-        const queries = entities.filter((entity) => queryEid !== undefined && entity.has(queryEid));
-        const priority = new Set([...queries, ...modules]);
-        const ordered = [
-          ...queries,
-          ...modules,
-          ...entities.filter((entity) => !priority.has(entity)),
-        ];
-        let destroyed = 0;
-        for (const entity of ordered) {
-          if (!entity.destroyed) {
-            entity._destroy();
-            if (entity.destroyed) {
-              destroyed++;
-            }
-            this.flush();
+    this._neutraliseCleanup();
+    while (this._entities.size > 0) {
+      const entities = this._entities.values().filter((entity) => !entity.destroyed);
+      // The class registry is insertion-ordered; the dense entity map swaps entries on deletion.
+      const modules = [...this._classRegistry.values()]
+        .filter((entity) => entity instanceof Module && !entity.destroyed)
+        .reverse();
+      const queryEid = this.getEntity(Query)?.eid;
+      const queries = entities.filter((entity) => queryEid !== undefined && entity.has(queryEid));
+      const priority = new Set([...queries, ...modules]);
+      const ordered = [
+        ...queries,
+        ...modules,
+        ...entities.filter((entity) => !priority.has(entity)),
+      ];
+      let destroyed = 0;
+      for (const entity of ordered) {
+        if (!entity.destroyed) {
+          entity._destroy();
+          if (entity.destroyed) {
+            destroyed++;
           }
-        }
-        this.flush();
-        if (destroyed === 0 && this._entities.size > 0) {
-          throw new Error(
-            `Internal invariant: infrastructure teardown made no progress; registered entities: ${this._entities
-              .values()
-              .map(
-                (entity) =>
-                  `${entity.eid} (${entity.meta.Class.name}, destroyed=${entity.destroyed})`
-              )
-              .join(", ")}`
-          );
+          this.flush();
         }
       }
-    } finally {
-      this._tearingDownInfrastructure = false;
+      this.flush();
+      if (destroyed === 0 && this._entities.size > 0) {
+        throw new Error(
+          `Internal invariant: infrastructure teardown made no progress; registered entities: ${this._entities
+            .values()
+            .map(
+              (entity) => `${entity.eid} (${entity.meta.Class.name}, destroyed=${entity.destroyed})`
+            )
+            .join(", ")}`
+        );
+      }
     }
   }
 
@@ -131,6 +127,22 @@ export class Disposal extends Transfers {
       throw new Error(
         "dispose() must be called outside progress(), defer, a command drain or an entity's destroy"
       );
+    }
+  }
+
+  /**
+   * Strip every entity's key-side trait policy handlers and set its cleanup policies to `Remove`, so
+   * the infrastructure pass neither cascades nor throws. Covers every registered entity, not just class-registered components: named entities can be
+   * component keys too. Public hooks stay. The world is being
+   * destroyed, so the metas are not restored.
+   */
+  private _neutraliseCleanup(this: World): void {
+    for (const entity of this._entities.values()) {
+      const meta = entity.meta;
+      meta._onPolicyRemove = undefined;
+      meta._onTargetPolicyRemove = undefined;
+      meta.onDelete = CleanupPolicy.Remove;
+      meta.onDeleteTarget = CleanupPolicy.Remove;
     }
   }
 

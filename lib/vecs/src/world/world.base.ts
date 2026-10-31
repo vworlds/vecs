@@ -7,7 +7,6 @@ export interface WorldOptions {
 
 export class Base {
   /** @internal Suspend cleanup policies only during dispose's infrastructure pass. */
-  public _tearingDownInfrastructure = false;
 
   /**
    * @internal Per-world registry mapping a component class to its
