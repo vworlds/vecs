@@ -1,12 +1,10 @@
 import { CommandKind } from "../command.js";
 import { type ComponentRef } from "../component.js";
-import { Entity, Identity, type EID, type EntityClass } from "../entity/index.js";
+import { Entity, Identity, RESERVED_EID, type EID, type EntityClass } from "../entity/index.js";
 import { Deferred } from "./world.deferred.js";
 import type { World } from "./world.js";
 import { carriersFirst } from "./destroy-order.js";
 import { ChildOf } from "../modules/relationship_types.js";
-
-const RESERVED_EID = 0;
 
 export class Entities extends Deferred {
   /** @internal Parent applied only to entities created in the current scope. */
