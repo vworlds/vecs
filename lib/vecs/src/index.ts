@@ -1,6 +1,6 @@
 export { System, type SystemCallbackKind, type SystemQuery } from "./system.js";
 export type { Vec2 } from "./geometry.js";
-export { Query, GroupedQuery, Group } from "./query/index.js";
+export { Query, type GroupedQuery, Group } from "./query/index.js";
 export type { EntityTestFunc, MaybeRequired, QueryDSL } from "./dsl.js";
 export { Delta, Iter, Now } from "./inject.js";
 export type {

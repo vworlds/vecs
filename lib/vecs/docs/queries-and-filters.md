@@ -166,7 +166,7 @@ ballsByCell.group(key)?.count;
 for (const group of ballsByCell.groups()) { ... }
 ```
 
-Two forms (`lib/vecs/src/query/grouped_query.ts`):
+Two forms (`lib/vecs/src/query/query.ts`):
 
 - `groupBy([components], keyFn)` / `groupBy({ inject: [components] }, keyFn)` — bucket by a
   computed key; injected components are watched, so changing them re-keys the entity.
@@ -174,10 +174,16 @@ Two forms (`lib/vecs/src/query/grouped_query.ts`):
   in one bucket per relationship target. Adding or removing edges reconciles only the affected
   buckets; an exclusive replacement moves the member from the old target bucket to the new one.
 
-The result is a `GroupedQuery<K, R>` adding `group(key)`, `groups()`, `groupKeys()`, `groupCount`,
-and `onGroupEnter` / `onGroupExit` callbacks for bucket creation and disposal. Each `Group` exposes
+The result is the same query object typed as `GroupedQuery<K, R>`, with typed `group(key)`,
+`groups()`, `groupKeys()`, `groupCount`, and `onGroupEnter` / `onGroupExit` callbacks for bucket
+creation and disposal. Import `GroupedQuery` with `import type`: it is a type, not a runtime
+class, so neither `new GroupedQuery` nor `instanceof GroupedQuery` is supported. Each `Group` exposes
 `key`, `count`, `has`, iteration, and injected `forEach`. Grouping implies tracking. Systems do
 not support `groupBy` — keep the grouped query standalone and read it from a system.
+
+Calling a group accessor on an ungrouped query or system throws an error containing the query
+name and `is not grouped`. Configure grouping and its callbacks before building; grouping twice
+throws. Destroying a query clears its grouping state, so subsequent group access also throws.
 
 A many-target member can therefore appear in several groups at once. Re-adding an existing edge
 does not duplicate it within a bucket, removing one edge leaves its other buckets intact, and

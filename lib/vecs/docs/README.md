@@ -24,7 +24,7 @@ Read in this order the first time through:
      [execution-order, cadence, callback, and watched-component introspection](./systems.md#introspection) and
      [opt-in timing and run counts](./systems.md#measuring-systems).
    - [Queries and filters](./queries-and-filters.md) — the query DSL, live queries, one-shot
-     filters, grouped queries, `Bitset`.
+     filters, [grouped query types and live buckets](./queries-and-filters.md#grouped-queries-groupby), `Bitset`.
    - [Relationships](./relationships.md) — links, target creation and projection, ownership, hierarchy,
      cleanup cascades.
    - [Modules](./modules.md) — packaging features, composition, scopes and module provenance, built-in modules.
@@ -58,7 +58,7 @@ after reading the execution-model and systems guides.
 | [components.md](./components.md)                   | Component registration/provenance, definition reflection, hooks, traits, exclusivity, cleanup, aliases, and singletons. |
 | [entities.md](./entities.md)                       | Entity creation, mutation, relationship targets, lifecycle, disposal, deferred reads.                                   |
 | [systems.md](./systems.md)                         | `world.system`, callbacks, injection, ordering, cadence, introspection of callbacks and watches, and opt-in timing.     |
-| [queries-and-filters.md](./queries-and-filters.md) | `QueryDSL`, `Query`, `Filter`, `groupBy`, `ignoreSource`.                                                               |
+| [queries-and-filters.md](./queries-and-filters.md) | `QueryDSL`, `Query`, `Filter`, `groupBy`, the `GroupedQuery` type, `ignoreSource`.                                      |
 | [relationships.md](./relationships.md)             | Relationships, target creation, projection and ownership, hierarchy, traversal, and cleanup.                            |
 | [modules.md](./modules.md)                         | `Module<Config>`, `world.module`, `world.scope`, hierarchy provenance, built-in modules.                                |
 | [snapshots.md](./snapshots.md)                     | `snapshotSubtree`, `restoreSubtree`, `moveSubtree`, and `OnSnapshot` capture policies.                                  |
