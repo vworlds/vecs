@@ -6,6 +6,7 @@ import {
   type Relationship,
 } from "../component.js";
 import {
+  _resolveRelationship,
   containsDownTerm,
   isQueryConfig,
   type ExtractSpecsRequired,
@@ -15,7 +16,11 @@ import {
 import { Entity, type EID } from "../entity/index.js";
 import {
   forEachInjected,
+  getInjected,
+  injectArity,
+  injectWatchEids,
   Iter,
+  mapInject,
   type FanInjectCallbackArg,
   type FanInjectElement,
   type FanInjectTuple,
@@ -45,8 +50,9 @@ import {
   type InjectSnapshotter,
 } from "./callbacks.js";
 import { SOURCE_TRACKED_QUERY_ERROR } from "./constants.js";
-import { getGroupedQueryPrototype } from "./grouped_query_registry.js";
+import { type Group } from "./group.js";
 import { type GroupedQuery } from "./grouped_query.js";
+import { Grouping } from "./grouping.js";
 import type {
   CascadeOptions,
   EntityCursorOption,
@@ -124,6 +130,8 @@ export class Query<
   protected _destroyed = false;
   /** @internal Sorted projection. Unsorted membership is read from `rootTerm`. */
   protected _entities: Set<Entity> | undefined = undefined;
+  /** @internal Optional live bucket index configured by groupBy. */
+  protected _grouping: Grouping | undefined = undefined;
   /** @internal `true` once `with` has set an explicit predicate. */
   protected _hasExplicitQuery: boolean = false;
   /** @internal Per-component-eid `update` callbacks. */
@@ -178,6 +186,29 @@ export class Query<
       return 0;
     }
     return this._entities?.size ?? this.rootTerm?.count ?? 0;
+  }
+
+  /** Number of live buckets. Throws with the query name when not grouped. */
+  public get groupCount(): number {
+    return this._requireGrouping().groups.size;
+  }
+
+  /**
+   * Look up a live bucket. Use groupBy's return type for typed keys and members.
+   * Throws with the query name when not grouped.
+   */
+  public group(key: unknown): Group<unknown, R> | undefined {
+    return this._requireGrouping().get(key) as Group<unknown, R> | undefined;
+  }
+
+  /** Iterate live buckets. Throws with the query name when not grouped. */
+  public groups(): IterableIterator<Group<unknown, R>> {
+    return this._requireGrouping().groups.values() as IterableIterator<Group<unknown, R>>;
+  }
+
+  /** Iterate live bucket keys. Throws with the query name when not grouped. */
+  public groupKeys(): IterableIterator<unknown> {
+    return this._requireGrouping().keys();
   }
 
   public [Symbol.iterator](): IterableIterator<Entity> {
@@ -345,6 +376,11 @@ export class Query<
     return this;
   }
 
+  /**
+   * Partition this query into live buckets by injected values or relationship
+   * targets. Returns the same object typed as GroupedQuery, and enables tracking.
+   * @throws When already built or grouped. Systems do not support grouping.
+   */
   public groupBy<K, const J extends ComponentFanInjectTuple>(
     components: readonly [...J],
     key: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => K
@@ -364,14 +400,54 @@ export class Query<
     arg1?: (e: Entity, resolved: any) => any
   ): GroupedQuery<unknown, R> {
     this._assertConfigurable();
-    Object.setPrototypeOf(this, getGroupedQueryPrototype());
+    if (this._grouping !== undefined) {
+      throw new Error(`query '${this.name}' is already grouped`);
+    }
     if (isGroupByInjectOptions(arg0)) {
-      return (this as any)._initialize(arg0.inject, arg1);
+      arg0 = arg0.inject;
+    } else if (isRelationshipOptions(arg0)) {
+      arg0 = arg0.relationship;
     }
-    if (isRelationshipOptions(arg0)) {
-      return (this as any)._initialize(arg0.relationship, arg1);
+    let keysOf: (e: Entity) => Iterable<unknown>;
+    let watchEids: EID[];
+    if (typeof arg1 === "function") {
+      const components = arg0 as readonly FanInjectElement[];
+      const inject = mapInject(this.world, components);
+      const resolved = new Array(injectArity(inject));
+      keysOf = (e: Entity) => {
+        getInjected(e, inject, false, resolved);
+        return [arg1(e, resolved)];
+      };
+      watchEids = injectWatchEids(inject);
+      this._composeGroupMembership(components);
+    } else {
+      const relEid = _resolveRelationship(arg0 as ComponentRef, this.world);
+      keysOf = (e: Entity) => e.targets(relEid);
+      watchEids = [relEid];
+      this._composeGroupMembership([arg0 as ComponentRef]);
     }
-    return (this as any)._initialize(arg0, arg1);
+    for (const ceid of watchEids) {
+      this._watchlistBitmask.add(ceid);
+    }
+    this.track();
+    this._grouping = new Grouping(this.world, keysOf, watchEids);
+    return this as GroupedQuery<unknown, R>;
+  }
+
+  /** Configure bucket creation before building; throws when not grouped. */
+  public onGroupEnter(callback: (group: Group<unknown, R>) => void): this {
+    const grouping = this._requireGrouping();
+    this._assertConfigurable();
+    grouping.setOnGroupEnter(callback as (group: Group) => void);
+    return this;
+  }
+
+  /** Configure bucket removal before building; throws when not grouped. */
+  public onGroupExit(callback: (key: unknown, group: Group<unknown, R>) => void): this {
+    const grouping = this._requireGrouping();
+    this._assertConfigurable();
+    grouping.setOnGroupExit(callback as (key: unknown, group: Group) => void);
+    return this;
   }
 
   public ignoreSource(source: QueryDSL | Query): this {
@@ -585,11 +661,14 @@ export class Query<
     this._silenceQuery = undefined;
   }
 
+  /** Release membership and grouping state; subsequent group access throws. */
   public destroy(): void {
     if (this._destroyed) {
       return;
     }
     this._destroyed = true;
+    this._grouping?.clear();
+    this._grouping = undefined;
     this.world._removeQuery(this as any);
     this._entities?.clear();
     this._entities = undefined;
@@ -601,6 +680,7 @@ export class Query<
 
   /** Extension hook for subclasses that need to observe query membership entry. */
   protected _enter(e: Entity): void {
+    this._grouping?.enter(e);
     this.changed = true;
     this._entities?.add(e);
     e._addQueryMembership(this as any);
@@ -619,6 +699,7 @@ export class Query<
     this._exitCallback?.(e);
     this._entities?.delete(e);
     e._removeQueryMembership(this as any);
+    this._grouping?.exit(e);
   }
 
   /** @internal */
@@ -637,6 +718,8 @@ export class Query<
     if (callback) {
       callback(e, c);
     }
+    // Silenced writes return above, so they cannot leak through group membership.
+    this._grouping?.refresh(e, ceid);
   }
 
   public onTermEvent(kind: TermEventKind, entity: Entity): void {
@@ -656,7 +739,11 @@ export class Query<
 
   /** @internal */
   public _watchesUpdates(): boolean {
-    return this._componentUpdateCallbacks.size > 0 || (this._orderByWatch?.size ?? 0) > 0;
+    return (
+      this._grouping !== undefined ||
+      this._componentUpdateCallbacks.size > 0 ||
+      (this._orderByWatch?.size ?? 0) > 0
+    );
   }
 
   /** @internal Throw when a builder method is called after registration. */
@@ -716,6 +803,26 @@ export class Query<
     const q = this.world.query(`${this.name}:silence`).with(dsl);
     q.entity.childOf(this.entity);
     return q;
+  }
+
+  private _composeGroupMembership(refs: readonly unknown[]): void {
+    const componentRefs = refs.filter(
+      (ref): ref is ComponentRef =>
+        typeof ref === "number" || typeof ref === "function" || ref instanceof Entity
+    );
+    if (componentRefs.length === 0) {
+      return;
+    }
+    const existing: QueryDSL = this._dsl ?? true;
+    this._dsl = { all: [existing, ...componentRefs] };
+    this._hasExplicitQuery = true;
+  }
+
+  private _requireGrouping(): Grouping {
+    if (this._grouping === undefined) {
+      throw new Error(`query '${this.name}' is not grouped`);
+    }
+    return this._grouping;
   }
 
   /**

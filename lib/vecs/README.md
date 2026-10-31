@@ -61,6 +61,9 @@ world.progress(performance.now(), 16); // call once per frame
 
 ## Documentation
 
+Use the type returned by `groupBy`, [`GroupedQuery`](./docs/queries-and-filters.md#grouped-queries-groupby),
+for typed live bucket access; it is not a runtime class.
+
 Use the optional [`@vworlds/vecs/testing`](./docs/testing.md) equality tester for cheap reference
 comparisons in Vitest; entities and worlds also provide safe diagnostic JSON summaries.
 
