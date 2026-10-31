@@ -65,8 +65,8 @@ test(
 test("dependency pins and peer versions match the installed release", () => {
   const manifest = JSON.parse(readFileSync(join(root, "package.json")));
   const lock = JSON.parse(readFileSync(join(root, "package-lock.json")));
-  assert.equal(manifest.devDependencies["@vworlds/vmethod"], "1.0.0-rc.13");
-  assert.equal(lock.packages["node_modules/@vworlds/vmethod"].version, "1.0.0-rc.13");
+  assert.equal(manifest.devDependencies["@vworlds/vmethod"], "1.0.0-rc.14");
+  assert.equal(lock.packages["node_modules/@vworlds/vmethod"].version, "1.0.0-rc.14");
   assert.equal(manifest.devDependencies.mermaid, "12.1.0");
   assert.equal(manifest.devDependencies.jsdom, "26.1.0");
 });

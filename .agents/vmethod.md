@@ -140,6 +140,16 @@ non-task PRs; `release`; `upstream`, unused while `vmethod.repo` is `off`; `issu
 parent|unparent|reopen`; and `issue edit --scope-review`, which re-approves in the
 same step.
 
+## rc.14
+
+rc.14 needs no board migration and has no breaking change. The watcher bundles
+events after a short silence (`watch.debounceSeconds`, default 1;
+`watch.debounceMaxSeconds`, default 10) and writes board pacing to its private
+`watch-pacing.log` instead of the console. Executing cards sort dependencies before
+dependants. `issue edit` and `pr edit` can change the title; a title-only issue edit
+keeps the scope approval. `vmethod check` warns when `.claude/settings.local.json`
+still sets `GH_TOKEN` or `GITHUB_TOKEN`, which vmethod no longer reads.
+
 ## Pilot gaps and remaining rollout
 
 rc.3 resolves the rc.1 gaps:
