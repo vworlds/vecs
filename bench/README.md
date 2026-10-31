@@ -244,3 +244,10 @@ The gap comes from V8's allocation-site pretenuring, not from extra work. Under
 113 → 143 ms to destroy) while the new one stays at 185 ms and 135 ms, so the new layout is then
 the faster of the two. Neither the sector-tick benchmark nor the ECS microbenchmark, which create
 and destroy entities inside a longer-running process, shows the slowdown.
+
+## Injected forEach setup
+
+Run `node --import ./bench/register-dist.mjs bench/foreach-inject.ts` after building. It times a
+one-entity `Query.forEach` with component injection against the bare callback form and prints
+`FOREACH_INJECT` with nanoseconds per call, their ratio and a checksum. The injected form caches
+its invoker per callback, so the figure left over is per-entity resolution, not per-call setup.

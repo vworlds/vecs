@@ -827,4 +827,57 @@ describe("Iter cursor", () => {
       expect(srcs).toEqual([parent]);
     });
   });
+
+  describe("forEach invoker reuse", () => {
+    function setup() {
+      const w = new World();
+      w.component(Position);
+      w.component(Velocity);
+      w.entity().set(Position, { x: 1 }).set(Velocity, { vx: 2 });
+      return { w, q: w.query("reuse").with(Position, Velocity).build() };
+    }
+
+    it("hands the same tuple to two calls with the same callback", () => {
+      const { q } = setup();
+      const tuples: unknown[] = [];
+      const cb = (_e: Entity, resolved: unknown) => tuples.push(resolved);
+      q.forEach([Position, Velocity], cb);
+      q.forEach([Position, Velocity], cb);
+      expect(tuples).toHaveLength(2);
+      expect(tuples[1]).toBe(tuples[0]);
+    });
+
+    it("hands a different tuple to a different callback", () => {
+      const { q } = setup();
+      const tuples: unknown[] = [];
+      q.forEach([Position, Velocity], (_e, resolved) => tuples.push(resolved));
+      q.forEach([Position, Velocity], (_e, resolved) => tuples.push(resolved));
+      expect(tuples[1]).not.toBe(tuples[0]);
+    });
+
+    it("rebuilds when the inject elements differ and resolves the new ones", () => {
+      const { q } = setup();
+      const seen: unknown[][] = [];
+      const cb = (_e: Entity, resolved: readonly unknown[]) => seen.push([...resolved]);
+      q.forEach([Position, Velocity], cb);
+      q.forEach([Velocity, Position], cb);
+      expect(seen[0]![0]).toBeInstanceOf(Position);
+      expect(seen[1]![0]).toBeInstanceOf(Velocity);
+    });
+
+    it("does not share the tuple with a re-entrant call of the same callback", () => {
+      const { q } = setup();
+      const tuples: unknown[] = [];
+      let depth = 0;
+      const cb = (_e: Entity, resolved: unknown) => {
+        tuples.push(resolved);
+        if (depth++ === 0) {
+          q.forEach([Position, Velocity], cb);
+        }
+      };
+      q.forEach([Position, Velocity], cb);
+      expect(tuples).toHaveLength(2);
+      expect(tuples[1]).not.toBe(tuples[0]);
+    });
+  });
 });
