@@ -171,6 +171,14 @@ public trail: Position[] = [];
 
 Decorated classes are best for compact fixed-layout payloads. They do not write field names or optional field tags, so changing the decorated field list changes the wire format.
 
+## Content Security Policy
+
+`@wireType` codecs are compiled with `new Function` on first use. In a browser, the page's
+`script-src` must therefore allow `'unsafe-eval'`; otherwise the first decoded frame can throw
+`EvalError` after the connection has succeeded. Hand-written `wireEncode` / `wireDecode` methods do
+not compile this way. See [issue #432](https://github.com/vworlds/vecs/issues/432) for the archived
+interpreted-codec design and its measured cost.
+
 ## Reflection Fallback
 
 You can encode a class using core [member reflection](../vecs/docs/reflection.md) instead of
