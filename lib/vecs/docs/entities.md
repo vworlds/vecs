@@ -132,10 +132,7 @@ e.ensure(Velocity, (vel) => {
 });
 ```
 
-`ensure` always returns a component. On a destroyed entity, it skips the callback and all
-notifications, returning the existing instance if still held, or a fresh default instance that
-is never stored or registered as pending. Mutating that fresh instance has no effect on the entity.
-Like other writes, `ensure` needs no `destroyed` guard in a hook or `exit`.
+On a dying entity, `ensure` returns a fresh, inert instance when no existing instance is held; its callback is skipped and writes to it are discarded with the entity, so live-case callers need no `destroyed` guard ([#423](https://github.com/vworlds/vecs/issues/423)).
 When several calls ensure the same missing component on a live entity during one deferred scope,
 they return the same pending instance. The instance remains hidden from `get` and queries until
 the queue drains, but every ensure callback mutates that shared pending value.
