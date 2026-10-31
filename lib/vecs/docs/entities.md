@@ -132,15 +132,19 @@ e.ensure(Velocity, (vel) => {
 });
 ```
 
-`ensure` always returns a component for a live entity. Calling it on a destroyed entity throws.
-When several calls ensure the same missing component during one deferred scope, they return the
-same pending instance. The instance remains hidden from `get` and queries until the queue drains,
-but every ensure callback mutates that shared pending value.
+`ensure` always returns a component. On a destroyed entity, it skips the callback and all
+notifications, returning the existing instance if still held, or a fresh default instance that
+is never stored or registered as pending. Mutating that fresh instance has no effect on the entity.
+Like other writes, `ensure` needs no `destroyed` guard in a hook or `exit`.
+When several calls ensure the same missing component on a live entity during one deferred scope,
+they return the same pending instance. The instance remains hidden from `get` and queries until
+the queue drains, but every ensure callback mutates that shared pending value.
 
 Calling `getMut(C)` or `ensure(C)` without a callback outside deferred mode throws. Both methods
-also throw for relationship components (change edges with `add` / `remove` and ordinary data with
-`set`) and for `Implements` interface aliases. `attach` rejects relationships for the same reason:
-their private edge storage must remain under vecs's control.
+also reject relationship components (change edges with `add` / `remove` and ordinary data with
+`set`) and `Implements` interface aliases. For `ensure`, the destroyed-entity drop takes precedence
+over all these checks. `attach` rejects relationships for the same reason: their private edge
+storage must remain under vecs's control.
 
 ### `attach`: storing an existing instance
 
