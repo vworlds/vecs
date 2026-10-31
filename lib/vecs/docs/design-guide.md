@@ -396,6 +396,37 @@ Why:
 Components listed in the inject tuple but **not** guaranteed by `.with(...)` resolve as
 `T | undefined` (the types reflect this) — guard them; the ones in `.with` are always present.
 
+### Maintained state exists from creation
+
+A component a system **maintains** (derived or projected state, such as `Thrusting` from the input
+intent) exists from the moment the entity does, with its neutral value. The maintaining system
+requires it in `.with(...)`, injects it and writes it in place only when the value changes. Give it
+its neutral value where the entity is composed, or declare it with `With` on the component that
+makes the entity relevant (`world.component(Ship).add(With, world.component(Thrusting))`, during
+setup, see §3), so no creation path can forget it.
+
+```ts
+// ❌ set on first use: Thrusting is optional to every reader, and creation is split
+.update({ watch: PlayerInputIntent, onEnter: true }, (entity, input) => {
+  if (entity.get(Thrusting)?.on === input.thrust) return;
+  if (!entity.has(Thrusting)) entity.set(Thrusting, { on: input.thrust });
+  else entity.getMut(Thrusting, (t) => { t.on = input.thrust; });
+})
+
+// ✅ Thrusting { on: false } exists from creation; the system requires and injects it
+.with(Ship, PlayerInputIntent, Thrusting)
+.update({ watch: PlayerInputIntent, onEnter: true, inject: [Thrusting] }, (entity, input, [t]) => {
+  if (t.on === input.thrust) return;
+  t.on = input.thrust;
+  entity.modified(Thrusting);
+})
+```
+
+A set-on-first-use branch is the smell. It makes the component optional to every reader, which
+then needs `get` and `?.` guards, and it moves the component's creation out of the entity's
+composition. The exception is a component whose **presence** is the information: a tag or state
+marker the system adds and removes is meant to come and go.
+
 Inject `Now` or `Delta` when a system entity callback needs time, rather than capturing it in a
 separate `.run` callback. They mix with component and relationship injects in any tuple position:
 
@@ -866,6 +897,7 @@ system after whatever produces the entity/companion.
 | Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                                                                    |
 | `.each` scanning every entity to detect change                         | Reactive `.update(C)` — fires only on change.                                                                                                                                                    |
 | `entity.get(C)` for a component the callback always uses               | Inject it (`inject: [C]`); keep `get` for a component that is conditionally needed and rarely required.                                                                                          |
+| `has`/`set` on first use of state a system maintains                   | Create it with its neutral value (or via `With`); require it in `.with` and inject it ([§4](#maintained-state-exists-from-creation)).                                                            |
 | Treating target storage as component data                              | Use `add(Rel, target)` / `remove(Rel, target)` and read with `target` / `targets` / `hasTarget`; target storage is private.                                                                      |
 | A `registerFooSystem(world)` wrapper per system                        | Declare the system inline in the module's `init`.                                                                                                                                                |
 
