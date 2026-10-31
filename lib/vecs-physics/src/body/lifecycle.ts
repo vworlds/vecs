@@ -68,7 +68,7 @@ export class BodyLifecycleModule extends Module {
       .with(Body, Damping)
       .phase(phase)
       .update({ watch: Damping, onEnter: true, inject: [Body] }, (entity, damping, [body]) => {
-        const bodyId = body?._bodyId;
+        const bodyId = body._bodyId;
         if (bodyId === undefined) {
           return;
         }
@@ -84,7 +84,7 @@ export class BodyLifecycleModule extends Module {
       .update(
         { watch: GravityScale, onEnter: true, inject: [Body] },
         (entity, gravityScale, [body]) => {
-          const bodyId = body?._bodyId;
+          const bodyId = body._bodyId;
           if (bodyId === undefined) {
             return;
           }
@@ -98,7 +98,7 @@ export class BodyLifecycleModule extends Module {
       .with(Body, MotionLocks)
       .phase(phase)
       .update({ watch: MotionLocks, onEnter: true, inject: [Body] }, (entity, locks, [body]) => {
-        const bodyId = body?._bodyId;
+        const bodyId = body._bodyId;
         if (bodyId === undefined) {
           return;
         }
@@ -119,7 +119,7 @@ export class BodyLifecycleModule extends Module {
       .with(Body, Sleep)
       .phase(phase)
       .update({ watch: Sleep, onEnter: true, inject: [Body] }, (entity, sleep, [body]) => {
-        const bodyId = body?._bodyId;
+        const bodyId = body._bodyId;
         if (bodyId === undefined) {
           return;
         }
