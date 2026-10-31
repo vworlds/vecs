@@ -334,6 +334,11 @@ export class Components extends Relationships {
    * is optional and the returned component may be mutated before the queue drains.
    * Repeated calls before that drain return the same pending component instance.
    *
+   * On a destroyed entity, skips the callback and notifications and returns the
+   * existing instance or a fresh default instance that is never stored or pending.
+   * This drop applies with or without a callback, even outside deferred mode,
+   * before the live-entity relationship and interface checks.
+   *
    * @param typeOrClass - Component class or numeric type id.
    * @returns The mutable component instance.
    */
@@ -367,7 +372,8 @@ export class Components extends Relationships {
     callback?: (component: ComponentInstance) => void
   ): ComponentInstance {
     if (this._destroyed) {
-      throw new Error(`Cannot ensure component on destroyed entity ${this.eid}`);
+      const componentMeta = this.world.entity(ref).meta;
+      return this._get(componentMeta.eid) ?? new (componentMeta.Class as ComponentClass)();
     }
     if (callback === undefined && !this.world.deferred) {
       throw new Error("Entity.ensure without a callback is only allowed in deferred mode");

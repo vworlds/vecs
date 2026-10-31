@@ -174,10 +174,11 @@ resource management and cross-cutting reactions that aren't worth a system; use 
 reaction belongs to a phase.
 
 `remove` also fires when the owning entity is destroyed, and `entity.destroyed` is already `true`
-inside the hook. A dying entity takes no writes: `add`, `set`, `remove`, `modified` and `attach`
-are dropped without an error, and `ensure` throws. Releasing a resource needs no check. A hook that
-also writes to its own entity must skip the write when `entity.destroyed`, and that guard is the
-right one here (relationship hooks follow the same rule, see
+inside the hook. A dying entity silently drops every write, including `ensure`, so write to it
+without checking `destroyed` in a `remove` hook or a system's `exit`. Releasing the entity's resource
+also needs no check. Check `entity.destroyed` only to skip other work that is pointless or unsafe
+for a dying entity, such as re-projecting a view, refreshing other entities, or releasing shared
+state (relationship hooks follow the same rule, see
 [Relationships — edge hooks](./relationships.md#edge-hooks)):
 
 ```ts
@@ -187,9 +188,7 @@ class Stats {
 }
 
 world.component(Shield).on("remove", (entity) => {
-  if (!entity.destroyed) {
-    entity.ensure(Stats, (stats) => (stats.armor -= 10)); // throws on a dying entity
-  }
+  entity.ensure(Stats, (stats) => (stats.armor -= 10)); // silently dropped on a dying entity
 });
 ```
 
@@ -396,8 +395,8 @@ Rules (enforced by `ImplementsModule`, `lib/vecs/src/modules/implements.ts`):
 
 - **Aliases are read/query only.** `get`, `has`, `with`, `filter`, and injection accept an
   interface type; mutation must go through the concrete component. `add`, `set`, `remove`,
-  `modified`, `getMut`, `ensure`, and `attach` on an interface throw at runtime (and `add`/`set` are
-  rejected by TypeScript for abstract classes).
+  `modified`, `getMut`, `ensure`, and `attach` on an interface throw at runtime (`ensure` drops first
+  on a destroyed entity; `add`/`set` are rejected by TypeScript for abstract classes).
 - **Declarations are transitive.** `Orange` implements `Fruit`, `Fruit` implements `Food`, so an
   entity with `Orange` matches `with(Food)`. Cyclic declarations throw.
 - **One implementer per interface per entity.** Setting a second concrete component that

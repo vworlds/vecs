@@ -330,7 +330,9 @@ Details: [Queries and filters](./queries-and-filters.md#the-cost-of-not-and-with
   `.enter` owns initialization.
 - **`exit`** — fires when an entity stops matching (a component removed, or the entity destroyed).
   Its injected components are read from a **snapshot captured at exit time**, so they're still
-  resolvable even though they're being removed.
+  resolvable even though they're being removed. `entity.destroyed` tells you why it exited: `true`
+  means it died; `false` means it only left the query. Use `if (entity.destroyed) return;` for teardown
+  only for entities that stay alive, not to protect writes: every write to a dying entity is dropped.
 
 **Repeated writes in one tick.** Vecs never merges `update` events, so a callback fires once per
 routed write. `entity.modified(C)` and `entity.getMut(C)` coalesce through the entity's dirty bit:
@@ -846,26 +848,26 @@ system after whatever produces the entity/companion.
 
 ## 8. Anti-patterns (keep ECS semantics)
 
-| Smell                                                                  | Do instead                                                                                                                                           |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A side `Map<eid, resource>`                                            | Store the resource in a **companion component**; let queries drive its lifecycle; release in `onRemove`.                                             |
-| An imperative runtime object with `start()/stop()/track/enable`        | A **module** + the world's own lifecycle (`clearAllEntities()`, closing the world). Systems live on the world; they don't need a wrapper to turn on. |
-| Builder/factory helpers that _create entities_ (`createArc(world, …)`) | Let callers `world.entity().add(Networked).set(Arc, …).set(FillStyle, …)`. Components are small and optional; the caller adds exactly what it wants. |
-| A god component with many optional fields                              | Split into small single-purpose components; absence encodes "not applicable."                                                                        |
-| A large nested `inventory`, `brain`, or progression object             | Use an owned target entity when the subobject needs its own components, systems, and lifecycle.                                                      |
-| A side `Map<ownerEid, SubsystemState>`                                 | Create a target entity and add an explicit edge; use `Exclusive` + `OwnedTarget` only for destructive ownership.                                     |
-| An `eid` or `Entity` stored in a component field as a link             | A relationship edge: vecs cleans it up; a stored eid can name another entity once reused ([why](./relationships.md#link-with-edges-not-stored-ids)). |
-| A component field holding a child entity, destroyed in `onRemove`      | `Exclusive` + `OwnedTarget`: dropping the edge destroys the child; no hook, no stale field ([§7](#owned-target-entities-entity-valued-properties)).  |
-| `entity.destroyed` guards on an entity looked up from a stored link    | A missing edge: replace the link. Keep guards for event buffers and dying-entity hooks ([why](./relationships.md#link-with-edges-not-stored-ids)).   |
-| `OwnedTarget` on `CurrentEnemy`, `InCell`, `Team`, or shared state     | Use a normal relationship; replacing or removing an owned edge destroys its target.                                                                  |
-| One owned target used as a collection                                  | Use multiple child/item entities; owned targets model zero-or-one aggregates.                                                                        |
-| Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, onEnter: true })` when update owns initialization.                                                                           |
-| One system trying to act in two phases                                 | Split into two systems, one per phase.                                                                                                               |
-| Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                        |
-| `.each` scanning every entity to detect change                         | Reactive `.update(C)` — fires only on change.                                                                                                        |
-| `entity.get(C)` for a component the callback always uses               | Inject it (`inject: [C]`); keep `get` for a component that is conditionally needed and rarely required.                                              |
-| Treating target storage as component data                              | Use `add(Rel, target)` / `remove(Rel, target)` and read with `target` / `targets` / `hasTarget`; target storage is private.                          |
-| A `registerFooSystem(world)` wrapper per system                        | Declare the system inline in the module's `init`.                                                                                                    |
+| Smell                                                                  | Do instead                                                                                                                                                                                       |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A side `Map<eid, resource>`                                            | Store the resource in a **companion component**; let queries drive its lifecycle; release in `onRemove`.                                                                                         |
+| An imperative runtime object with `start()/stop()/track/enable`        | A **module** + the world's own lifecycle (`clearAllEntities()`, closing the world). Systems live on the world; they don't need a wrapper to turn on.                                             |
+| Builder/factory helpers that _create entities_ (`createArc(world, …)`) | Let callers `world.entity().add(Networked).set(Arc, …).set(FillStyle, …)`. Components are small and optional; the caller adds exactly what it wants.                                             |
+| A god component with many optional fields                              | Split into small single-purpose components; absence encodes "not applicable."                                                                                                                    |
+| A large nested `inventory`, `brain`, or progression object             | Use an owned target entity when the subobject needs its own components, systems, and lifecycle.                                                                                                  |
+| A side `Map<ownerEid, SubsystemState>`                                 | Create a target entity and add an explicit edge; use `Exclusive` + `OwnedTarget` only for destructive ownership.                                                                                 |
+| An `eid` or `Entity` stored in a component field as a link             | A relationship edge: vecs cleans it up; a stored eid can name another entity once reused ([why](./relationships.md#link-with-edges-not-stored-ids)).                                             |
+| A component field holding a child entity, destroyed in `onRemove`      | `Exclusive` + `OwnedTarget`: dropping the edge destroys the child; no hook, no stale field ([§7](#owned-target-entities-entity-valued-properties)).                                              |
+| `entity.destroyed` guards on an entity looked up from a stored link    | A missing edge: replace the link. Keep checks for event buffers and for skipping other work on dying entities, not protecting writes ([why](./relationships.md#link-with-edges-not-stored-ids)). |
+| `OwnedTarget` on `CurrentEnemy`, `InCell`, `Team`, or shared state     | Use a normal relationship; replacing or removing an owned edge destroys its target.                                                                                                              |
+| One owned target used as a collection                                  | Use multiple child/item entities; owned targets model zero-or-one aggregates.                                                                                                                    |
+| Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, onEnter: true })` when update owns initialization.                                                                                                                       |
+| One system trying to act in two phases                                 | Split into two systems, one per phase.                                                                                                                                                           |
+| Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                                                                    |
+| `.each` scanning every entity to detect change                         | Reactive `.update(C)` — fires only on change.                                                                                                                                                    |
+| `entity.get(C)` for a component the callback always uses               | Inject it (`inject: [C]`); keep `get` for a component that is conditionally needed and rarely required.                                                                                          |
+| Treating target storage as component data                              | Use `add(Rel, target)` / `remove(Rel, target)` and read with `target` / `targets` / `hasTarget`; target storage is private.                                                                      |
+| A `registerFooSystem(world)` wrapper per system                        | Declare the system inline in the module's `init`.                                                                                                                                                |
 
 ---
 
@@ -896,9 +898,11 @@ system after whatever produces the entity/companion.
   (see [`.enter`](./systems.md#entercallback--enterinject-callback--enteroptions-callback)).
 - **`exit` retains injected references captured at exit** (components are not deep-cloned).
 - **A `remove` hook also fires while the entity is being destroyed,** with `entity.destroyed`
-  already `true`. A dying entity takes no writes (`add`, `set`, `remove`, `modified` and `attach` are
-  dropped, `ensure` throws), so a hook that writes to its own entity guards on `entity.destroyed`.
-  That guard is legitimate; elsewhere a `destroyed` check usually signals a missing edge (see §8 and
+  already `true`. Write to its own entity without a guard in a `remove` hook or `exit`: every write,
+  including `ensure`, is silently dropped on a dying entity. Check `destroyed` only to skip other
+  pointless or unsafe work, such as re-projecting a view, refreshing other entities, or releasing
+  shared state. In `exit`, it distinguishes death from merely leaving the query (see §4).
+  A check on an entity looked up from a stored link still signals a missing edge (see §8 and
   [Hooks](./components.md#hooks-component-and-relationship-edges)).
 - **Release resources in `remove` hooks, not in a system's `exit` callback.** `world.dispose()`
   runs hooks during teardown, but a system's `exit` callback only queues its event and may not

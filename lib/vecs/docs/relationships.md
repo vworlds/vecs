@@ -48,7 +48,7 @@ cannot maintain a field:
   the stale id looks valid.
 - **A stored `Entity` dangles.** Reuse never makes it name another entity, because a destroyed
   `Entity` stays `destroyed`, but nothing clears the field when the entity dies. Writes through it
-  are dropped and `ensure` throws.
+  are silently dropped, including `ensure` (see [mutating in place](./entities.md#getmut-and-ensure-mutating-in-place)).
 - **An edge is cleaned up for you.** When the target is destroyed, `onDeleteTarget` removes the edge
   or destroys the source (see [Cleanup when a target dies](#cleanup-when-a-target-dies)). The
   reverse index (`children`), `target` and `parent` queries, `groupBy` and network replication work

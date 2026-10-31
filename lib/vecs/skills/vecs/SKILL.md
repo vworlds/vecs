@@ -105,9 +105,12 @@ other anti-patterns and pitfalls; each rule below links to the detail.
   replacing the edge destroys the child and destroying the child removes the edge, so no remove hook
   is needed. ([Owned targets](../../docs/relationships.md#owned-targets))
 - A `remove` hook also fires while its entity is being destroyed, with `entity.destroyed` already
-  `true`. A dying entity drops `add`, `set`, `remove`, `modified` and `attach` writes and `ensure`
-  throws, so guard a hook's writes to its own entity with `entity.destroyed`; that guard is
-  legitimate. ([Hooks](../../docs/components.md#hooks-component-and-relationship-edges))
+  `true`. Write to it without a guard in a `remove` hook or `exit`: a dying entity silently drops
+  every write, including `ensure`. Check `destroyed` only to skip other pointless or unsafe work
+  (re-projecting a view, refreshing other entities, releasing shared state). In `exit`, `true` means
+  death and `false` means it only left the query; `if (entity.destroyed) return;` expresses teardown
+  only for entities that stay alive, not a write workaround.
+  ([Hooks](../../docs/components.md#hooks-component-and-relationship-edges))
 - A `destroyed` check outside per-step event buffers and hooks on a dying entity or edge target
   usually means a link that should be a relationship edge. Replace the link, not only add the check.
   ([Link with edges, not stored ids](../../docs/relationships.md#link-with-edges-not-stored-ids))

@@ -362,7 +362,7 @@ describe("Entity — components", () => {
     expect(() => e.ensure(Position)).toThrow("deferred mode");
   });
 
-  it("ensure throws immediately on a destroyed entity", () => {
+  it("ensure returns fresh unstored instances on a destroyed entity, even outside deferred mode", () => {
     const w = new World();
     w.component(Position);
     const e = w.entity();
@@ -370,8 +370,12 @@ describe("Entity — components", () => {
 
     e.destroy();
 
-    expect(() => e.ensure(Position)).toThrow("destroyed entity");
-    expect(() => e.ensure(Position, callback)).toThrow("destroyed entity");
+    const first = e.ensure(Position);
+    const second = e.ensure(Position, callback);
+    expect(first).toEqual(new Position());
+    expect(second).toEqual(new Position());
+    expect(second).not.toBe(first);
+    expect(e.get(Position)).toBeUndefined();
     expect(callback).not.toHaveBeenCalled();
   });
 
