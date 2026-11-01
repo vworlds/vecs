@@ -132,10 +132,11 @@ export class System<R extends ComponentType[] = []>
   /** @internal Whether this system processes events and runs callbacks. */
   private _enabled = true;
   /** @internal Cadence source for this system. Defaults to every frame. */
-  private _tickSource: ITickSource = ALWAYS_TICK_SOURCE;
+  private _tickSource: ITickSource;
 
   constructor(name: string, world: World) {
     super(name, world, false);
+    this._tickSource = world.alwaysTickSource;
     this._queuesUpdates = true;
     this.entity.attach(System, this);
     this.phase(ON_UPDATE);
@@ -147,11 +148,21 @@ export class System<R extends ComponentType[] = []>
   }
 
   /**
-   * Current cadence clock. Compare with {@link ALWAYS_TICK_SOURCE} to recognise
+   * Current cadence clock. Use {@link hasDefaultCadence} to recognise
    * the default every-frame cadence; interval/rate configuration replaces it.
    */
   public get cadence(): ITickSource {
-    return this._tickSource;
+    // Deprecation window: report the legacy constant for the world's default clock.
+    return this.hasDefaultCadence ? ALWAYS_TICK_SOURCE : this._tickSource;
+  }
+
+  /**
+   * True when this system runs on its world's every-frame clock, i.e. no
+   * interval, rate or tick source was configured. Prefer this over comparing
+   * {@link cadence} by identity.
+   */
+  public get hasDefaultCadence(): boolean {
+    return this._tickSource === this.world.alwaysTickSource;
   }
 
   /**
@@ -480,7 +491,9 @@ export class System<R extends ComponentType[] = []>
   public rate(n: number, source: ITickSource): this;
   public rate(n: number, source?: ITickSource): this {
     this._assertConfigurable();
-    this._setTickSource(new RateTickSource(n, source ?? this._tickSource));
+    this._setTickSource(
+      new RateTickSource(n, source ? this._resolveSource(source) : this._tickSource)
+    );
     return this;
   }
 
@@ -507,9 +520,14 @@ export class System<R extends ComponentType[] = []>
     return this;
   }
 
+  /** Map the deprecated module constant to this system's world clock. */
+  private _resolveSource(source: ITickSource): ITickSource {
+    return source === ALWAYS_TICK_SOURCE ? this.world.alwaysTickSource : source;
+  }
+
   private _setTickSource(source: ITickSource): void {
-    this._tickSource = source;
-    source._register(this.world);
+    this._tickSource = this._resolveSource(source);
+    this._tickSource._register(this.world);
   }
 
   /**

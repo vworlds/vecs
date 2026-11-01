@@ -169,7 +169,9 @@ describe("System introspection", () => {
     const world = new World();
     const system = world.system("clock");
     expect(system.cadence).toBe(ALWAYS_TICK_SOURCE);
+    expect(system.hasDefaultCadence).toBe(true);
     system.interval(0.5);
+    expect(system.hasDefaultCadence).toBe(false);
     const interval = system.cadence as IntervalTickSource;
     expect(interval).toBeInstanceOf(IntervalTickSource);
     expect(interval.seconds).toBe(0.5);

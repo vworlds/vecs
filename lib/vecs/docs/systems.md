@@ -485,7 +485,7 @@ not a live subscription. Read-only means the TypeScript array API; do not cast a
 
 ```ts
 import {
-  ALWAYS_TICK_SOURCE,
+  AlwaysTickSource,
   DependsOn,
   IntervalTickSource,
   RateTickSource,
@@ -495,7 +495,7 @@ import {
 } from "@vworlds/vecs";
 
 function describeCadence(source: ITickSource): string {
-  if (source === ALWAYS_TICK_SOURCE) return "every tick";
+  if (source instanceof AlwaysTickSource) return "every tick";
   if (source instanceof IntervalTickSource) return `every ${source.seconds}s`;
   if (source instanceof RateTickSource) {
     return `every ${source.rate} ticks of ${
@@ -523,8 +523,14 @@ for (const [order, system] of world.pipeline.entries()) {
 ```
 
 `system.cadence` exposes the current source; the existing `.tickSource(source)` method configures
-it. Compare cadence by identity with the exported `ALWAYS_TICK_SOURCE` for the default every-tick
-case. `IntervalTickSource.seconds`, `RateTickSource.rate`, and `RateTickSource.source` are getters;
+it. Ask `system.hasDefaultCadence` for the default every-tick case.
+Each world owns its own every-frame clock, so stepping one world inside a system of another never
+leaks deltas between them. The module constant `ALWAYS_TICK_SOURCE` is deprecated and will be
+removed next release; `tickSource()` and `rate()` still accept it and resolve it to the system's
+world clock. During this release `system.cadence` still returns the constant for a system on its
+world's default clock; next release it returns `world.alwaysTickSource`. Use
+`system.hasDefaultCadence` instead of an identity comparison so your code works on both sides.
+`IntervalTickSource.seconds`, `RateTickSource.rate`, and `RateTickSource.source` are getters;
 an unconfigured standalone rate source has no upstream source and counts world frames. Replacing
 cadence changes the getter immediately. A source's existing `start`/`stop` controls still work.
 
@@ -535,7 +541,7 @@ reflect builder registrations immediately, including before the system is built:
 ```ts
 const perTickSystems = world.pipeline.filter(
   (system) =>
-    system.cadence === ALWAYS_TICK_SOURCE &&
+    system.hasDefaultCadence &&
     (system.callbacks.includes("each") || system.callbacks.includes("run"))
 );
 const watchedComponents = world.pipeline.flatMap((system) => system.watched);
