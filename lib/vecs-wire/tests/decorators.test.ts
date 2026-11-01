@@ -1,5 +1,19 @@
-import { describe, expect, it } from "vitest";
-import { Decoder, Encoder, tag, wireType, type WireTypeSpec } from "../src/index.js";
+import type { MemberScalarType } from "@vworlds/vecs";
+import { describe, expect, expectTypeOf, it } from "vitest";
+import {
+  Decoder,
+  Encoder,
+  tag,
+  wireType,
+  type WireScalarType,
+  type WireTypeSpec,
+} from "../src/index.js";
+
+describe("WireScalarType", () => {
+  it("is core's MemberScalarType, so a core scalar without a codec fails to compile", () => {
+    expectTypeOf<WireScalarType>().toEqualTypeOf<MemberScalarType>();
+  });
+});
 
 interface IStandardFieldDecoratorContext {
   kind: string;

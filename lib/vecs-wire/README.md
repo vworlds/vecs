@@ -57,6 +57,8 @@ const active = decoder.read_bool();
 
 The scalar methods are paired by name. Values must be read in exactly the same order and type shape they were written.
 
+The scalar names are the `MemberScalarType` union from `@vworlds/vecs`, the single definition, re-exported here as `WireScalarType`.
+
 | Type                    | Write method   | Read method   | JavaScript value |
 | ----------------------- | -------------- | ------------- | ---------------- |
 | Boolean                 | `write_bool`   | `read_bool`   | `boolean`        |
