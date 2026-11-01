@@ -6,7 +6,7 @@ JSDoc on the source in `lib/vecs-protocol/src/` — read it in your IDE.
 
 ## Reading order
 
-1. [Frames](./frames.md) — the `Server2Client` and `Client2Server` messages, their fields and tags,
+1. [Frames](./frames.md) — per-world `CidLayout`, layout-aware codecs, the `Server2Client` and `Client2Server` messages, their fields and tags,
    how a diff is labelled, and the optimistic marker and gap report.
 2. [Remote procedure calls](./rpc.md) — the call/answer channel, once-per-call handlers and the
    settled watermark, typed errors, reserved error and close codes, deadline timeouts, and aborts.

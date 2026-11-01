@@ -1,3 +1,4 @@
+import { CidLayout } from "@vworlds/vecs-protocol";
 import { describe, expect, it } from "vitest";
 import {
   Client2Server,
@@ -14,6 +15,8 @@ import {
   ClientWorld,
   type ClientWorldDisconnectEvent,
 } from "../src/index.js";
+
+const testCid = new CidLayout(4);
 
 // A server with `redundancyFrames` sends each frame as a delta from a base it presumes the client
 // holds, and marks the frame optimistic when that base is past the client's last ack. When the frames
@@ -78,7 +81,9 @@ function posSnapshot(eid: EID, x: number): EncodedSnapshot {
   const payload = new Encoder(new Uint8Array(64));
   payload.write(position);
   return new EncodedSnapshot(
-    encodeMessage(new ComponentSnapshot({ eid, wireType: 1, payload: payload.getBuffer() })),
+    encodeMessage(
+      new ComponentSnapshot(testCid, { eid, wireType: 1, payload: payload.getBuffer() })
+    ),
     eid,
     1
   );
@@ -92,7 +97,10 @@ function frame(
   optimistic = false
 ): Uint8Array {
   return encodeMessage(
-    new Server2Client({ diff: new StateDiff({ fromFrame, toFrame, snapshots }), optimistic })
+    new Server2Client({
+      diff: new StateDiff(testCid, { fromFrame, toFrame, snapshots }),
+      optimistic,
+    })
   );
 }
 
@@ -149,7 +157,7 @@ describe("a client that receives an optimistic diff it cannot apply yet", () => 
         client.entity(1000).add(LocalState);
         const held = new Server2Client({
           optimistic: true,
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 3,
             toFrame: 5,
             resets: [[1000, 4]],
@@ -179,7 +187,7 @@ describe("a client that receives an optimistic diff it cannot apply yet", () => 
           encodeMessage(
             new Server2Client({
               optimistic: true,
-              diff: new StateDiff({
+              diff: new StateDiff(testCid, {
                 fromFrame: 3,
                 toFrame: 6,
                 resets: [[1000, 4]],

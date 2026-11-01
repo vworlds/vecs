@@ -34,6 +34,15 @@ import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { PhaserServerModule } from "../src/index.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(2 ** Math.ceil(Math.log2(phaserNetworkComponents.length + 1)));
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
+const decodeComponentSnapshot = {
+  wireDecode: (decoder: Decoder) => ComponentSnapshot.decodeWith(testCid, decoder),
+};
 
 const STEP_MS = 1000 / 60;
 /** Frames observed after the one that introduces the entity to the client. */
@@ -143,9 +152,9 @@ function tickSnapshots(entity: Entity): ComponentSnapshot[] {
 
   const snapshots: ComponentSnapshot[] = [];
   for (const bytes of client.sent.slice(received)) {
-    const { diff } = new Decoder(bytes).read(Server2Client);
+    const { diff } = new Decoder(bytes).read(decodeServer2Client);
     for (const encoded of diff?.snapshots ?? []) {
-      const snapshot = new Decoder(encoded.bytes).read(ComponentSnapshot);
+      const snapshot = new Decoder(encoded.bytes).read(decodeComponentSnapshot);
       if (snapshot.eid === entity.eid) {
         snapshots.push(snapshot);
       }

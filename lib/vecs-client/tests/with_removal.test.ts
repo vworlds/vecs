@@ -1,3 +1,4 @@
+import { CidLayout } from "@vworlds/vecs-protocol";
 // A network removal of a component that another component on the entity brings through `With` is
 // skipped by ClientWorld.apply; any other removal, and the destruction of the entity, apply as sent.
 
@@ -14,6 +15,8 @@ import {
 import { Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
 import { Relationship, With, type ComponentClass, type EID } from "@vworlds/vecs";
 import { ClientWorld } from "../src/index.js";
+
+const testCid = new CidLayout(8);
 
 /** Wire type 1: a pose that a server streams, or that `Motion` brings when it sends none. */
 class Pose {
@@ -89,7 +92,7 @@ function encode(message: IEncodable | object): Uint8Array {
 
 function snapshot(eid: EID, wireType: number, payload: Uint8Array): EncodedSnapshot {
   return new EncodedSnapshot(
-    encode(new ComponentSnapshot({ eid, wireType, payload })),
+    encode(new ComponentSnapshot(testCid, { eid, wireType, payload })),
     eid,
     wireType
   );
@@ -153,7 +156,13 @@ class Client {
     this._socket.receive(
       encode(
         new Server2Client({
-          diff: new StateDiff({ fromFrame, toFrame: this._frame, snapshots, removed, resets }),
+          diff: new StateDiff(testCid, {
+            fromFrame,
+            toFrame: this._frame,
+            snapshots,
+            removed,
+            resets,
+          }),
         })
       )
     );

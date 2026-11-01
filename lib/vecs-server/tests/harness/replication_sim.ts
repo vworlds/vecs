@@ -420,7 +420,7 @@ export class SimClient {
   private _observeServerFrame(data: Uint8Array): void {
     this.stats.framesSent++;
     this.stats.bytesSent += data.length;
-    const message = new Decoder(data).read(Server2Client);
+    const message = Server2Client.decodeWith(this.world.cid, new Decoder(data));
     if (message.optimistic) {
       this.stats.optimisticFramesSent++;
     }
@@ -440,7 +440,7 @@ export class SimClient {
   }
 
   private _observeDelivery(data: Uint8Array): void {
-    const message = new Decoder(data).read(Server2Client);
+    const message = Server2Client.decodeWith(this.world.cid, new Decoder(data));
     if (message.diff?.fromFrame === 0) {
       this.stats.baselinesDelivered++;
     }

@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Client2Server, RPC, Server2Client, type VecsSocket } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, wireType } from "@vworlds/vecs-wire";
 import { NetworkClient, ServerWorld, VecsListener, type ServerRPCContext } from "../src/index.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(2);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
 
 class Position {
   @wireType("i32")
@@ -84,7 +90,7 @@ async function callRpc(socket: MemorySocket, world: ServerWorld): Promise<RPC> {
   await Promise.resolve();
   await Promise.resolve();
   world.progress(0, 16);
-  const replies = socket.sent.flatMap((bytes) => new Decoder(bytes).read(Server2Client).rpc);
+  const replies = socket.sent.flatMap((bytes) => new Decoder(bytes).read(decodeServer2Client).rpc);
   const reply = replies.find((candidate) => candidate.callId === 0);
   if (!reply) {
     throw new Error(`no RPC reply for ${socket.id}`);

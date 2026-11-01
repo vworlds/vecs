@@ -7,11 +7,10 @@ import {
   type IdPoolConfig,
   type WorldOptions,
 } from "@vworlds/vecs";
-import { cid_pack, setLocalComponentMin } from "./cid.js";
+import { CidLayout } from "./cid.js";
 
 const DEFAULT_ENTITY_ID_START = 1000;
 const DEFAULT_MODULE_ID_COUNT = 100;
-let configuredLocalComponentMin: number | undefined;
 
 export interface RegisteredNetworkComponent {
   Class: ComponentClass;
@@ -57,10 +56,14 @@ export interface NetworkWorldOptions extends Omit<WorldOptions, "idPools"> {
 }
 
 export class NetworkWorld extends World {
+  /** Packing rules for this world's schema, independent of every other world. */
+  public readonly cid: CidLayout;
+  /** First wire type outside this schema's packed component-id range. */
   public readonly localComponentMin: number;
   public readonly networkComponents: readonly RegisteredNetworkComponent[];
   private readonly _networkComponentsByType = new Map<number, RegisteredNetworkComponent>();
 
+  /** Register the ordered wire schema and build its independent CID layout once. */
   public constructor(options: NetworkWorldOptions = {}) {
     const networkComponents = options.networkComponents ?? [];
     if (networkComponents.includes(ComponentDef)) {
@@ -69,16 +72,17 @@ export class NetworkWorld extends World {
     if (networkComponents.includes(Trait)) {
       throw new Error("Trait is local schema metadata and cannot be networked");
     }
-    const localComponentMin = getLocalComponentMinFor(networkComponents.length);
-    configureLocalComponentMin(localComponentMin);
+    const localComponentMin = componentMinimumFor(networkComponents.length);
+    const cid = new CidLayout(localComponentMin);
     super({
       idPools: buildNetworkIdPools(options),
     });
 
     this.localComponentMin = localComponentMin;
+    this.cid = cid;
     this.networkComponents = networkComponents.map((Class, index) => {
       const wireType = index + 1;
-      cid_pack(0, wireType);
+      this.cid.pack(0, wireType);
       // Auto-allocate the component's internal eid from the "component" pool.
       // The wire type id (index + 1) is tracked separately for wire encoding
       // and is independent of the component's internal eid. Built-in
@@ -94,20 +98,6 @@ export class NetworkWorld extends World {
   public getNetworkComponent(wireType: number): RegisteredNetworkComponent | undefined {
     return this._networkComponentsByType.get(wireType);
   }
-}
-
-function configureLocalComponentMin(localComponentMin: number): void {
-  if (configuredLocalComponentMin === undefined) {
-    configuredLocalComponentMin = localComponentMin;
-    setLocalComponentMin(localComponentMin);
-    return;
-  }
-  if (configuredLocalComponentMin !== localComponentMin) {
-    throw new Error(
-      `NetworkWorld localComponentMin ${localComponentMin} does not match existing value ${configuredLocalComponentMin}`
-    );
-  }
-  setLocalComponentMin(localComponentMin);
 }
 
 function buildNetworkIdPools(options: NetworkWorldOptions): IdPoolConfig[] {
@@ -154,7 +144,7 @@ function buildNetworkIdPools(options: NetworkWorldOptions): IdPoolConfig[] {
   return pools;
 }
 
-function getLocalComponentMinFor(networkComponentCount: number): number {
+function componentMinimumFor(networkComponentCount: number): number {
   return nextPowerOfTwo(Math.max(2, networkComponentCount + 1));
 }
 

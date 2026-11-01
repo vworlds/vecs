@@ -1,3 +1,4 @@
+import { CidLayout } from "@vworlds/vecs-protocol";
 import { expect, it } from "vitest";
 import { Relationship, type EID } from "@vworlds/vecs";
 import {
@@ -16,6 +17,8 @@ import {
 } from "../src/index.js";
 import { Diff, DiffBuffer } from "../src/diff_buffer.js";
 import { History } from "../../vecs-server/src/history.js";
+
+const testCid = new CidLayout(4);
 
 class ResourceContainer {
   @wireType("i32")
@@ -61,7 +64,7 @@ function encode(value: IEncodable | object): Uint8Array {
 
 function snapshot(eid: EID, wireType: number, payload: Uint8Array): EncodedSnapshot {
   return new EncodedSnapshot(
-    encode(new ComponentSnapshot({ eid, wireType, payload })),
+    encode(new ComponentSnapshot(testCid, { eid, wireType, payload })),
     eid,
     wireType
   );
@@ -108,12 +111,16 @@ it.each([
     try {
       receive(
         socket,
-        new StateDiff({ fromFrame: 0, toFrame: first, snapshots: [resource(first), tow()] })
+        new StateDiff(testCid, {
+          fromFrame: 0,
+          toFrame: first,
+          snapshots: [resource(first), tow()],
+        })
       );
       world.send(); // Ack receipt without rendering: slot zero still ends at first.
       receive(
         socket,
-        new StateDiff({
+        new StateDiff(testCid, {
           fromFrame: first,
           toFrame: latest,
           snapshots: [resource(latest)],
@@ -126,7 +133,7 @@ it.each([
       // whose gapped delta would otherwise fail when the prefix is compacted.
       receive(
         socket,
-        new StateDiff({ fromFrame: from, toFrame: to, snapshots: [resource(to), tow()] }),
+        new StateDiff(testCid, { fromFrame: from, toFrame: to, snapshots: [resource(to), tow()] }),
         true
       );
       expect(disconnects).toEqual([]);
@@ -148,25 +155,25 @@ it.each([
 );
 
 it("retains the slot base during a pull before the folded first diff is due", () => {
-  const buffer = new DiffBuffer(3, 10);
-  buffer.push(new Diff(0, 1));
+  const buffer = new DiffBuffer(testCid, 3, 10);
+  buffer.push(new Diff(testCid, 0, 1));
   buffer.pull(0);
   buffer.pull(100); // Empty pull delays the next render until 130.
-  buffer.push(new Diff(1, 2));
-  buffer.push(new Diff(2, 6)); // Base 4, but the folded first diff still ends at 2.
+  buffer.push(new Diff(testCid, 1, 2));
+  buffer.push(new Diff(testCid, 2, 6)); // Base 4, but the folded first diff still ends at 2.
   expect(buffer.pull(101).to).toBe(1);
-  buffer.push(new Diff(1, 4));
-  buffer.push(new Diff(6, 7));
+  buffer.push(new Diff(testCid, 1, 4));
+  buffer.push(new Diff(testCid, 6, 7));
   expect(buffer.pull(200).to).toBe(7);
   expect(buffer.version).toBe(7);
 });
 
 it("indexes incoming frames correctly after partial compaction of a larger bucket", () => {
-  const buffer = new DiffBuffer(5, 10);
-  buffer.push(new Diff(0, 1));
-  buffer.push(new Diff(1, 7)); // Shift 2, leaving the incoming diff in slot 4.
-  buffer.push(new Diff(1, 6));
-  buffer.push(new Diff(7, 8));
+  const buffer = new DiffBuffer(testCid, 5, 10);
+  buffer.push(new Diff(testCid, 0, 1));
+  buffer.push(new Diff(testCid, 1, 7)); // Shift 2, leaving the incoming diff in slot 4.
+  buffer.push(new Diff(testCid, 1, 6));
+  buffer.push(new Diff(testCid, 7, 8));
   expect(buffer.pull(0).to).toBe(1);
   expect(buffer.pull(100).to).toBe(8);
   expect(buffer.version).toBe(8);
@@ -175,13 +182,16 @@ it("indexes incoming frames correctly after partial compaction of a larger bucke
 it("#244: preserves re-entry when exit and re-entry are applied in one catch-up", () => {
   const { world, socket } = client("issue-244");
   try {
-    receive(socket, new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [resource(), tow()] }));
+    receive(
+      socket,
+      new StateDiff(testCid, { fromFrame: 0, toFrame: 1, snapshots: [resource(), tow()] })
+    );
     world.apply(0);
     world.apply(1000);
     expect(world.getEntity(EID_A)?.target(TowedBy)?.eid).toBe(EID_B);
 
-    receive(socket, new StateDiff({ fromFrame: 1, toFrame: 2, resets: [[EID_A, 2]] }));
-    receive(socket, new StateDiff({ fromFrame: 2, toFrame: 3, snapshots: [resource()] }));
+    receive(socket, new StateDiff(testCid, { fromFrame: 1, toFrame: 2, resets: [[EID_A, 2]] }));
+    receive(socket, new StateDiff(testCid, { fromFrame: 2, toFrame: 3, snapshots: [resource()] }));
     world.apply(2000);
 
     expect(world.getEntity(EID_A)?.has(ResourceContainer)).toBe(true);
@@ -194,14 +204,17 @@ it("#244: preserves re-entry when exit and re-entry are applied in one catch-up"
 it("#245: clears the old tow edge when history folds a lost exit with untowed re-entry", () => {
   const { world, socket } = client("issue-245");
   try {
-    receive(socket, new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [resource(), tow()] }));
+    receive(
+      socket,
+      new StateDiff(testCid, { fromFrame: 0, toFrame: 1, snapshots: [resource(), tow()] })
+    );
     world.apply(0);
     world.apply(1000);
     expect(world.getEntity(EID_A)?.target(TowedBy)?.eid).toBe(EID_B);
 
-    const history = new History(64, 1);
-    history.push(new StateDiff({ fromFrame: 1, toFrame: 2, resets: [[EID_A, 2]] }));
-    history.push(new StateDiff({ fromFrame: 2, toFrame: 3, snapshots: [resource()] }));
+    const history = new History(testCid, 64, 1);
+    history.push(new StateDiff(testCid, { fromFrame: 1, toFrame: 2, resets: [[EID_A, 2]] }));
+    history.push(new StateDiff(testCid, { fromFrame: 2, toFrame: 3, snapshots: [resource()] }));
     receive(socket, history.pull(1, 3));
     world.apply(2000);
 
@@ -219,16 +232,20 @@ it.each(["zero targets", "old duplicate", "towed re-entry"] as const)(
     const disconnects: Array<ClientWorldDisconnectEvent | undefined> = [];
     world.events.on("disconnect", (notice) => disconnects.push(notice));
     const cargo = resource();
-    const baseline = new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [cargo, tow()] });
+    const baseline = new StateDiff(testCid, {
+      fromFrame: 0,
+      toFrame: 1,
+      snapshots: [cargo, tow()],
+    });
     try {
       receive(socket, baseline);
       world.apply(0);
       world.apply(1000);
       expect(world.getEntity(EID_A)?.target(TowedBy)?.eid).toBe(EID_B);
 
-      const history = new History(64, 1);
+      const history = new History(testCid, 64, 1);
       history.push(
-        new StateDiff({
+        new StateDiff(testCid, {
           fromFrame: 1,
           toFrame: 2,
           snapshots: scenario === "zero targets" ? [tow([])] : [],
@@ -237,7 +254,7 @@ it.each(["zero targets", "old duplicate", "towed re-entry"] as const)(
         })
       );
       history.push(
-        new StateDiff({
+        new StateDiff(testCid, {
           fromFrame: 2,
           toFrame: 3,
           snapshots: scenario === "towed re-entry" ? [cargo, tow([EID_C])] : [cargo],
@@ -291,13 +308,13 @@ it("#246: accepts a delayed older delta between newer ack-based deltas", () => {
   world.events.on("disconnect", (notice) => disconnects.push(notice));
   const cargo = resource();
   try {
-    receive(socket, new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [cargo] }));
+    receive(socket, new StateDiff(testCid, { fromFrame: 0, toFrame: 1, snapshots: [cargo] }));
     world.apply(0);
     world.apply(1000);
-    receive(socket, new StateDiff({ fromFrame: 1, toFrame: 2, snapshots: [cargo] }));
-    receive(socket, new StateDiff({ fromFrame: 2, toFrame: 6, snapshots: [cargo] }));
-    receive(socket, new StateDiff({ fromFrame: 1, toFrame: 4, snapshots: [cargo] }));
-    receive(socket, new StateDiff({ fromFrame: 6, toFrame: 7, snapshots: [cargo] }));
+    receive(socket, new StateDiff(testCid, { fromFrame: 1, toFrame: 2, snapshots: [cargo] }));
+    receive(socket, new StateDiff(testCid, { fromFrame: 2, toFrame: 6, snapshots: [cargo] }));
+    receive(socket, new StateDiff(testCid, { fromFrame: 1, toFrame: 4, snapshots: [cargo] }));
+    receive(socket, new StateDiff(testCid, { fromFrame: 6, toFrame: 7, snapshots: [cargo] }));
 
     expect(disconnects).toEqual([]);
     world.apply(2000);
@@ -312,14 +329,25 @@ it("#246 comment: does not resurrect a removed tow edge from a delayed older del
   const cargo = resource();
   const relationship = tow();
   try {
-    receive(socket, new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [cargo, relationship] }));
+    receive(
+      socket,
+      new StateDiff(testCid, { fromFrame: 0, toFrame: 1, snapshots: [cargo, relationship] })
+    );
     // Receipt is acknowledged independently of rendering; retain all three diffs in the buffer.
     world.send();
     receive(
       socket,
-      new StateDiff({ fromFrame: 1, toFrame: 5, snapshots: [cargo], removed: [[EID_A, TOWED_BY]] })
+      new StateDiff(testCid, {
+        fromFrame: 1,
+        toFrame: 5,
+        snapshots: [cargo],
+        removed: [[EID_A, TOWED_BY]],
+      })
     );
-    receive(socket, new StateDiff({ fromFrame: 1, toFrame: 4, snapshots: [cargo, relationship] }));
+    receive(
+      socket,
+      new StateDiff(testCid, { fromFrame: 1, toFrame: 4, snapshots: [cargo, relationship] })
+    );
     world.apply(0);
     world.apply(1000);
 
@@ -336,8 +364,8 @@ it("matches in-order applied state for every arrival permutation with one duplic
   // state frame 3. That delta is held if early and covered if late. Frame gaps force
   // partial and full compaction; removal at 5 is superseded by re-addition at 6.
   const deltas = [
-    new StateDiff({ fromFrame: 1, toFrame: 4, snapshots: [resource(4), tow()] }),
-    new StateDiff({
+    new StateDiff(testCid, { fromFrame: 1, toFrame: 4, snapshots: [resource(4), tow()] }),
+    new StateDiff(testCid, {
       fromFrame: 1,
       toFrame: 5,
       removed: [
@@ -345,26 +373,29 @@ it("matches in-order applied state for every arrival permutation with one duplic
         [EID_A, TOWED_BY],
       ],
     }),
-    new StateDiff({
+    new StateDiff(testCid, {
       fromFrame: 2,
       toFrame: 6,
       snapshots: [resource(6)],
       removed: [[EID_A, TOWED_BY]],
     }),
-    new StateDiff({
+    new StateDiff(testCid, {
       fromFrame: 2,
       toFrame: 10,
       snapshots: [resource(10)],
       removed: [[EID_A, TOWED_BY]],
     }),
-    new StateDiff({ fromFrame: 3, toFrame: 4, snapshots: [resource(4), tow()] }),
+    new StateDiff(testCid, { fromFrame: 3, toFrame: 4, snapshots: [resource(4), tow()] }),
   ];
   function applyOrder(order: readonly number[]): unknown {
     const { world, socket } = client("permutation");
     const disconnects: unknown[] = [];
     world.events.on("disconnect", (notice) => disconnects.push(notice));
     try {
-      receive(socket, new StateDiff({ fromFrame: 0, toFrame: 2, snapshots: [resource(2), tow()] }));
+      receive(
+        socket,
+        new StateDiff(testCid, { fromFrame: 0, toFrame: 2, snapshots: [resource(2), tow()] })
+      );
       world.send(); // Keep the baseline buffered so late 3 -> 4 can hit folded slot zero.
       for (const index of order) {
         receive(socket, deltas[index], index === 4);

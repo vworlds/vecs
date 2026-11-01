@@ -8,6 +8,12 @@ import {
 } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
 import { NetworkClient, ServerWorld, VecsListener } from "../src/index.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(2);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
 
 type SocketHandler = (arg?: unknown) => void;
 
@@ -31,7 +37,7 @@ class MemorySocket implements VecsSocket {
   public send(data: Uint8Array): void {
     this.sent.push(data);
     this.events.push("frame");
-    const frame = new Decoder(data).read(Server2Client);
+    const frame = new Decoder(data).read(decodeServer2Client);
     if (this.autoAck && frame.diff) {
       const toFrame = frame.diff.toFrame;
       queueMicrotask(() => this.receive(encode(new Client2Server({ ackFrame: toFrame }))));
@@ -52,7 +58,7 @@ class MemorySocket implements VecsSocket {
   }
 
   public replies(): RPC[] {
-    return this.sent.flatMap((bytes) => new Decoder(bytes).read(Server2Client).rpc);
+    return this.sent.flatMap((bytes) => new Decoder(bytes).read(decodeServer2Client).rpc);
   }
 }
 
@@ -153,7 +159,7 @@ describe("ServerWorld.shutdown", () => {
     await world.shutdown({ reason: "maintenance" });
 
     const notices = socket.sent
-      .map((bytes) => new Decoder(bytes).read(Server2Client).close)
+      .map((bytes) => new Decoder(bytes).read(decodeServer2Client).close)
       .filter((close) => close !== undefined);
     expect(notices.map((close) => close?.reason)).toContain("maintenance");
     expect(socket.closeCalls).toBe(1);

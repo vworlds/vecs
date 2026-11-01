@@ -1,9 +1,12 @@
+import { CidLayout } from "@vworlds/vecs-protocol";
 import { describe, expect, it } from "vitest";
 import { wireType, Decoder } from "@vworlds/vecs-wire";
 import { ArrayMap, IterableArrayMap, type EID, type Entity } from "@vworlds/vecs";
 import { Server2Client, type VecsSocket, type VecsSocketListener } from "@vworlds/vecs-protocol";
 import { Networked, NetworkClient, ServerWorld, View } from "@vworlds/vecs-server";
 import { ClientWorld } from "../src/index.js";
+
+const testCid = new CidLayout(4);
 
 // Regression coverage for the "inactive tab" reset storm.
 //
@@ -140,7 +143,7 @@ function serverState(live: Set<Entity>): IterableArrayMap<{ x: number; y: number
 }
 
 function diffRemoves(packet: Uint8Array, eid: EID): boolean {
-  const message = new Decoder(packet).read(Server2Client);
+  const message = Server2Client.decodeWith(testCid, new Decoder(packet));
   return message.diff?.resets?.some(([e]) => e === eid) ?? false;
 }
 

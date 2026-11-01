@@ -39,6 +39,15 @@ import {
   View,
 } from "../src/index.js";
 import { HISTORY_LENGTH } from "../src/history.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(2);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
+const decodeComponentSnapshot = {
+  wireDecode: (decoder: Decoder) => ComponentSnapshot.decodeWith(testCid, decoder),
+};
 
 class Position {
   @wireType("i32")
@@ -120,13 +129,13 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
 }
 
 function decodeFirstSnapshotPayload(bytes: Uint8Array): Position {
-  const message = new Decoder(bytes).read(Server2Client);
-  const snapshot = new Decoder(message.diff!.snapshots[0].bytes).read(ComponentSnapshot);
+  const message = new Decoder(bytes).read(decodeServer2Client);
+  const snapshot = new Decoder(message.diff!.snapshots[0].bytes).read(decodeComponentSnapshot);
   return new Decoder(snapshot.payload).read(Position);
 }
 
 function decodeLastMessage(socket: MemorySocket): Server2Client {
-  return new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
+  return new Decoder(socket.sent[socket.sent.length - 1]).read(decodeServer2Client);
 }
 
 interface TestSession {
@@ -352,7 +361,9 @@ async function deliver(
   await Promise.resolve();
   const before = socket.sent.length;
   tick(world);
-  return socket.sent.slice(before).flatMap((bytes) => new Decoder(bytes).read(Server2Client).rpc);
+  return socket.sent
+    .slice(before)
+    .flatMap((bytes) => new Decoder(bytes).read(decodeServer2Client).rpc);
 }
 
 /**
@@ -585,7 +596,7 @@ describe("ServerWorld", () => {
       world.progress(x, 16);
       const message = decodeLastMessage(socket);
       const snapshots = message.diff!.snapshots.map((encoded) =>
-        new Decoder(encoded.bytes).read(ComponentSnapshot)
+        new Decoder(encoded.bytes).read(decodeComponentSnapshot)
       );
       expect(snapshots).toHaveLength(1);
       expect(snapshots[0]).toMatchObject({ eid: definition.eid, wireType: 1 });
@@ -612,8 +623,8 @@ describe("ServerWorld", () => {
     // sent[0] is the join snapshot (no Position yet at connect time).
     // The most recent message contains the diff produced by progress().
     const last = socket.sent[socket.sent.length - 1];
-    const message = new Decoder(last).read(Server2Client);
-    const snapshot = new Decoder(message.diff!.snapshots[0].bytes).read(ComponentSnapshot);
+    const message = new Decoder(last).read(decodeServer2Client);
+    const snapshot = new Decoder(message.diff!.snapshots[0].bytes).read(decodeComponentSnapshot);
     const position = new Decoder(snapshot.payload).read(Position);
 
     expect(snapshot).toMatchObject({ eid: entity.eid, wireType: 1 });
@@ -640,7 +651,7 @@ describe("ServerWorld", () => {
 
     const last = socket.sent[socket.sent.length - 1];
     expect(socket.sent.length).toBeGreaterThan(removalStart);
-    const message = new Decoder(last).read(Server2Client);
+    const message = new Decoder(last).read(decodeServer2Client);
     expect(message.diff!.removed).toEqual([[entity.eid, 1]]);
     expect(message.diff!.snapshots).toEqual([]);
   });
@@ -664,7 +675,7 @@ describe("ServerWorld", () => {
 
     const last = socket.sent[socket.sent.length - 1];
     expect(socket.sent.length).toBeGreaterThan(removalStart);
-    const message = new Decoder(last).read(Server2Client);
+    const message = new Decoder(last).read(decodeServer2Client);
     expect(message.diff!.resets).toContainEqual([entity.eid, message.diff!.toFrame]);
     expect(message.diff!.removed).toEqual([]);
   });
@@ -688,7 +699,7 @@ describe("ServerWorld", () => {
 
     const last = socket.sent[socket.sent.length - 1];
     expect(socket.sent.length).toBeGreaterThan(removalStart);
-    const message = new Decoder(last).read(Server2Client);
+    const message = new Decoder(last).read(decodeServer2Client);
     expect(message.diff!.resets).toContainEqual([entity.eid, message.diff!.toFrame]);
     expect(message.diff!.removed).toEqual([]);
   });
@@ -712,7 +723,7 @@ describe("ServerWorld", () => {
     world.progress(16, 16);
 
     expect(socket.sent.length).toBeGreaterThan(removalStart);
-    const message = new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
+    const message = new Decoder(socket.sent[socket.sent.length - 1]).read(decodeServer2Client);
     expect(message.diff!.removed).toEqual([]);
     expect(message.diff!.resets).toBeUndefined();
     expect(message.diff!.snapshots).toHaveLength(1);
@@ -1006,7 +1017,7 @@ describe("ServerWorld", () => {
 
     const after = socket.sent.slice(baseline);
     expect(after.length).toBe(1);
-    const message = new Decoder(after[0]).read(Server2Client);
+    const message = new Decoder(after[0]).read(decodeServer2Client);
     expect(message.diff!.snapshots).toEqual([]);
     expect(message.diff!.removed).toEqual([[entity.eid, 1]]);
   });
@@ -1031,10 +1042,10 @@ describe("ServerWorld", () => {
     world.progress(16, 16);
 
     const after = socket.sent.slice(initialCount);
-    const lastDiff = new Decoder(after[after.length - 1]).read(Server2Client).diff;
+    const lastDiff = new Decoder(after[after.length - 1]).read(decodeServer2Client).diff;
     expect(lastDiff?.removed ?? []).toEqual([]);
     expect(lastDiff?.snapshots.length).toBe(1);
-    const snap = new Decoder(lastDiff!.snapshots[0].bytes).read(ComponentSnapshot);
+    const snap = new Decoder(lastDiff!.snapshots[0].bytes).read(decodeComponentSnapshot);
     expect(snap).toMatchObject({ eid: entity.eid, wireType: 1 });
     const pos = new Decoder(snap.payload).read(Position);
     expect(pos).toMatchObject({ x: 7, y: 7 });
@@ -1060,13 +1071,13 @@ describe("ServerWorld", () => {
     // the same buffer without slicing, the older message bytes would have been
     // overwritten by the newer one.
     expect(socket.sent.length).toBeGreaterThanOrEqual(2);
-    const m1 = new Decoder(socket.sent[socket.sent.length - 2]).read(Server2Client);
-    const m2 = new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
+    const m1 = new Decoder(socket.sent[socket.sent.length - 2]).read(decodeServer2Client);
+    const m2 = new Decoder(socket.sent[socket.sent.length - 1]).read(decodeServer2Client);
     const p1 = new Decoder(
-      new Decoder(m1.diff!.snapshots[0].bytes).read(ComponentSnapshot).payload
+      new Decoder(m1.diff!.snapshots[0].bytes).read(decodeComponentSnapshot).payload
     ).read(Position);
     const p2 = new Decoder(
-      new Decoder(m2.diff!.snapshots[0].bytes).read(ComponentSnapshot).payload
+      new Decoder(m2.diff!.snapshots[0].bytes).read(decodeComponentSnapshot).payload
     ).read(Position);
     expect(p1).toMatchObject({ x: 1, y: 1 });
     expect(p2).toMatchObject({ x: 2, y: 2 });
@@ -1548,7 +1559,7 @@ describe("ServerWorld", () => {
     const message = decodeLastMessage(socket);
     expect(message.diff!.removed).toEqual([]);
     const snapshotEids = message.diff!.snapshots.map(
-      (snapshot) => new Decoder(snapshot.bytes).read(ComponentSnapshot).eid
+      (snapshot) => new Decoder(snapshot.bytes).read(decodeComponentSnapshot).eid
     );
     expect(snapshotEids).toContain(entity.eid);
     expect(snapshotEids).toContain(entering.eid);
@@ -1893,7 +1904,7 @@ describe("ServerWorld RPC retransmission", () => {
 
   /** Every RPC reply the server has sent on `socket` so far. */
   function repliesSent(socket: MemorySocket): RPC[] {
-    return socket.sent.flatMap((bytes) => new Decoder(bytes).read(Server2Client).rpc);
+    return socket.sent.flatMap((bytes) => new Decoder(bytes).read(decodeServer2Client).rpc);
   }
 
   function connectClient(handler: Parameters<ServerWorld["handleRpc"]>[1]): {
@@ -2013,7 +2024,7 @@ describe("ServerWorld RPC retransmission", () => {
     server.closeSession("client-1", "done");
     tick(server); // the close frame
 
-    const frames = socket.sent.map((bytes) => new Decoder(bytes).read(Server2Client));
+    const frames = socket.sent.map((bytes) => new Decoder(bytes).read(decodeServer2Client));
     expect(frames).toHaveLength(2);
     expect(frames[0].rpc).toMatchObject([{ callId: 0, params: ["ok"] }]);
     expect(frames[1].close).toEqual({ reason: "done" });
@@ -2312,7 +2323,7 @@ describe("ServerWorld close linger", () => {
 
   /** Encode one delivered frame so its RPC replies can be inspected. */
   function deliveredReplies(socket: DropOnCloseSocket): RPC[] {
-    return socket.delivered.flatMap((bytes) => new Decoder(bytes).read(Server2Client).rpc);
+    return socket.delivered.flatMap((bytes) => new Decoder(bytes).read(decodeServer2Client).rpc);
   }
 
   it("delivers the typed error to a transport that drops undelivered sends on close", async () => {
@@ -2389,7 +2400,7 @@ describe("ServerWorld close linger", () => {
     expect(calls).toEqual([]);
     expect(session.entity.get(NetworkInput)).toBeUndefined();
     for (const bytes of socket.sent.slice(baseline)) {
-      const message = new Decoder(bytes).read(Server2Client);
+      const message = new Decoder(bytes).read(decodeServer2Client);
       // Only the flush frame may be written: an empty receipt diff, no state.
       expect(message.diff?.snapshots ?? []).toEqual([]);
       expect(message.diff?.removed ?? []).toEqual([]);
@@ -2409,14 +2420,16 @@ describe("ServerWorld close linger", () => {
     expect(server.closeSession("client-1", "superseded by client-2", 4003)).toBe(true);
     tick(server);
 
-    const frame = new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
+    const frame = new Decoder(socket.sent[socket.sent.length - 1]).read(decodeServer2Client);
     expect(socket.sent.length).toBe(before + 1);
     expect(frame.close).toEqual({ code: 4003, reason: "superseded by client-2" });
     expect(frame.diff).toBeDefined();
     // The close lingers until the frame is acked, like any close with a reply.
     expect(socket.closed).toBe(false);
     tick(server);
-    expect(new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client).close).toEqual({
+    expect(
+      new Decoder(socket.sent[socket.sent.length - 1]).read(decodeServer2Client).close
+    ).toEqual({
       code: 4003,
       reason: "superseded by client-2",
     });
@@ -2439,7 +2452,7 @@ describe("ServerWorld close linger", () => {
 
     await deliver(socket, server, { rpc: [new RPC({ rpcId: 101, callId: 0, params: [] })] });
 
-    const frame = new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
+    const frame = new Decoder(socket.sent[socket.sent.length - 1]).read(decodeServer2Client);
     expect(frame.rpc[0].error).toBe(4001);
     expect(frame.close).toEqual({ code: 4001, reason: "wrong world" });
   });
@@ -2478,7 +2491,7 @@ describe("ServerWorld close linger", () => {
     });
 
     // The flush frame is numbered: acking it is the delivery receipt.
-    const flush = new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
+    const flush = new Decoder(socket.sent[socket.sent.length - 1]).read(decodeServer2Client);
     expect(flush.diff).toBeDefined();
     const flushedTo = flush.diff!.toFrame;
     expect(socket.closed).toBe(false);
@@ -2542,7 +2555,7 @@ describe("ServerWorld close linger", () => {
         rpc: [new RPC({ rpcId: 101, callId: 0, params: [] })],
       });
       const flushBytes = socket.sent[socket.sent.length - 1];
-      const flushFrame = new Decoder(flushBytes).read(Server2Client);
+      const flushFrame = new Decoder(flushBytes).read(decodeServer2Client);
       const sentAfterFlush = socket.sent.length;
       expect(socket.closed).toBe(false);
 
@@ -2552,7 +2565,9 @@ describe("ServerWorld close linger", () => {
       // Every linger tick re-sends the same frame; the client deduplicates.
       expect(socket.sent.length - sentAfterFlush).toBe(2);
       for (const bytes of socket.sent.slice(sentAfterFlush)) {
-        expect(new Decoder(bytes).read(Server2Client).diff?.toFrame).toBe(flushFrame.diff!.toFrame);
+        expect(new Decoder(bytes).read(decodeServer2Client).diff?.toFrame).toBe(
+          flushFrame.diff!.toFrame
+        );
       }
 
       // The retransmitted frame carries the reply to the client, repeatedly.

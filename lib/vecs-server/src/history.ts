@@ -1,5 +1,5 @@
 import { IterableArrayMap, type EID } from "@vworlds/vecs";
-import { ALL_COMPONENTS, EncodedSnapshot, StateDiff } from "@vworlds/vecs-protocol";
+import { ALL_COMPONENTS, CidLayout, EncodedSnapshot, StateDiff } from "@vworlds/vecs-protocol";
 
 /**
  * Default number of frames a session's {@link History} retains: the default of
@@ -111,7 +111,9 @@ export class History {
   private _lastContentFrame: number;
   private _evictedContentFrame = Number.NEGATIVE_INFINITY;
 
+  /** Retain frame diffs encoded with the owning world's layout. */
   public constructor(
+    private readonly _cid: CidLayout,
     private readonly _length = HISTORY_LENGTH,
     lastFrame = -1
   ) {
@@ -121,7 +123,7 @@ export class History {
 
     for (let i = 0; i < _length; i++) {
       const toFrame = lastFrame - i;
-      this._buffer[this._index(toFrame)] = emptyDiff(toFrame);
+      this._buffer[this._index(toFrame)] = emptyDiff(this._cid, toFrame);
     }
   }
 
@@ -214,7 +216,7 @@ export class History {
     }
 
     if (to === from) {
-      return new StateDiff({ fromFrame: from, toFrame: to });
+      return new StateDiff(this._cid, { fromFrame: from, toFrame: to });
     }
 
     if (from < this._evictedContentFrame) {
@@ -226,7 +228,7 @@ export class History {
     }
 
     if (from >= this._lastContentFrame && to <= this._lastFrame) {
-      return new StateDiff({ fromFrame: from, toFrame: to });
+      return new StateDiff(this._cid, { fromFrame: from, toFrame: to });
     }
 
     const entities = new IterableArrayMap<EntityHistory>();
@@ -235,7 +237,7 @@ export class History {
       applyDiff(entities, this.get(frame));
     }
 
-    return forgeDiff(from, to, entities);
+    return forgeDiff(this._cid, from, to, entities);
   }
 
   private _index(frame: number): number {
@@ -276,8 +278,13 @@ function entityOf(entities: IterableArrayMap<EntityHistory>, eid: EID): EntityHi
   return entity;
 }
 
-function forgeDiff(from: number, to: number, entities: IterableArrayMap<EntityHistory>): StateDiff {
-  const forged = new StateDiff({ fromFrame: from, toFrame: to });
+function forgeDiff(
+  cid: CidLayout,
+  from: number,
+  to: number,
+  entities: IterableArrayMap<EntityHistory>
+): StateDiff {
+  const forged = new StateDiff(cid, { fromFrame: from, toFrame: to });
   const { snapshots, removed } = forged;
 
   entities.forEach((entity, eid) => {
@@ -299,8 +306,8 @@ function hasContent(diff: StateDiff): boolean {
   return diff.snapshots.length > 0 || diff.removed.length > 0 || (diff.resets?.length ?? 0) > 0;
 }
 
-function emptyDiff(toFrame: number): StateDiff {
-  return new StateDiff({
+function emptyDiff(cid: CidLayout, toFrame: number): StateDiff {
+  return new StateDiff(cid, {
     fromFrame: toFrame - 1,
     toFrame,
     snapshots: [],

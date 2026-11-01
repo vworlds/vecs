@@ -5,6 +5,12 @@ import type { Entity } from "@vworlds/vecs";
 import { Networked } from "../src/index.js";
 import { symmetric } from "./harness/lossy_link.js";
 import { ReplicationSim, type SimClient, type VersionAdvance } from "./harness/replication_sim.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(4);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
 
 /** Register deterministic replication scenarios at the smoke or stress horizon. */
 export function lossyReplicationCases(stress: boolean): void {
@@ -782,7 +788,7 @@ export function lossyReplicationCases(stress: boolean): void {
           });
           const client = run.sim.addClient();
           client.down.drop = (data) => {
-            const diff = new Decoder(data).read(Server2Client).diff;
+            const diff = new Decoder(data).read(decodeServer2Client).diff;
             return diff !== undefined && diff.fromFrame > 0 && lostFrames.has(diff.toFrame);
           };
           run.sim.run(ticks * run.sim.tickMs);

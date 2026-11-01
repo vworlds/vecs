@@ -30,6 +30,11 @@ import { DeadReckonedModule, PhaserRenderModule } from "../../src/index.js";
 import type { DeadReckonedModuleConfig } from "../../src/index.js";
 import { createMockScene } from "../mock_phaser.js";
 import { PPM, SCENE_HEIGHT, SCENE_WIDTH } from "./parenting_fixtures.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(
+  2 ** Math.ceil(Math.log2(phaserNetworkComponents.length + phaserMotionComponents.length + 1))
+);
 
 const NETWORK_COMPONENTS = [...phaserNetworkComponents, ...phaserMotionComponents];
 
@@ -73,7 +78,7 @@ export function setOnWire(eid: number, Class: ComponentClass, value: object): En
   const wireType = wireTypeOf(Class);
   const payload = encode(Object.assign(new Class(), value));
   return new EncodedSnapshot(
-    encode(new ComponentSnapshot({ eid, wireType, payload })),
+    encode(new ComponentSnapshot(testCid, { eid, wireType, payload })),
     eid,
     wireType
   );
@@ -124,7 +129,12 @@ export class Client {
     this._socket!.receive(
       encode(
         new Server2Client({
-          diff: new StateDiff({ fromFrame, toFrame: this._serverFrame, snapshots, removed }),
+          diff: new StateDiff(testCid, {
+            fromFrame,
+            toFrame: this._serverFrame,
+            snapshots,
+            removed,
+          }),
         })
       )
     );

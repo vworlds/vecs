@@ -10,6 +10,15 @@ import {
 import { Decoder, Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
 import { ChildOf, Relationship, type World } from "@vworlds/vecs";
 import { NetworkClient, Networked, ServerWorld, View } from "../src/index.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(4);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
+const decodeComponentSnapshot = {
+  wireDecode: (decoder: Decoder) => ComponentSnapshot.decodeWith(testCid, decoder),
+};
 
 class Position {
   @wireType("i32")
@@ -76,7 +85,7 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
 }
 
 function decodeLastMessage(socket: MemorySocket): Server2Client {
-  return new Decoder(socket.sent[socket.sent.length - 1]).read(Server2Client);
+  return new Decoder(socket.sent[socket.sent.length - 1]).read(decodeServer2Client);
 }
 
 /** Ack the baseline just sent: the server sends no delta until the client holds one. */
@@ -92,9 +101,6 @@ function allowAllClientViews(world: World): void {
 }
 
 // These tests use [Position, ChildOf] (2 components), so localComponentMin = 4.
-// They must run in a context where no prior test set localComponentMin to a
-// different value. Vitest isolates module state per test file when using the
-// default threads pool with per-file isolation, so a separate file is used.
 describe("ServerWorld relationship serialization", () => {
   it("serializes ChildOf relationships added to networkComponents", () => {
     const world = new ServerWorld({ networkComponents: [Position, ChildOf] });
@@ -111,7 +117,7 @@ describe("ServerWorld relationship serialization", () => {
 
     const message = decodeLastMessage(socket);
     const decoded = message.diff!.snapshots.map((s) => {
-      const snap = new Decoder(s.bytes).read(ComponentSnapshot);
+      const snap = new Decoder(s.bytes).read(decodeComponentSnapshot);
       return { eid: snap.eid, wireType: snap.wireType };
     });
 
@@ -119,10 +125,10 @@ describe("ServerWorld relationship serialization", () => {
     expect(childLink).toBeDefined();
 
     const rawSnapshot = message.diff!.snapshots.find((s) => {
-      const snap = new Decoder(s.bytes).read(ComponentSnapshot);
+      const snap = new Decoder(s.bytes).read(decodeComponentSnapshot);
       return snap.eid === child.eid && snap.wireType === 2;
     })!;
-    const snapshot = new Decoder(rawSnapshot.bytes).read(ComponentSnapshot);
+    const snapshot = new Decoder(rawSnapshot.bytes).read(decodeComponentSnapshot);
     const rel = decodeRelationshipSnapshot(new Decoder(snapshot.payload), ChildOf);
     expect(rel.targetEids).toEqual([parent.eid]);
   });
@@ -143,7 +149,7 @@ describe("ServerWorld relationship serialization", () => {
 
     const message = decodeLastMessage(socket);
     const wire = message
-      .diff!.snapshots.map((snapshot) => new Decoder(snapshot.bytes).read(ComponentSnapshot))
+      .diff!.snapshots.map((snapshot) => new Decoder(snapshot.bytes).read(decodeComponentSnapshot))
       .find((snapshot) => snapshot.eid === source.eid && snapshot.wireType === 2)!;
     const decoded = decodeRelationshipSnapshot(new Decoder(wire.payload), WeightedLink);
 
@@ -170,7 +176,7 @@ describe("ServerWorld relationship serialization", () => {
 
     const message = decodeLastMessage(socket);
     const wire = message
-      .diff!.snapshots.map((snapshot) => new Decoder(snapshot.bytes).read(ComponentSnapshot))
+      .diff!.snapshots.map((snapshot) => new Decoder(snapshot.bytes).read(decodeComponentSnapshot))
       .find((snapshot) => snapshot.eid === source.eid && snapshot.wireType === 2)!;
     expect(decodeRelationshipSnapshot(new Decoder(wire.payload), WeightedLink).targetEids).toEqual(
       [first.eid, second.eid].sort((a, b) => a - b)
@@ -215,7 +221,7 @@ describe("ServerWorld relationship serialization", () => {
 
     const message = decodeLastMessage(socket);
     const decoded = message.diff!.snapshots.map((s) => {
-      const snap = new Decoder(s.bytes).read(ComponentSnapshot);
+      const snap = new Decoder(s.bytes).read(decodeComponentSnapshot);
       return { eid: snap.eid, wireType: snap.wireType };
     });
 

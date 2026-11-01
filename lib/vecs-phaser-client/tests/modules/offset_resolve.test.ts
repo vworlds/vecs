@@ -40,6 +40,9 @@ import {
   spawnParent,
   tagChild,
 } from "./parenting_fixtures.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(2 ** Math.ceil(Math.log2(phaserNetworkComponents.length + 1)));
 
 describe("phaser.resolve.offset: untagged DrawBy children", () => {
   it("add the offset as is under a rotated parent", () => {
@@ -370,7 +373,9 @@ class MemorySocket implements VecsSocket {
 }
 
 function frame(fromFrame: number, toFrame: number, snapshots: EncodedSnapshot[]): Uint8Array {
-  return encode(new Server2Client({ diff: new StateDiff({ fromFrame, toFrame, snapshots }) }));
+  return encode(
+    new Server2Client({ diff: new StateDiff(testCid, { fromFrame, toFrame, snapshots }) })
+  );
 }
 
 function parentPose(x: number, y: number, angle: number): EncodedSnapshot[] {
@@ -383,7 +388,7 @@ function parentPose(x: number, y: number, angle: number): EncodedSnapshot[] {
 function snapshot(wireType: number, component: object): EncodedSnapshot {
   const payload = encode(component);
   return new EncodedSnapshot(
-    encode(new ComponentSnapshot({ eid: PARENT_EID, wireType, payload })),
+    encode(new ComponentSnapshot(testCid, { eid: PARENT_EID, wireType, payload })),
     PARENT_EID,
     wireType
   );

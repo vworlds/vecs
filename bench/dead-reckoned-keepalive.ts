@@ -67,7 +67,7 @@ class Socket implements VecsSocket {
     return this;
   }
   public send(data: Uint8Array): void {
-    this.frame = new Decoder(data).read(Server2Client).diff?.toFrame ?? this.frame;
+    this.frame = Server2Client.decodeWith(world.cid, new Decoder(data)).diff?.toFrame ?? this.frame;
   }
   public close(): void {
     this._handlers.get("disconnect")?.forEach((handler) => handler());

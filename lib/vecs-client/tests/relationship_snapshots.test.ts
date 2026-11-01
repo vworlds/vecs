@@ -1,3 +1,4 @@
+import { CidLayout } from "@vworlds/vecs-protocol";
 import { describe, expect, it } from "vitest";
 import {
   ComponentSnapshot,
@@ -14,6 +15,8 @@ import {
   ClientWorld,
   type ClientWorldDisconnectEvent,
 } from "../src/index.js";
+
+const testCid = new CidLayout(4);
 
 class Position {
   @wireType("i32")
@@ -72,7 +75,7 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
 
 function makeSnapshot(eid: EID, wireType: number, payload: Uint8Array): EncodedSnapshot {
   return new EncodedSnapshot(
-    encodeMessage(new ComponentSnapshot({ eid, wireType, payload })),
+    encodeMessage(new ComponentSnapshot(testCid, { eid, wireType, payload })),
     eid,
     wireType
   );
@@ -102,8 +105,6 @@ function childOfSnapshot(eid: EID, targetEid: EID): EncodedSnapshot {
 }
 
 // These tests use [Position, ChildOf] (2 components, localComponentMin = 4).
-// Separate file so the global localComponentMin doesn't conflict with the
-// existing client tests that use [Position] (localComponentMin = 2).
 describe("ClientWorld relationship snapshots", () => {
   it("reconciles many targets, creates every ghost, and applies ordinary fields", () => {
     const world = new ClientWorld({
@@ -122,7 +123,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 1,
             snapshots: [
@@ -149,7 +150,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 1,
             toFrame: 2,
             snapshots: [relationshipSnapshot(1000, WeightedLink, [1002, 1004], { weight: 11 })],
@@ -182,7 +183,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 1,
             snapshots: [relationshipSnapshot(1000, ExclusiveLink, [1001, 1002])],
@@ -216,7 +217,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 1,
             snapshots: [
@@ -247,7 +248,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 1,
             snapshots: [posSnapshot(1001, 2, 2), childOfSnapshot(1001, 1000)],
@@ -268,7 +269,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 1,
             toFrame: 2,
             snapshots: [posSnapshot(1000, 1, 1)],
@@ -296,7 +297,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 1,
             snapshots: [posSnapshot(1001, 2, 2), childOfSnapshot(1001, 1000)],
@@ -313,7 +314,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 1,
             toFrame: 2,
             snapshots: [childOfSnapshot(1001, 1002)],
@@ -329,7 +330,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 2,
             toFrame: 3,
             snapshots: [posSnapshot(1000, 1, 1)],
@@ -354,7 +355,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 1,
             snapshots: [posSnapshot(1001, 2, 2), childOfSnapshot(1001, 1000)],
@@ -370,7 +371,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 1,
             toFrame: 2,
             resets: [[1001, 2]],
@@ -386,7 +387,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 2,
             toFrame: 3,
             snapshots: [posSnapshot(1000, 1, 1)],
@@ -409,7 +410,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 1,
             snapshots: [
@@ -430,7 +431,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 1,
             toFrame: 2,
             removed: [[1001, 2]],
@@ -456,7 +457,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 1,
             snapshots: [posSnapshot(1001, 2, 2), childOfSnapshot(1001, 9999)],
@@ -471,7 +472,7 @@ describe("ClientWorld relationship snapshots", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 2,
             snapshots: [posSnapshot(2000, 5, 5)],
