@@ -50,17 +50,17 @@ export class EventOptInModule extends Module {
     // Sensor detection: enable if SensorEvents OR Detectable is present.
     // Query only single b2Shape geometries; chains have no runtime sensor-event
     // setter and are recreated by the chain opt-in system below.
-    world
+    const sensor = world
       .system("PhysicsEventOptInSync:Sensor")
       .with({ all: [SingleShape, { any: [SensorEvents, Detectable] }] })
-      .phase(phase)
-      .add(PhysicsSystemTag)
-      .enter([SingleShape], (_e, [shape]) => {
-        const shapeId = shape._shapeId;
-        if (shapeId !== undefined) {
-          engine.box2d.b2Shape_EnableSensorEvents(shapeId, true);
-        }
-      });
+      .phase(phase);
+    sensor.entity.add(PhysicsSystemTag);
+    sensor.enter([SingleShape], (_e, [shape]) => {
+      const shapeId = shape._shapeId;
+      if (shapeId !== undefined) {
+        engine.box2d.b2Shape_EnableSensorEvents(shapeId, true);
+      }
+    });
     // Disable at the exit flush so a late preStep destroy cannot leave a stale
     // setter in next tick's inbox after cleanup has already freed the shape.
     world
@@ -79,11 +79,12 @@ export class EventOptInModule extends Module {
         }
       });
 
-    world
+    const chainSensor = world
       .system("PhysicsEventOptInSync:ChainSensor")
       .with({ all: [Chain, { any: [SensorEvents, Detectable] }] }, chainWithBodyParent)
-      .phase(phase)
-      .add(PhysicsSystemTag)
+      .phase(phase);
+    chainSensor.entity.add(PhysicsSystemTag);
+    chainSensor
       .enter(
         { cursor: Iter, inject: [Chain, { target: [ChildOf, [Body]] }] },
         (it, [chain, body]) => {

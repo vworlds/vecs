@@ -90,7 +90,7 @@ export class BodyPoseOutModule extends Module {
         }
         changes.count = changedCount;
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }
 

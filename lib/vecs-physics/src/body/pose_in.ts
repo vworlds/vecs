@@ -17,7 +17,7 @@ export class BodyPoseInModule extends Module {
       .with(Body)
       .phase(phase)
       .ignoreSource([PhysicsSystemTag])
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsPoseSyncIn:Position")
@@ -39,7 +39,7 @@ export class BodyPoseInModule extends Module {
         );
         engine.pendingPoseChanges.push(entity);
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsPoseSyncIn:Rotation")
@@ -56,7 +56,7 @@ export class BodyPoseInModule extends Module {
         engine.fast.module._b2x_Body_SetAngle(bodyId.index1, rev(bodyId), rotation.angle);
         engine.pendingPoseChanges.push(entity);
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsPoseSyncIn:LinearVelocity")
@@ -79,7 +79,7 @@ export class BodyPoseInModule extends Module {
           );
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsPoseSyncIn:AngularVelocity")
@@ -101,6 +101,6 @@ export class BodyPoseInModule extends Module {
           );
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }

@@ -44,7 +44,7 @@ export class BodyMassModule extends Module {
           warnOnMasslessDynamicBodies(world, engine);
         }
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }
 

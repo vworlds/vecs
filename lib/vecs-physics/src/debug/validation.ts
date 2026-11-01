@@ -119,7 +119,7 @@ export class DebugModule extends Module {
         _validateBodyShapePositionEntities(bodyPoseFilter, prevBodyPoseEids, engine.warn);
         _validateForceEntities(forceFilter, engine.warn);
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }
 

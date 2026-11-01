@@ -637,7 +637,7 @@ function installPhysics(sector: Sector): void {
       trace(CB.bodyExit, entity.eid);
       engine.destroy(body.id);
     })
-    .add(PhysicsTag);
+    .entity.add(PhysicsTag);
 
   world.system("physics:PoseSyncIn").with(Body).phase(PRE_UPDATE).ignoreSource([PhysicsTag]);
 
@@ -654,7 +654,7 @@ function installPhysics(sector: Sector): void {
         sim.y = position.y;
       }
     })
-    .add(PhysicsTag);
+    .entity.add(PhysicsTag);
 
   world
     .system("physics:PoseSyncIn:Rotation")
@@ -668,7 +668,7 @@ function installPhysics(sector: Sector): void {
         sim.angle = rotation.angle;
       }
     })
-    .add(PhysicsTag);
+    .entity.add(PhysicsTag);
 
   world
     .system("physics:PoseSyncIn:LinearVelocity")
@@ -686,7 +686,7 @@ function installPhysics(sector: Sector): void {
         }
       }
     )
-    .add(PhysicsTag);
+    .entity.add(PhysicsTag);
 
   world
     .system("physics:PoseSyncIn:AngularVelocity")
@@ -703,7 +703,7 @@ function installPhysics(sector: Sector): void {
         }
       }
     )
-    .add(PhysicsTag);
+    .entity.add(PhysicsTag);
 
   world
     .system("physics:Forces")
@@ -718,13 +718,13 @@ function installPhysics(sector: Sector): void {
         sim.fy = force.y;
       }
     })
-    .add(PhysicsTag);
+    .entity.add(PhysicsTag);
 
   world
     .system("physics:Step")
     .phase(ON_UPDATE)
     .run(() => engine.step(DT_S))
-    .add(PhysicsTag);
+    .entity.add(PhysicsTag);
 
   // Like vecs-physics pose-out: four `set`s per moving body per tick.
   world
@@ -742,7 +742,7 @@ function installPhysics(sector: Sector): void {
         entity.set(AngularVelocity, { value: sim.av });
       }
     })
-    .add(PhysicsTag);
+    .entity.add(PhysicsTag);
 
   // Like vecs-phaser-server: physics pose drives the networked render pose.
   world

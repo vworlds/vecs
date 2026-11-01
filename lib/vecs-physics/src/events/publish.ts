@@ -84,7 +84,7 @@ export class EventPublishModule extends Module {
         copySet(engine.prevTouchedSensor, touchedSensor);
         copySet(engine.prevTouchedHit, touchedHit);
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }
 

@@ -34,6 +34,6 @@ export class ImpulseZeroModule extends Module {
 
         engine.impulseEntitiesThisStep.clear();
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }

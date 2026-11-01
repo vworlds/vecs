@@ -49,7 +49,7 @@ export class ShapeLifecycleModule extends Module {
           recreateSingleShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .query("PhysicsShapeTeardown")
@@ -72,7 +72,7 @@ export class ShapeLifecycleModule extends Module {
           recreateSingleShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }
 

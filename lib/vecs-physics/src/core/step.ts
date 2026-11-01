@@ -23,6 +23,6 @@ export class PhysicsStepModule extends Module {
         }
         engine.box2d._b2x_World_Step(engine.world, engine.fixedTimeStep, engine.subSteps);
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }

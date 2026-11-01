@@ -40,7 +40,7 @@ export class ForceGatherModule extends Module {
           force.wake ? 1 : 0
         );
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsForceGather:Torque")
@@ -68,6 +68,6 @@ export class ForceGatherModule extends Module {
           );
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }

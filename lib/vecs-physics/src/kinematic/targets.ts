@@ -38,7 +38,7 @@ export class KinematicTargetsModule extends Module {
           driveRotationTarget(engine, bodyId, rotationTarget, dt);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }
 

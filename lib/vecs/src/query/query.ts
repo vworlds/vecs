@@ -385,6 +385,11 @@ export class Query<
     return this;
   }
 
+  /**
+   * Adds a component, tag or relationship pair to this query's entity.
+   *
+   * @deprecated Use `query.entity.add(...)`. This forwarder is removed in a future release.
+   */
   public add<C extends ComponentClass>(
     Class: C,
     ...target: InstanceType<C> extends Relationship ? [target: ComponentRef] : []
@@ -396,6 +401,11 @@ export class Query<
     return this;
   }
 
+  /**
+   * Removes a component, tag or relationship from this query's entity.
+   *
+   * @deprecated Use `query.entity.remove(...)`. This forwarder is removed in a future release.
+   */
   public remove<C extends ComponentType>(Class: C): this;
   public remove(ceid: EID): this;
   public remove(entity: Entity): this;
@@ -404,6 +414,11 @@ export class Query<
     return this;
   }
 
+  /**
+   * Sets component properties on this query's entity.
+   *
+   * @deprecated Use `query.entity.set(...)`. This forwarder is removed in a future release.
+   */
   public set<C extends ComponentClass>(Class: C, props: Partial<InstanceType<C>>): this;
   public set(ceid: EID, props: Partial<ComponentInstance>): this;
   public set(entity: Entity, props: Partial<ComponentInstance>): this;
