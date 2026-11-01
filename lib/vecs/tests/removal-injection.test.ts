@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Entity, Implements, Iter, Relationship, World } from "../src/index.js";
-import { getInjected } from "../src/inject.js";
+import { getInjected, type InjectedValue } from "../src/inject.js";
 
 class A {
   value = 1;
@@ -14,6 +14,80 @@ abstract class Alias {
 class Link extends Relationship {}
 
 describe("removal injection", () => {
+  it("does not read or write the register when neither notification root exists", () => {
+    const world = new World();
+    const removed: unknown[] = [];
+    world.component(A).on("remove", (_e, instance) => removed.push(instance));
+    const entity = world.entity().add(A);
+    const instance = entity.get(A);
+    expect(world._componentTerms.get(world.entity(A).eid)).toBeUndefined();
+    expect(world._worldTerm).toBeUndefined();
+    for (const field of ["_removedEntity", "_removedCeid", "_removedInstance"]) {
+      Object.defineProperty(world, field, {
+        get: () => {
+          throw new Error(`Unexpected read of ${field}`);
+        },
+        set: () => {
+          throw new Error(`Unexpected write of ${field}`);
+        },
+      });
+    }
+
+    entity.remove(A);
+
+    expect(entity.get(A)).toBeUndefined();
+    expect(entity.has(A)).toBe(false);
+    expect(removed).toEqual([instance]);
+    expect(removed[0]).toBe(instance);
+    expect(world.component(A).meta.usageCount).toBe(0);
+  });
+
+  it("retains exit injection when only the world term observes a removal", () => {
+    const world = new World();
+    world.component(A);
+    world.component(B);
+    const entity = world.entity().add(A).add(B);
+    const instance = entity.get(A);
+    const seen: unknown[] = [];
+    world
+      .query("shape-only")
+      .with({ not: { only: [B] } })
+      .exit([A], (e, [a]) => {
+        seen.push(a, e.get(A));
+      })
+      .build();
+    expect(world._componentTerms.get(world.entity(A).eid)).toBeUndefined();
+    expect(world._worldTerm).not.toBeUndefined();
+
+    entity.remove(A);
+
+    expect(seen).toEqual([instance, undefined]);
+    expect(seen[0]).toBe(instance);
+  });
+
+  it("preserves an outer register through a nested unobserved removal hook", () => {
+    const world = new World();
+    world.component(A);
+    const seen: InjectedValue[] = [];
+    world.component(B).on("remove", (e) => {
+      getInjected(e, [world.entity(A).eid], true, seen);
+    });
+    const entity = world.entity().add(A).add(B);
+    const instance = entity.get(A);
+    world
+      .query("outer-only")
+      .with(A)
+      .exit((e) => e.remove(B))
+      .build();
+    expect(world._componentTerms.get(world.entity(B).eid)).toBeUndefined();
+    expect(world._worldTerm).toBeUndefined();
+
+    entity.remove(A);
+
+    expect(seen).toEqual([instance]);
+    expect(seen[0]).toBe(instance);
+  });
+
   it("injects the removed instance while live reads and predicates see absence", () => {
     const world = new World();
     world.component(A);

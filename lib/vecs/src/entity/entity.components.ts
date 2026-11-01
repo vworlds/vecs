@@ -118,20 +118,24 @@ export class Components extends Relationships {
     meta._onRemove?.(this, instance);
   }
 
-  /** @internal Scope the injection fallback to this notification, including nested removals. */
+  /** @internal Skip unobserved removals; otherwise scope injection to this notification. */
   protected _notifySlotRemoved(
     this: Entity,
     meta: ComponentMeta,
     instance: ComponentInstance
   ): void {
     const world = this.world;
+    const componentTerm = world._componentTerms.get(meta.eid);
+    if (componentTerm === undefined && world._worldTerm === undefined) {
+      return;
+    }
     const previousEntity = world._removedEntity;
     const previousCeid = world._removedCeid;
     const previousInstance = world._removedInstance;
     world._removedEntity = this;
     world._removedCeid = meta.eid;
     world._removedInstance = instance;
-    world._notifyComponentRemoved(meta.eid, this);
+    world._notifyComponentRemoved(meta.eid, this, componentTerm ?? null);
     world._removedEntity = previousEntity;
     world._removedCeid = previousCeid;
     world._removedInstance = previousInstance;
