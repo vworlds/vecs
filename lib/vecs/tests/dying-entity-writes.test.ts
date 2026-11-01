@@ -94,47 +94,52 @@ describe("writes on a dying entity", () => {
     }
   );
 
-  it.each([false, true])("drops numeric and entity-ref ensures (deferred: %s)", (deferred) => {
-    const world = new World();
-    const component = world.component(Present);
-    const entity = world.entity().add(Present);
-    const original = entity.get(Present);
-    const callback = vi.fn();
-    component.on("remove", () => {
-      const check = () => {
-        expect(entity.ensure(component.eid)).toBe(original);
-        expect(entity.ensure(component.eid, callback)).toBe(original);
-        expect(entity.ensure(component)).toBe(original);
-        expect(entity.ensure(component, callback)).toBe(original);
+  it.each([false, true])(
+    "drops class, numeric and entity-ref ensures (deferred: %s)",
+    (deferred) => {
+      const world = new World();
+      const component = world.component(Present);
+      const entity = world.entity().add(Present);
+      const original = entity.get(Present);
+      const callback = vi.fn();
+      component.on("remove", () => {
+        const check = () => {
+          expect(entity.ensure(component.eid)).toBe(original);
+          expect(entity.ensure(component.eid, callback)).toBe(original);
+          expect(entity.ensure(component)).toBe(original);
+          expect(entity.ensure(component, callback)).toBe(original);
+        };
+        if (deferred) {
+          world.defer(check);
+        } else {
+          check();
+        }
+      });
+      entity.destroy();
+      const checkMissing = () => {
+        const instances = [
+          entity.ensure(Present),
+          entity.ensure(Present, callback),
+          entity.ensure(component.eid),
+          entity.ensure(component.eid, callback),
+          entity.ensure(component),
+          entity.ensure(component, callback),
+        ];
+        expect(new Set(instances).size).toBe(6);
+        for (const instance of instances) {
+          expect(instance).toEqual(new Present());
+        }
+        expect(entity.get(Present)).toBeUndefined();
       };
       if (deferred) {
-        world.defer(check);
+        world.defer(checkMissing);
       } else {
-        check();
+        checkMissing();
       }
-    });
-    entity.destroy();
-    const checkMissing = () => {
-      const instances = [
-        entity.ensure(component.eid),
-        entity.ensure(component.eid, callback),
-        entity.ensure(component),
-        entity.ensure(component, callback),
-      ];
-      expect(new Set(instances).size).toBe(4);
-      for (const instance of instances) {
-        expect(instance).toEqual(new Present());
-      }
+      expect(callback).not.toHaveBeenCalled();
       expect(entity.get(Present)).toBeUndefined();
-    };
-    if (deferred) {
-      world.defer(checkMissing);
-    } else {
-      checkMissing();
     }
-    expect(callback).not.toHaveBeenCalled();
-    expect(entity.get(Present)).toBeUndefined();
-  });
+  );
 
   it("drops ensure before live-entity relationship and interface validation", () => {
     const world = new World();
