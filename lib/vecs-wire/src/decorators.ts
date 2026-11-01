@@ -1,24 +1,12 @@
-import { VecsStruct } from "@vworlds/vecs";
+import { VecsStruct, type MemberScalarType } from "@vworlds/vecs";
 import type { Decoder } from "./decoder.js";
 import type { Encoder, IEncodable } from "./encoder.js";
 
-export type WireScalarType =
-  | "bool"
-  | "u8"
-  | "i8"
-  | "u16"
-  | "i16"
-  | "u32"
-  | "i32"
-  | "u64"
-  | "i64"
-  | "enum"
-  | "f32"
-  | "f64"
-  | "string"
-  | "bytes"
-  | "any"
-  | "entity";
+/**
+ * A scalar wire type. This is core's `MemberScalarType`, so a scalar added
+ * there must gain a codec in `scalarMethods` or this package stops compiling.
+ */
+export type WireScalarType = MemberScalarType;
 
 export type WireConstructor<T = unknown> = new () => T;
 export type WireTypeSpec =
@@ -42,7 +30,7 @@ type DecoratedConstructor<T = unknown> = (new () => T) & {
   prototype: IEncodable;
 };
 
-const scalarMethods: Record<WireScalarType, { read: string; write: string }> = {
+const scalarMethods: Record<MemberScalarType, { read: string; write: string }> = {
   bool: { read: "read_bool", write: "write_bool" },
   u8: { read: "read_u8", write: "write_u8" },
   i8: { read: "read_i8", write: "write_i8" },
