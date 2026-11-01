@@ -429,10 +429,15 @@ export class ComponentMeta {
    * @param handler - Handler whose signature is constrained by `event`.
    * @returns This meta, for chaining.
    */
-  public on<E extends HookEvent>(event: E, handler: HookEventMap[E]): this;
-  /** @internal With `insert` `true`, prepend the handler; {@link _onTrait} uses it. */
-  public on<E extends HookEvent>(event: E, handler: HookEventMap[E], insert: boolean): this;
-  public on<E extends HookEvent>(event: E, handler: HookEventMap[E], insert = false): this {
+  public on<E extends HookEvent>(event: E, handler: HookEventMap[E]): this {
+    return this._on(event, handler, false);
+  }
+
+  /**
+   * @internal {@link on} with a choice of position: `insert` `true` prepends the
+   * handler instead of appending it. {@link _onTrait} uses it.
+   */
+  public _on<E extends HookEvent>(event: E, handler: HookEventMap[E], insert: boolean): this {
     switch (event) {
       case "add":
         this._onAdd = _installHook(this._onAdd, handler as HookHandler, insert);
@@ -519,7 +524,7 @@ export class ComponentMeta {
    * handlers and record it in {@link _traitHooks}.
    */
   public _onTrait<E extends HookEvent>(event: E, handler: HookEventMap[E]): this {
-    this.on(event, handler, true);
+    this._on(event, handler, true);
     (this._traitHooks ??= []).push([event, handler]);
     return this;
   }

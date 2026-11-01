@@ -7,6 +7,7 @@ import {
   type ComponentType,
   type HookEvent,
   type HookEventMap,
+  type HookHandler,
   type HookSlot,
   type TargetHandler,
 } from "../component_meta.js";
@@ -18,8 +19,9 @@ export class Components extends Relationships {
   /**
    * @internal Apply an `Attach` command: store the provided component instance,
    * replacing any previous instance for this type. Events are fired as if the
-   * caller had performed a `set` operation; replacing a different instance
-   * first fires `remove` for the old one and `add` for the new one.
+   * caller had performed a `set` operation. Replacing a different instance
+   * first runs the relationship traits' `remove` handlers for the old one and
+   * their `add` handlers for the new one; application handlers see only `set`.
    */
   public _attach(this: Entity, meta: ComponentMeta, component: ComponentInstance): void {
     if (meta._pendingEnsures?.get(this) === component) {
@@ -34,11 +36,11 @@ export class Components extends Relationships {
     const existing = this._components.get(meta.eid);
     const replaces = existing !== undefined && existing !== component;
     if (replaces) {
-      meta._onRemove?.(this, existing);
+      this._runTraitHooks(meta, "remove", existing);
     }
     this._storeComponent(meta, component, existing === undefined);
     if (replaces) {
-      meta._onAdd?.(this, component);
+      this._runTraitHooks(meta, "add", component);
     }
     this._notifyComponentSet(meta, component, existing !== undefined);
   }
@@ -825,6 +827,28 @@ export class Components extends Relationships {
     }
     if (!existing) {
       this.world._notifyComponentAdded(meta.eid, this);
+    }
+  }
+
+  /**
+   * Run the relationship-trait handlers recorded for `event` on `meta`, in the
+   * order the hook list holds them (each trait prepends, so the latest first).
+   */
+  private _runTraitHooks(
+    this: Entity,
+    meta: ComponentMeta,
+    event: "add" | "remove",
+    component: ComponentInstance
+  ): void {
+    const traitHooks = meta._traitHooks;
+    if (traitHooks === undefined) {
+      return;
+    }
+    for (let i = traitHooks.length - 1; i >= 0; i--) {
+      const [e, handler] = traitHooks[i];
+      if (e === event) {
+        (handler as HookHandler)(this, component);
+      }
     }
   }
 

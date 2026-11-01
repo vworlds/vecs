@@ -182,7 +182,7 @@ describe("Entity — components", () => {
     expect(onSet).toHaveBeenCalledWith(e, pos);
   });
 
-  it("attach replacing an instance fires remove for the old, add for the new, then set", () => {
+  it("attach replacing an instance fires only set for application hooks", () => {
     const w = new World();
     const calls: [string, Position][] = [];
     w.component(Position)
@@ -195,12 +195,30 @@ describe("Entity — components", () => {
     e.attach(pos1);
     calls.length = 0;
     e.attach(pos2);
+    expect(calls).toEqual([["set", pos2]]);
+    expect(e.get(Position)).toBe(pos2);
+  });
+
+  it("attach replacing an instance runs trait remove for the old and trait add for the new", () => {
+    const w = new World();
+    const calls: [string, Position][] = [];
+    const position = w.component(Position);
+    position.meta._onTrait("add", (_e, c) => calls.push(["trait add", c as Position]));
+    position.meta._onTrait("remove", (_e, c) => calls.push(["trait remove", c as Position]));
+    position
+      .on("remove", (_e, c) => calls.push(["remove", c]))
+      .on("set", (_e, c) => calls.push(["set", c]));
+    const e = w.entity();
+    const pos1 = new Position();
+    const pos2 = new Position();
+    e.attach(pos1);
+    calls.length = 0;
+    e.attach(pos2);
     expect(calls).toEqual([
-      ["remove", pos1],
-      ["add", pos2],
+      ["trait remove", pos1],
+      ["trait add", pos2],
       ["set", pos2],
     ]);
-    expect(e.get(Position)).toBe(pos2);
   });
 
   it("attach of the stored instance fires only set", () => {

@@ -199,9 +199,9 @@ reference; both return the component entity for chaining. The built-in relations
 lists, ahead of yours, so your handlers see the state they establish: a `ChildOf` `targetAdd`
 handler already finds the source's `Traversable` depth updated.
 
-`entity.attach(instance)` that replaces a different stored instance fires `remove` for the old
-instance and `add` for the new one, then `set`. Attaching the instance already stored fires only
-`set`.
+`entity.attach(instance)` that replaces a different stored instance fires only `set` for your
+handlers. The built-in traits' own `remove` and `add` handlers run for the old and new instance
+first, so a trait such as `Traversable` refuses being swapped out.
 
 ## Component traits: policy on component entities
 
