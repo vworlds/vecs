@@ -31,7 +31,7 @@ export class ShapePoseModule extends Module {
           recreateSingleShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsShapePoseSync:ChainPosition")
@@ -48,7 +48,7 @@ export class ShapePoseModule extends Module {
           recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsShapePoseSync:Rotation")
@@ -65,7 +65,7 @@ export class ShapePoseModule extends Module {
           recreateSingleShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsShapePoseSync:ChainRotation")
@@ -82,6 +82,6 @@ export class ShapePoseModule extends Module {
           recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }

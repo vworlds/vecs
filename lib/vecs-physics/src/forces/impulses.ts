@@ -63,7 +63,7 @@ export class ImpulseAccumulateModule extends Module {
         drainLinearImpulses(engine);
         drainAngularImpulses(engine);
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }
 

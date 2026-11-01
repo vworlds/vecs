@@ -49,7 +49,7 @@ export class BodyLifecycleModule extends Module {
         }
         engine.box2d.b2Body_SetBullet(bodyId, body.bullet);
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     // Queries observe exits at flush time, even after the preStep systems ran.
     // Only enqueue here: the cleanup phase destroys children before their bodies.
@@ -75,7 +75,7 @@ export class BodyLifecycleModule extends Module {
         engine.box2d.b2Body_SetLinearDamping(bodyId, damping.linear);
         engine.box2d.b2Body_SetAngularDamping(bodyId, damping.angular);
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsBodyLifecycle:GravityScale")
@@ -91,7 +91,7 @@ export class BodyLifecycleModule extends Module {
           engine.box2d.b2Body_SetGravityScale(bodyId, gravityScale.value);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsBodyLifecycle:MotionLocks")
@@ -112,7 +112,7 @@ export class BodyLifecycleModule extends Module {
           }
         );
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsBodyLifecycle:Sleep")
@@ -127,7 +127,7 @@ export class BodyLifecycleModule extends Module {
         engine.box2d.b2Body_SetAwake(bodyId, sleep.awake);
         engine.box2d.b2Body_SetSleepThreshold(bodyId, sleep.threshold);
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }
 

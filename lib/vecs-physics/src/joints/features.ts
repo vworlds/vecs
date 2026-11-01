@@ -43,8 +43,8 @@ export class JointFeaturesModule extends Module {
     const motor = world
       .system("PhysicsJointMotorSync")
       .with(JointMotor, jointWithBothBodies)
-      .phase(phase)
-      .add(PhysicsSystemTag);
+      .phase(phase);
+    motor.entity.add(PhysicsSystemTag);
     motor.update({ watch: JointMotor, onEnter: true, inject: [Joint] }, (_e, value, [joint]) => {
       withLiveJoint(engine, joint, (id) => applyMotor(engine.box2d, joint, id, value));
     });
@@ -55,8 +55,8 @@ export class JointFeaturesModule extends Module {
     const limit = world
       .system("PhysicsJointLimitSync")
       .with(JointLimit, jointWithBothBodies)
-      .phase(phase)
-      .add(PhysicsSystemTag);
+      .phase(phase);
+    limit.entity.add(PhysicsSystemTag);
     limit.update({ watch: JointLimit, onEnter: true, inject: [Joint] }, (_e, value, [joint]) => {
       withLiveJoint(engine, joint, (id) => applyLimit(engine.box2d, joint, id, value));
     });
@@ -67,8 +67,8 @@ export class JointFeaturesModule extends Module {
     const linear = world
       .system("PhysicsJointLinearSpringSync")
       .with(JointLinearSpring, jointWithBothBodies)
-      .phase(phase)
-      .add(PhysicsSystemTag);
+      .phase(phase);
+    linear.entity.add(PhysicsSystemTag);
     linear.update(
       { watch: JointLinearSpring, onEnter: true, inject: [Joint] },
       (_e, value, [joint]) => {
@@ -82,8 +82,8 @@ export class JointFeaturesModule extends Module {
     const angular = world
       .system("PhysicsJointAngularSpringSync")
       .with(JointAngularSpring, jointWithBothBodies)
-      .phase(phase)
-      .add(PhysicsSystemTag);
+      .phase(phase);
+    angular.entity.add(PhysicsSystemTag);
     angular.update(
       { watch: JointAngularSpring, onEnter: true, inject: [Joint] },
       (_e, value, [joint]) => {

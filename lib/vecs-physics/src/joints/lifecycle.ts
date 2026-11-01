@@ -72,7 +72,7 @@ export class JointLifecycleModule extends Module {
           recreateJointForEntity(engine, entity, joint, bodyA, bodyB);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .query("PhysicsJointTeardown")
@@ -92,7 +92,7 @@ export class JointLifecycleModule extends Module {
           recreateJointForEntity(engine, entity, joint, bodyA, bodyB);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     // Retarget either body relationship: rebuild the joint on the new bodies.
     world
@@ -111,7 +111,7 @@ export class JointLifecycleModule extends Module {
           recreateJointForEntity(engine, entity, joint, bodyA, bodyB);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }
 

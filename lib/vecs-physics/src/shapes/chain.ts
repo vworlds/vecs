@@ -41,7 +41,7 @@ export class ChainLifecycleModule extends Module {
           recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .query("PhysicsChainTeardown")
@@ -64,7 +64,7 @@ export class ChainLifecycleModule extends Module {
           recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }
 

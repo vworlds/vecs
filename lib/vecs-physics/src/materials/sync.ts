@@ -44,7 +44,7 @@ export class MaterialFilterSyncModule extends Module {
           }
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsMaterialFilterSync:ChainMaterial")
@@ -61,7 +61,7 @@ export class MaterialFilterSyncModule extends Module {
           recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsMaterialFilterSync:CollisionFilter")
@@ -91,7 +91,7 @@ export class MaterialFilterSyncModule extends Module {
           }
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsMaterialFilterSync:ChainCollisionFilter")
@@ -108,7 +108,7 @@ export class MaterialFilterSyncModule extends Module {
           recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsMaterialFilterSync:Sensor")
@@ -125,7 +125,7 @@ export class MaterialFilterSyncModule extends Module {
           recreateSingleShapeForEntity(engine, it.entity, it.entity.target(ChildOf), body, shape);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsMaterialFilterSync:ChainSensor")
@@ -142,7 +142,7 @@ export class MaterialFilterSyncModule extends Module {
           recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
       )
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }
 

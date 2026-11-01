@@ -56,6 +56,6 @@ export class PhysicsReaperModule extends Module {
           bodies.length = 0;
         }
       })
-      .add(PhysicsSystemTag);
+      .entity.add(PhysicsSystemTag);
   }
 }
