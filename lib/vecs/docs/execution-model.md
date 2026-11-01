@@ -128,7 +128,9 @@ While a mutation is queued but not yet applied, reads return the pre-mutation st
 Relationship reads follow the same committed-state rule. After queued `add(R, target)` or
 `remove(R, target)`, `has(R)`, `target(R)`, `targets(R)`, `hasTarget(R, target)`, and reverse
 `children(R)` continue to report the state from before the deferred scope until the FIFO queue
-applies those edge commands.
+applies those edge commands. `targets(R, { pending: true })` and `hasTarget(R, target, { pending:
+true })` opt in to the queued edges as well; see
+[Relationships](./relationships.md#reading-edges-queued-in-this-scope).
 
 Outside any deferred scope (top-level user code), the same calls execute inline and effects are
 visible immediately.

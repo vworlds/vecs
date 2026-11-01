@@ -191,6 +191,60 @@ relationship class** to one target. `setExclusiveComponents` declares that **dif
 classes** cannot coexist on one entity (see
 [Components](./components.md#exclusive-component-groups)).
 
+## Reading edges queued in this scope
+
+Inside a system (or any deferred scope) `add(R, target)` and `remove(R, …)` are queued, and
+`targets(R)` / `hasTarget(R, target)` keep reporting committed edges until the queue drains (see
+[What reads see while deferred](./execution-model.md#what-reads-see-while-deferred)). When a
+system must see the edges it has just queued, pass `{ pending: true }`:
+
+```ts
+entity.targets(R, { pending: true }); // committed edges + queued adds - queued removals
+entity.hasTarget(R, target, { pending: true });
+```
+
+The pending read applies the edge commands queued for this entity and relationship, in queue order,
+on top of the committed edges:
+
+- A queued `add(R, t)` is reported; a queued `remove(R, t)` or `remove(R)` hides the edge.
+- On an `Exclusive` relationship the queued replacement is the only target: after
+  `add(R, next)` is queued, `hasTarget(R, previous, { pending: true })` is `false`.
+- A target that is already destroyed is not reported, and a destroyed entity reports no targets.
+- Outside a deferred scope nothing is queued, so the pending read equals the committed read.
+
+The option is opt-in so the committed-state rule stays the default. When you call `add` or `remove`
+on a relationship, vecs records the queued edge command on the source entity and forgets it as the
+command applies (`lib/vecs/src/entity/entity.relationships.ts`). A pending read looks only at that
+entity's own queued edges, never the world's queue, and callers that omit the option pay nothing.
+
+Reach for it instead of a shadow structure that mirrors edges for one drain. SpaceRocks' AI rejects
+its blocked attack target and picks a new one in the same system. Because the `AiRejected` edge it
+just queued is not readable, it carries an `excluded` set into the selector beside the edges:
+
+```ts
+// ❌ shadow of the edge just queued
+const excluded = new Set([rejected]);
+ship.add(AiRejected, rejected);
+const target = fighterTarget(ship, excluded); // skips excluded.has(c) and ship.hasTarget(AiRejected, c)
+
+// ✅ read the queued edge
+ship.add(AiRejected, rejected);
+const target = fighterTarget(ship); // skips ship.hasTarget(AiRejected, c, { pending: true })
+```
+
+The pending read covers only the **source** side of an edge. `children(R)` on the target, query
+membership and `{ target: … }` / `{ source: … }` filters still change when the queue drains. A
+batch that walks a chain through the reverse index therefore still needs its own bookkeeping:
+SpaceRocks' trains attach several containers per pass with `container.add(TowedBy, tail)` and find
+each train's tail by following `children(TowedBy)` from the ship, so their
+`pending: Map<Entity, { tail, count }>` keeps the tails queued earlier in the pass. The pending read
+only lets a container confirm its own queued coupling, `container.hasTarget(TowedBy, tail,
+{ pending: true })`.
+
+Do not follow `add(R, target)` with `modified(R)`. The add already routes the relationship's
+notification, so `modified(R)` makes a watching system fire twice for one edge (see
+[Repeated writes in one tick](./design-guide.md)).
+
 ## OneOf target constraint
 
 Add the `OneOf` pair-form trait to constrain every target of a relationship to be a direct
@@ -429,27 +483,29 @@ payload gets its own ghost. List `ChildOf` or a custom relationship explicitly i
 
 ## Reference
 
-| API                                              | Description                                                                                                                                                |
-| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `class R extends Relationship {}`                | Declare a many-target relationship with private target storage.                                                                                            |
-| `e.add(R, target)`                               | Add one unique edge; atomically replace the edge when `R` is `Exclusive`. `target` accepts any `ComponentRef` resolved eagerly via `world.entity(target)`. |
-| `e.remove(R, target)` / `e.remove(R)`            | Remove one edge, or remove the relationship and all edges. `target` accepts any `ComponentRef` resolved eagerly via `world.entity(target)`.                |
-| `e.set(R, ordinaryProps)`                        | Update ordinary data on an existing relationship; never creates or changes edges.                                                                          |
-| `e.target(R)`                                    | First target through `R`, or `undefined`.                                                                                                                  |
-| `e.targets(R)`                                   | Readonly snapshot of every target through `R`; ordering is unspecified.                                                                                    |
-| `e.hasTarget(R, target)`                         | Test whether one edge exists.                                                                                                                              |
-| `e.children(R)`                                  | `ReadonlySet<Entity>` of sources targeting `e` through `R`.                                                                                                |
-| `e.childOf(parent)`                              | Shorthand for `e.add(ChildOf, parent)`.                                                                                                                    |
-| `e.parent` / `e.parent = p`                      | First built-in `ChildOf` target; assignment replaces it or removes `ChildOf` for `undefined`.                                                              |
-| `world.component(R).add(Exclusive)`              | Restrict `R` to one target.                                                                                                                                |
-| `world.component(R).add(OneOf, parent)`          | Reject targets of `R` that are not direct `ChildOf` children of `parent`.                                                                                  |
-| `world.component(R).on("targetAdd", handler)`    | Register a `(source, relationship, target)` edge-add handler.                                                                                              |
-| `world.component(R).on("targetRemove", handler)` | Register a `(source, relationship, target)` edge-remove handler.                                                                                           |
-| `world.component(R).add(OwnedTarget)`            | Adopt and destroy explicit targets; requires `Exclusive`.                                                                                                  |
-| `meta.onDeleteTarget`                            | `Remove` (default) per edge or `Delete` the source when a target dies.                                                                                     |
-| `world.component(R).add(Traversable)`            | Enable depth tracking for cascade ordering; requires `Exclusive`.                                                                                          |
-| `{ target: [R, q] }` / `{ parent: q }`           | Reactive existential DSL operators through relationship targets.                                                                                           |
-| `{ source: [R, q] }` / `{ children: q }`         | Filter-only DSL operators down the reverse index.                                                                                                          |
-| `{ target: [R, projection] }`                    | Inject projections from one current target; selection is unspecified for non-exclusive relations.                                                          |
-| `{ targets: [R, projection] }`                   | Inject one row-array slot covering all targets; see [Systems](./systems.md#relationship-injection).                                                        |
-| `{ down: [R, [C...]] }`                          | Fan out over sources; see [Systems](./systems.md#relationship-injection).                                                                                  |
+| API                                              | Description                                                                                                                                                              |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `class R extends Relationship {}`                | Declare a many-target relationship with private target storage.                                                                                                          |
+| `e.add(R, target)`                               | Add one unique edge; atomically replace the edge when `R` is `Exclusive`. `target` accepts any `ComponentRef` resolved eagerly via `world.entity(target)`.               |
+| `e.remove(R, target)` / `e.remove(R)`            | Remove one edge, or remove the relationship and all edges. `target` accepts any `ComponentRef` resolved eagerly via `world.entity(target)`.                              |
+| `e.set(R, ordinaryProps)`                        | Update ordinary data on an existing relationship; never creates or changes edges.                                                                                        |
+| `e.target(R)`                                    | First target through `R`, or `undefined`.                                                                                                                                |
+| `e.targets(R)`                                   | Readonly snapshot of every target through `R`; ordering is unspecified.                                                                                                  |
+| `e.hasTarget(R, target)`                         | Test whether one edge exists.                                                                                                                                            |
+| `e.targets(R, { pending: true })`                | Committed targets plus edges queued in the current deferred scope, minus queued removals; see [Reading edges queued in this scope](#reading-edges-queued-in-this-scope). |
+| `e.hasTarget(R, target, { pending: true })`      | Test one edge, counting edges queued in the current deferred scope.                                                                                                      |
+| `e.children(R)`                                  | `ReadonlySet<Entity>` of sources targeting `e` through `R`.                                                                                                              |
+| `e.childOf(parent)`                              | Shorthand for `e.add(ChildOf, parent)`.                                                                                                                                  |
+| `e.parent` / `e.parent = p`                      | First built-in `ChildOf` target; assignment replaces it or removes `ChildOf` for `undefined`.                                                                            |
+| `world.component(R).add(Exclusive)`              | Restrict `R` to one target.                                                                                                                                              |
+| `world.component(R).add(OneOf, parent)`          | Reject targets of `R` that are not direct `ChildOf` children of `parent`.                                                                                                |
+| `world.component(R).on("targetAdd", handler)`    | Register a `(source, relationship, target)` edge-add handler.                                                                                                            |
+| `world.component(R).on("targetRemove", handler)` | Register a `(source, relationship, target)` edge-remove handler.                                                                                                         |
+| `world.component(R).add(OwnedTarget)`            | Adopt and destroy explicit targets; requires `Exclusive`.                                                                                                                |
+| `meta.onDeleteTarget`                            | `Remove` (default) per edge or `Delete` the source when a target dies.                                                                                                   |
+| `world.component(R).add(Traversable)`            | Enable depth tracking for cascade ordering; requires `Exclusive`.                                                                                                        |
+| `{ target: [R, q] }` / `{ parent: q }`           | Reactive existential DSL operators through relationship targets.                                                                                                         |
+| `{ source: [R, q] }` / `{ children: q }`         | Filter-only DSL operators down the reverse index.                                                                                                                        |
+| `{ target: [R, projection] }`                    | Inject projections from one current target; selection is unspecified for non-exclusive relations.                                                                        |
+| `{ targets: [R, projection] }`                   | Inject one row-array slot covering all targets; see [Systems](./systems.md#relationship-injection).                                                                      |
+| `{ down: [R, [C...]] }`                          | Fan out over sources; see [Systems](./systems.md#relationship-injection).                                                                                                |

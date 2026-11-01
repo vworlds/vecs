@@ -340,7 +340,10 @@ repeated calls before the queued command drains give one `update`. Each `entity.
 its own command and routes its own `update`, so three `set` calls give three callbacks. Write in
 place plus `modified` (or `getMut`) to get one callback per tick, or compare before `set`. When
 producers already use `modified`/`getMut`, do not add a defensive per-tick dedupe or batching layer
-on the consumer side. See [Systems](./systems.md#repeated-writes-in-one-tick).
+on the consumer side. See [Systems](./systems.md#repeated-writes-in-one-tick). `entity.add(R, target)`
+already routes the relationship's notification (an `update` when the entity carries `R`, entry when
+it is the first edge), so do not follow it with `modified(R)`: that routes a second `update` and
+the watching system fires twice for one edge.
 
 Choose `onEnter: true` by asking who owns the initial value:
 

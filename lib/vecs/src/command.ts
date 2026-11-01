@@ -66,3 +66,28 @@ type CommandBody =
   | { kind: CommandKind.AddTarget; entity: Entity; meta: ComponentMeta; target: Entity }
   | { kind: CommandKind.RemoveTarget; entity: Entity; meta: ComponentMeta; target: Entity }
   | { kind: CommandKind.Destroy; entity: Entity };
+
+/**
+ * A queued command that changes a relationship's edges: one edge added, one
+ * edge removed, or the whole relationship removed.
+ *
+ * @internal
+ */
+export type EdgeCommand = Extract<
+  Command,
+  { kind: CommandKind.AddTarget | CommandKind.RemoveTarget | CommandKind.Remove }
+>;
+
+/**
+ * Edge commands queued for one source entity, across its relationships, in
+ * queue order: `commands[head]` to `commands[size - 1]` have not applied yet.
+ * Applied slots are cleared, and the buffer rewinds once every entry has
+ * applied, so one record serves every drain without reallocating.
+ *
+ * @internal
+ */
+export interface PendingEdges {
+  commands: (EdgeCommand | undefined)[];
+  head: number;
+  size: number;
+}
