@@ -22,6 +22,10 @@ export interface UpdateWatchers {
   readonly queries: Query[];
   /** How many of {@link queries} run callbacks synchronously, i.e. are not systems. */
   synchronous: number;
+  /** How many of {@link queries} watch the eid optionally with `onEnter`. */
+  arrivals: number;
+  /** How many of {@link queries} watch the eid optionally with `onRemove`. */
+  removals: number;
 }
 
 export class Queries extends Storage {
@@ -167,12 +171,18 @@ export class Queries extends Storage {
     q._watchlistBitmask.forEach((ceid) => {
       let watchers = this._updateWatchers[ceid];
       if (watchers === undefined) {
-        watchers = { queries: [], synchronous: 0 };
+        watchers = { queries: [], synchronous: 0, arrivals: 0, removals: 0 };
         this._updateWatchers[ceid] = watchers;
       }
       watchers.queries.push(q);
       if (!q._queuesUpdates) {
         watchers.synchronous++;
+      }
+      if (q._onArriveUpdateEids.includes(ceid)) {
+        watchers.arrivals++;
+      }
+      if (q._onRemoveUpdateEids.includes(ceid)) {
+        watchers.removals++;
       }
     });
   }
@@ -188,6 +198,12 @@ export class Queries extends Storage {
       watchers!.queries.splice(index, 1);
       if (!q._queuesUpdates) {
         watchers!.synchronous--;
+      }
+      if (q._onArriveUpdateEids.includes(ceid)) {
+        watchers!.arrivals--;
+      }
+      if (q._onRemoveUpdateEids.includes(ceid)) {
+        watchers!.removals--;
       }
     });
   }

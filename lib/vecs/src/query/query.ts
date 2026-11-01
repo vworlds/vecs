@@ -111,6 +111,10 @@ export class Query<
   public _watchlistBitmask: Bitset = new Bitset();
   /** @internal Update callback eids opted into entry-time dispatch. */
   public _onEnterUpdateEids: EID[] = [];
+  /** @internal Optional watch eids whose arrival on a member dispatches `update`. */
+  public _onArriveUpdateEids: EID[] = [];
+  /** @internal Optional watch eids whose removal from a member dispatches `update`. */
+  public _onRemoveUpdateEids: EID[] = [];
   /**
    * @internal `true` when {@link _notifyModified} only queues an event and never
    * runs a callback synchronously (systems). Lets entities route `modified`
@@ -498,11 +502,21 @@ export class Query<
    * component is set or marked modified on a matched entity. Pass
    * `{ watch: ComponentClass, onEnter: true }` when the callback should also fire
    * when a matched entity enters with the watched component already present.
+   *
+   * Pass `{ watch: ComponentClass, optional: true }` to watch the component
+   * without requiring it: membership depends only on the rest of the predicate.
+   * With `optional`, `onEnter: true` also fires when the component is added to a
+   * member, and `onRemove: true` fires with the removed instance when it is
+   * removed from a member (the callback then sees `e.has(ComponentClass)` as
+   * false). Without `onRemove`, a removal is unobserved; either way the entity
+   * does not exit. The callback's component argument stays non-optional, and
+   * `ignoreSource` silences arrival, change and removal alike.
    * Calling `update` more than once for the same component on one query or
    * system is rejected instead of replacing the previous callback.
    *
    * @throws When this query has already been built, when `ComponentClass`
-   *   already has an update callback on this query.
+   *   already has an update callback on this query, or when `onRemove` is set
+   *   without `optional`.
    */
   public update<C extends ComponentType>(
     ComponentClass: C,
@@ -533,7 +547,7 @@ export class Query<
     arg1: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    const { componentEid, callback, onEnter } = makeUpdateRegistration(
+    const { componentEid, callback, onEnter, onRemove, optional } = makeUpdateRegistration(
       this.world,
       arg0,
       arg1,
@@ -549,6 +563,15 @@ export class Query<
     this._watchlistBitmask.add(componentEid);
     if (onEnter) {
       this._onEnterUpdateEids.push(componentEid);
+    }
+    if (optional) {
+      if (onEnter) {
+        this._onArriveUpdateEids.push(componentEid);
+      }
+      if (onRemove) {
+        this._onRemoveUpdateEids.push(componentEid);
+      }
+      return this;
     }
     return this.with(componentEid) as unknown as this;
   }
@@ -651,6 +674,18 @@ export class Query<
     const callback = this._componentUpdateCallbacks.get(ceid);
     if (callback) {
       callback(e, c);
+    }
+  }
+
+  /**
+   * @internal Route an optional watched component's arrival on, or removal
+   * from, a member entity to its `update` callback when the watch opted in
+   * with `onEnter` or `onRemove`.
+   */
+  public _notifyPresence(e: Entity, ceid: EID, c: ComponentInstance, removed: boolean): void {
+    const eids = removed ? this._onRemoveUpdateEids : this._onArriveUpdateEids;
+    if (eids.includes(ceid)) {
+      this._notifyModified(e, ceid, c);
     }
   }
 

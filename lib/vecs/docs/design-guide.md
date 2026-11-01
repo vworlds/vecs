@@ -327,7 +327,8 @@ Details: [Queries and filters](./queries-and-filters.md#the-cost-of-not-and-with
 - **`update(C, …)`** — adds `C` to the predicate and fires when watched component `C` is modified.
   Pass `{ onEnter: true }` when it should also fire on entry for an already-present watched
   component. Use that to initialize on entry _and_ react to changes; leave it off when a separate
-  `.enter` owns initialization.
+  `.enter` owns initialization. Pass `{ optional: true }` to watch `C` without requiring it (see
+  [Watching optional components](#watching-optional-components)).
 - **`exit`** — fires when an entity stops matching (a component removed, or the entity destroyed).
   Its injected components are read from a **snapshot captured at exit time**, so they're still
   resolvable even though they're being removed. `entity.destroyed` tells you why it exited: `true`
@@ -362,6 +363,46 @@ Choose `onEnter: true` by asking who owns the initial value:
 
 // ✅ update opts into entry-time initialization
 .update({ watch: Rotation, onEnter: true, inject: [Transform] }, (_e, r, [obj]) => obj.setRotation(coords.rot(r.angle)));
+```
+
+### Watching optional components
+
+§3 tells you to keep components small and optional. Since `update(C)` requires `C`, reacting to
+several optional components used to need one system per component: each was another pipeline
+slot, inbox, membership set on every matched entity and watcher-index entry. Watch them optionally
+instead: `{ watch: C, optional: true }` keeps `C` out of the predicate, so one system holds the
+entities its `.with` describes and reacts to every watched component they carry.
+
+Add `onEnter: true` to react when `C` appears (on entry or later), and `onRemove: true` to react
+when it leaves. The entity stays a member when `C` is removed, and the callback sees
+`entity.has(C) === false`. The full event table is in
+[Systems](./systems.md#optional-watches).
+
+A game server recomputes a client's interest view when its control, identity or sector transfer
+changes. Each of those components is optional, so the server used one system per component, each
+with `update({ watch, onEnter: true })` and an `exit`:
+
+```ts
+// ❌ five systems, five inboxes, five exit callbacks around one function
+for (const watch of [Controls, AuthenticatedPlayer, SectorTransfer, SlotWarned, VisibleTo]) {
+  world
+    .system(`UpdatePlayerViewsOn${watch.name}`)
+    .with(NetworkClient, View)
+    .update({ watch, onEnter: true, inject: [View] }, (e, _c, [view]) => updateClientView(e, view))
+    .exit((e) => {
+      const view = e.get(View);
+      if (!e.destroyed && view) updateClientView(e, view);
+    });
+}
+
+// ✅ one system: arrival, change and removal of any watched component
+const views = world.system("UpdatePlayerViews").with(NetworkClient, View);
+for (const watch of [Controls, AuthenticatedPlayer, SectorTransfer, SlotWarned, VisibleTo]) {
+  views.update(
+    { watch, optional: true, onEnter: true, onRemove: true, inject: [View] },
+    (e, _c, [view]) => updateClientView(e, view)
+  );
+}
 ```
 
 ### Injection
