@@ -135,7 +135,7 @@ describe("World.module", () => {
     }
 
     const world = new World();
-    world.module(TestModule);
+    world.module(TestModule, { enabled: false });
 
     expect(() => world.module(TestModule, { enabled: true })).toThrow(
       /configuration is only accepted on first registration/

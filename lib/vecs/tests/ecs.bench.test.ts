@@ -415,7 +415,10 @@ function bench(
   };
 }
 
-function application(complex: boolean): { w: World; positionQuery: Query } {
+function application(complex: boolean): {
+  w: World;
+  positionQuery: Query<[typeof PositionComponent]>;
+} {
   const w = world();
   if (process.env.RUN_VECS_ECS_BENCH_SYSTEM_STATS === "1") {
     w.stats.enableSystems();
@@ -512,46 +515,52 @@ function addHeroMonsterComponents(w: World, e: Entity, playerType: PlayerType | 
 }
 
 function initHeroMonster(_w: World, e: Entity, playerType: PlayerType | undefined): void {
-  const position = e.get(PositionComponent)!;
-  const player = e.get(PlayerComponent)!;
-  const health = e.get(HealthComponent)!;
-  const damage = e.get(DamageComponent)!;
-  const sprite = e.get(SpriteComponent)!;
-
-  player.type =
-    playerType ??
-    (() => {
-      const playerTypeRate = player.rng.range(1, 100);
-      return playerTypeRate <= 3
-        ? PlayerType.NPC
-        : playerTypeRate <= 30
-          ? PlayerType.Hero
-          : PlayerType.Monster;
-    })();
-  switch (player.type) {
-    case PlayerType.Hero:
-      health.maxhp = player.rng.range(5, 15);
-      damage.def = player.rng.range(2, 6);
-      damage.atk = player.rng.range(4, 10);
-      break;
-    case PlayerType.Monster:
-      health.maxhp = player.rng.range(4, 12);
-      damage.def = player.rng.range(2, 8);
-      damage.atk = player.rng.range(3, 9);
-      break;
-    case PlayerType.NPC:
-      health.maxhp = player.rng.range(6, 12);
-      damage.def = player.rng.range(3, 8);
-      damage.atk = 0;
-      break;
-  }
-
-  sprite.character = "_";
-  position.x = player.rng.range(0, 420) - 100;
-  position.y = player.rng.range(0, 340) - 100;
+  e.getMut(PlayerComponent, (player) => {
+    player.type =
+      playerType ??
+      (() => {
+        const playerTypeRate = player.rng.range(1, 100);
+        return playerTypeRate <= 3
+          ? PlayerType.NPC
+          : playerTypeRate <= 30
+            ? PlayerType.Hero
+            : PlayerType.Monster;
+      })();
+    e.getMut(HealthComponent, (health) => {
+      e.getMut(DamageComponent, (damage) => {
+        switch (player.type) {
+          case PlayerType.Hero:
+            health.maxhp = player.rng.range(5, 15);
+            damage.def = player.rng.range(2, 6);
+            damage.atk = player.rng.range(4, 10);
+            break;
+          case PlayerType.Monster:
+            health.maxhp = player.rng.range(4, 12);
+            damage.def = player.rng.range(2, 8);
+            damage.atk = player.rng.range(3, 9);
+            break;
+          case PlayerType.NPC:
+            health.maxhp = player.rng.range(6, 12);
+            damage.def = player.rng.range(3, 8);
+            damage.atk = 0;
+            break;
+        }
+      });
+    });
+    e.getMut(SpriteComponent, (sprite) => {
+      sprite.character = "_";
+    });
+    e.getMut(PositionComponent, (position) => {
+      position.x = player.rng.range(0, 420) - 100;
+      position.y = player.rng.range(0, 340) - 100;
+    });
+  });
 }
 
-function updateApp(app: { w: World; positionQuery: Query }, dt: number): number {
+function updateApp(
+  app: { w: World; positionQuery: Query<[typeof PositionComponent]> },
+  dt: number
+): number {
   app.w.progress(0, dt);
   return iterateOne(app.positionQuery, app.positionQuery.count);
 }
@@ -716,7 +725,7 @@ function createFull(w: World, index: number): Entity {
   return e;
 }
 
-function iterateOne(q: Query, count: number): number {
+function iterateOne(q: Query<[typeof PositionComponent]>, count: number): number {
   let checksum = checksumCount(count);
   q.forEach([PositionComponent], (_e, [position]) => {
     checksum += position.x;
@@ -724,7 +733,10 @@ function iterateOne(q: Query, count: number): number {
   return checksum;
 }
 
-function iterateTwo(q: Query, count: number): number {
+function iterateTwo(
+  q: Query<[typeof PositionComponent, typeof VelocityComponent]>,
+  count: number
+): number {
   let checksum = checksumCount(count);
   q.forEach([PositionComponent, VelocityComponent], (_e, [position, velocity]) => {
     checksum += position.x + velocity.x;
@@ -732,7 +744,10 @@ function iterateTwo(q: Query, count: number): number {
   return checksum;
 }
 
-function iterateThree(q: Query, count: number): number {
+function iterateThree(
+  q: Query<[typeof PositionComponent, typeof VelocityComponent, typeof DataComponent]>,
+  count: number
+): number {
   let checksum = checksumCount(count);
   q.forEach(
     [PositionComponent, VelocityComponent, DataComponent],

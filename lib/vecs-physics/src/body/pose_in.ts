@@ -25,7 +25,7 @@ export class BodyPoseInModule extends Module {
       .phase(phase)
       .ignoreSource([PhysicsSystemTag])
       .update({ watch: Position, onEnter: true, inject: [Body] }, (entity, position, [body]) => {
-        const bodyId = body?._bodyId;
+        const bodyId = body._bodyId;
         if (bodyId === undefined) {
           return;
         }
@@ -47,7 +47,7 @@ export class BodyPoseInModule extends Module {
       .phase(phase)
       .ignoreSource([PhysicsSystemTag])
       .update({ watch: Rotation, onEnter: true, inject: [Body] }, (entity, rotation, [body]) => {
-        const bodyId = body?._bodyId;
+        const bodyId = body._bodyId;
         if (bodyId === undefined) {
           return;
         }
@@ -66,7 +66,7 @@ export class BodyPoseInModule extends Module {
       .update(
         { watch: LinearVelocity, onEnter: true, inject: [Body] },
         (entity, velocity, [body]) => {
-          const bodyId = body?._bodyId;
+          const bodyId = body._bodyId;
           if (bodyId === undefined) {
             return;
           }
@@ -89,7 +89,7 @@ export class BodyPoseInModule extends Module {
       .update(
         { watch: AngularVelocity, onEnter: true, inject: [Body] },
         (entity, velocity, [body]) => {
-          const bodyId = body?._bodyId;
+          const bodyId = body._bodyId;
           if (bodyId === undefined) {
             return;
           }

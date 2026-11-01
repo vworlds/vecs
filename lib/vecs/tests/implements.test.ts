@@ -15,14 +15,14 @@ abstract class Foreign {
 
 class Orange extends Fruit implements Foreign {
   acidity = 8;
-  color = "orange";
-  calories = 4;
+  override color = "orange";
+  override calories = 4;
   importCost = 15;
 }
 
 class Apple extends Fruit {
-  color = "red";
-  calories = 3;
+  override color = "red";
+  override calories = 3;
 }
 
 class FriendOf extends Relationship {}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { _compile, getDSLKey, simplifyQueryDSL, type QueryDSL } from "../src/dsl.js";
 import { ChildOf, Relationship, World } from "../src/index.js";
+import type { ComponentType } from "../src/component.js";
 import { Entity } from "../src/entity/index.js";
 import { Bitset } from "../src/util/bitset.js";
 
@@ -340,7 +341,7 @@ describe("Query DSL compilation", () => {
     }
     if (typeof q === "function") {
       try {
-        const componentEntity = world.entity(q as unknown as new (...args: never[]) => object);
+        const componentEntity = world.entity(q as ComponentType);
         return e.componentBitmask.hasBitset(maskOf([componentEntity.eid]));
       } catch {
         throw new Error("reference evaluator does not handle custom predicates");

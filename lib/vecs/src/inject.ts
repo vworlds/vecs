@@ -4,12 +4,11 @@ import {
   type ComponentType,
   type Relationship,
 } from "./component.js";
-import { Entity, type EID } from "./entity/index.js";
+import { Entity, RESERVED_EID as TARGET_ENTITY, type EID } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import { _resolveRelationship, type MaybeRequired } from "./dsl.js";
 
-// EID 0 is reserved, keeping target projection arrays numeric and SMI-friendly.
-const TARGET_ENTITY = 0;
+// Injection uses the reserved id to keep target projection arrays numeric and SMI-friendly.
 
 /** Inject the processing system tick's absolute timestamp in milliseconds. System callbacks only. */
 export const Now: unique symbol = Symbol("Now");
@@ -439,16 +438,79 @@ export function forEachInjected(
       }
       return;
     }
-    const { components, useIter } = normalizeFanInjectCallbackArgs(callbackOrInject);
+    const options = !Array.isArray(callbackOrInject) && "inject" in callbackOrInject;
+    const components = options ? callbackOrInject.inject : (callbackOrInject as FanInjectTuple);
+    const useIter = options && wantsIter(callbackOrInject.cursor);
     const callback = injectedCallback as InjectedCallback;
-    const invoke = makeInjectedInvoker(world, components, useIter, callback);
-    for (const entity of entities) {
-      invoke(entity);
+    let cached = cachedInvokers.get(callback);
+    if (cached === undefined || !cached.matches(world, components, useIter)) {
+      cached = new CachedInvoker(
+        world,
+        components,
+        useIter,
+        makeInjectedInvoker(world, components, useIter, callback)
+      );
+      cachedInvokers.set(callback, cached);
+    }
+    // A re-entrant call with the same callback must not share the live tuple.
+    const entry = cached.busy
+      ? new CachedInvoker(
+          world,
+          components,
+          useIter,
+          makeInjectedInvoker(world, components, useIter, callback)
+        )
+      : cached;
+    const wasBusy = entry.busy;
+    entry.busy = true;
+    try {
+      const invoke = entry.invoke;
+      for (const entity of entities) {
+        invoke(entity);
+      }
+    } finally {
+      entry.busy = wasBusy;
     }
   } finally {
     world.endDefer();
   }
 }
+
+/**
+ * Invoker built by {@link forEachInjected} for one callback, reused while the
+ * world, cursor kind and inject tuple elements stay identical.
+ */
+class CachedInvoker {
+  public busy = false;
+  private readonly _components: readonly FanInjectElement[];
+
+  constructor(
+    private readonly _world: World,
+    components: readonly FanInjectElement[],
+    private readonly _useIter: boolean,
+    public readonly invoke: (e: Entity) => void
+  ) {
+    this._components = components.slice();
+  }
+
+  public matches(world: World, components: readonly FanInjectElement[], useIter: boolean): boolean {
+    if (world !== this._world || useIter !== this._useIter) {
+      return false;
+    }
+    const own = this._components;
+    if (own.length !== components.length) {
+      return false;
+    }
+    for (let i = 0; i < own.length; i++) {
+      if (own[i] !== components[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+}
+
+const cachedInvokers = new WeakMap<InjectedCallback, CachedInvoker>();
 
 export function normalizeFanInjectCallbackArgs(callbackOrInject: FanInjectCallbackArg): {
   components: readonly FanInjectElement[];

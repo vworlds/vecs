@@ -41,8 +41,8 @@ function setupWithTick() {
  * so lifetime tests can drop the consumer.
  */
 function listen(term: Term) {
-  const enter = vi.fn<[Entity], void>();
-  const exit = vi.fn<[Entity], void>();
+  const enter = vi.fn<(entity: Entity) => void>();
+  const exit = vi.fn<(entity: Entity) => void>();
   const consumer: TermConsumer = {
     onTermEvent(kind: TermEventKind, entity: Entity) {
       (kind === TermEventKind.Enter ? enter : exit)(entity);

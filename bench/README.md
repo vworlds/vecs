@@ -254,3 +254,10 @@ other pull. Each size warms up for 200 pulls and measures 1,000. Frame construct
 is outside timing; the consumer's `snapshots` read is included. Set `BENCH_VECS_ROOT`
 to another built checkout for back-to-back comparison. Shared-host timings are noisy;
 compare the per-snapshot scaling, not an absolute threshold.
+
+## Injected forEach setup
+
+Run `node --import ./bench/register-dist.mjs bench/foreach-inject.ts` after building. It times a
+one-entity `Query.forEach` with component injection against the bare callback form and prints
+`FOREACH_INJECT` with nanoseconds per call, their ratio and a checksum. The injected form caches
+its invoker per callback, so the figure left over is per-entity resolution, not per-call setup.

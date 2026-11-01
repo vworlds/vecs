@@ -1,12 +1,10 @@
 import { CommandKind } from "../command.js";
 import { type ComponentRef } from "../component.js";
-import { Entity, Identity, type EID, type EntityClass } from "../entity/index.js";
+import { Entity, Identity, RESERVED_EID, type EID, type EntityClass } from "../entity/index.js";
 import { Deferred } from "./world.deferred.js";
 import type { World } from "./world.js";
 import { carriersFirst } from "./destroy-order.js";
 import { ChildOf } from "../modules/relationship_types.js";
-
-const RESERVED_EID = 0;
 
 export class Entities extends Deferred {
   /** @internal Parent applied only to entities created in the current scope. */
@@ -31,21 +29,9 @@ export class Entities extends Deferred {
     if (!e) {
       this._reserveEid(eid);
       e = new Entity(this, eid);
-      if (this.deferred) {
-        // Mirror `_entity`: in deferred mode the entity is not registered or
-        // made visible to queries until the queue drains. The reservation above
-        // still happens eagerly so the id cannot be handed out again meanwhile.
-        this._deferredEntities.set(eid, e);
-        this._enqueue({ kind: CommandKind.CreateEntity, entity: e, onCreate: onCreateCallback });
-      } else {
-        this._entities.set(eid, e);
-        const parent = this._scope;
-        if (parent !== undefined) {
-          e.childOf(parent);
-        }
-        this._notifyEntityCreated(e);
-        onCreateCallback?.(e);
-      }
+      // The reservation above is eager so the id cannot be handed out again
+      // while a deferred creation is pending.
+      this._register(e, onCreateCallback);
     }
     return e;
   }
@@ -177,17 +163,27 @@ export class Entities extends Deferred {
   protected _entity<T extends Entity>(this: World, Constructor: EntityClass<T>): T {
     const eid = this._entityPool.alloc();
     const e = new Constructor(this, eid);
-    if (this.deferred) {
-      this._deferredEntities.set(eid, e);
-      this._enqueue({ kind: CommandKind.CreateEntity, entity: e });
-    } else {
-      this._entities.set(eid, e);
-      const parent = this._scope;
-      if (parent !== undefined) {
-        e.childOf(parent);
-      }
-      this._notifyEntityCreated(e);
-    }
+    this._register(e);
     return e;
+  }
+
+  /**
+   * @internal Register a new entity: in deferred mode it stays hidden until the
+   * queue drains; otherwise it is made visible, parented to the current scope
+   * and announced immediately.
+   */
+  protected _register(this: World, e: Entity, onCreate?: (e: Entity) => void): void {
+    if (this.deferred) {
+      this._deferredEntities.set(e.eid, e);
+      this._enqueue({ kind: CommandKind.CreateEntity, entity: e, onCreate });
+      return;
+    }
+    this._entities.set(e.eid, e);
+    const parent = this._scope;
+    if (parent !== undefined) {
+      e.childOf(parent);
+    }
+    this._notifyEntityCreated(e);
+    onCreate?.(e);
   }
 }

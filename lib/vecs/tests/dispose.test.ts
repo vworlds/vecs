@@ -702,7 +702,7 @@ describe("World.dispose", () => {
         expect(w.entity().alive).toBe(true);
         w.dispose();
         expect(events).toHaveLength(4);
-        expect(events.at(-1)).toBe("resource");
+        expect(events[events.length - 1]).toBe("resource");
         expect(entityIds(w)).toEqual([]);
       }
     );
