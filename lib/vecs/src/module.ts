@@ -23,4 +23,19 @@ export abstract class Module<Config extends object | undefined = undefined> exte
    * perform any other world-level setup required by the module.
    */
   public abstract init(config: Config): void;
+
+  /**
+   * Release what this module holds outside the world, such as DOM or scene listeners.
+   *
+   * Optional. {@link World.dispose} calls it once for every installed module that is still
+   * alive, in reverse install order, after application entities are destroyed and before the
+   * infrastructure pass destroys component, module, query, system and phase entities. Their
+   * `remove` hooks therefore run after every module's `dispose`, and the world, its components
+   * and module singleton data are still usable here. Resources bound to a component instance
+   * still belong in that component's `remove` hook; use this for what no entity carries.
+   *
+   * A module destroyed before disposal is not called. An error thrown here propagates out of
+   * `World.dispose` and leaves the world partial, as a throwing `remove` hook does.
+   */
+  public dispose?(): void;
 }

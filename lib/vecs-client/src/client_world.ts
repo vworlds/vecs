@@ -14,7 +14,6 @@ import {
   type NetworkWorldOptions,
   type RPCHandler,
   type VecsSocket,
-  worldPath,
 } from "@vworlds/vecs-protocol";
 import {
   type ComponentInstance,
@@ -36,6 +35,7 @@ import {
   type ComponentInterpolator,
   type Diff,
 } from "./diff_buffer.js";
+import { createDgramSocket, type DgramSocketOptions } from "./dgram_socket.js";
 
 class Networked {}
 
@@ -113,22 +113,32 @@ export interface ClientWorldOptions extends NetworkWorldOptions {
   interpolators?: Array<readonly [ComponentClass, ComponentInterpolator]>;
 }
 
-export interface DgramConnectOptions extends Omit<ClientWorldOptions, "socket"> {
-  host: string;
-  port: number;
-  worldName: string;
-  protocol?: "http" | "https";
-  apiBasePath?: string;
-  rtcConfig?: RTCConfiguration;
+export interface DgramConnectOptions
+  extends Omit<ClientWorldOptions, "socket">, DgramSocketOptions {
+  /**
+   * Install modules and listeners on the new world before the socket connects. It runs once,
+   * synchronously, after construction and before `connect()` is called, so its time is not
+   * spent inside the ack budget that attaching starts. If it throws, the world is disposed, the
+   * socket closed and the error rethrown.
+   */
+  setup?: (world: ClientWorld) => void;
+  /**
+   * Cancel the connection. Aborting before `connectDgram` returns disposes the world, closes the
+   * socket and rejects with `signal.reason`; a signal already aborted on entry creates nothing.
+   * Aborting after it returns has no effect: call {@link ClientWorld.dispose} instead.
+   */
+  signal?: AbortSignal;
 }
 
 /**
  * The browser-side replica of a {@link ServerWorld}.
  *
- * A `ClientWorld` is scoped to one connection: connect it, drive it from
- * `progress()`, and tear it down with {@link ClientWorld.dispose} when the player
- * moves to another world. A fresh world per connection is what keeps listeners,
- * timers, and entities, replicated or local, from outliving a switch.
+ * Connect it, drive it from `progress()`, and tear it down with
+ * {@link ClientWorld.dispose} when it is finished. Across a switch to another
+ * server world with the same network components, either keep it ({@link close},
+ * then {@link attachSocket} with the next socket, whose baseline replaces the
+ * replicated entities) or dispose it and build a fresh one, so that no listener,
+ * timer or client-local entity outlives the switch.
  */
 export class ClientWorld extends NetworkWorld {
   public readonly events = new Events<ClientWorldEvents>();
@@ -240,34 +250,53 @@ export class ClientWorld extends NetworkWorld {
   /**
    * Connect to a `VecsListener`-hosted world over the dgram transport.
    *
+   * In order: it creates the socket with {@link createDgramSocket}, constructs the world, runs
+   * `setup`, awaits `connect()`, and attaches. Compose those steps yourself when this order does
+   * not fit.
+   *
    * @param options - Connection settings; `host`, `port`, and `worldName` select
-   *   the world, and the remaining fields are passed to the constructor.
+   *   the world, `setup` and `signal` control the connection, and the remaining
+   *   fields are passed to the constructor.
    * @returns A world with its socket already attached and connected. The socket
    *   is attached only after `connect()` resolves, so no ack is sent before the
    *   data channel exists.
-   * @throws Whatever `connect()` rejects with, after disposing the unattached
-   *   world and closing the socket.
+   * @throws `signal.reason` when the signal aborts first, or whatever `setup` throws
+   *   or `connect()` rejects with. Each disposes the unattached world and closes the
+   *   socket first, except a signal already aborted on entry, which creates neither.
    */
   public static async connectDgram(options: DgramConnectOptions): Promise<ClientWorld> {
-    const { ClientSocket } = (await import("@vworlds/dgram-client")) as unknown as {
-      ClientSocket: new (
-        url: string,
-        config: RTCConfiguration
-      ) => VecsSocket & { connect(): Promise<void> };
-    };
-    const basePath = worldPath(options.apiBasePath, options.worldName);
-    const socket = new ClientSocket(
-      `${options.protocol ?? "http"}://${options.host}:${options.port}${basePath}`,
-      options.rtcConfig ?? {}
-    );
+    const { setup, signal } = options;
+    signal?.throwIfAborted();
+    const socket = await createDgramSocket(options);
     const client = new ClientWorld(options);
+    let removeAbortListener: (() => void) | undefined;
     try {
-      await socket.connect();
+      signal?.throwIfAborted();
+      setup?.(client);
+      signal?.throwIfAborted();
+      const connected = socket.connect();
+      if (signal) {
+        // The losing connect() may still reject after the abort; that outcome is not reported.
+        connected.catch(() => undefined);
+        await Promise.race([
+          connected,
+          new Promise<never>((_resolve, reject) => {
+            const onAbort = (): void => reject(signal.reason);
+            signal.addEventListener("abort", onAbort, { once: true });
+            removeAbortListener = () => signal.removeEventListener("abort", onAbort);
+          }),
+        ]);
+        signal.throwIfAborted();
+      } else {
+        await connected;
+      }
     } catch (error) {
       // Nothing was attached, so only the transport and the world need releasing.
       client.dispose();
       socket.close();
       throw error;
+    } finally {
+      removeAbortListener?.();
     }
     client.attachSocket(socket);
     return client;
