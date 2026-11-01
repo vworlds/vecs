@@ -1,5 +1,5 @@
 import { wireFields, type WireConstructor, type WireTypeSpec } from "@vworlds/vecs-wire";
-import { Entity, Relationship, VecsStruct, type World, type VecsMember } from "@vworlds/vecs";
+import { Entity, VecsStruct, type World, type VecsMember } from "@vworlds/vecs";
 
 /** MCP-only write policy; declare types and documentation with core decorators. */
 export interface FieldExtras {
@@ -138,9 +138,7 @@ export function componentSchema(C: abstract new () => unknown): ComponentSchema 
     }
   } else {
     for (const [key, value] of Object.entries(example)) {
-      if (!(C.prototype instanceof Relationship && key === "_targets")) {
-        fields[key] = infer(value, new Set());
-      }
+      fields[key] = infer(value, new Set());
     }
     for (const { key, spec } of wireFields(C)) {
       fields[key] = { ...fields[key], ...fromWire(spec) };

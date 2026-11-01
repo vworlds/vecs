@@ -895,7 +895,7 @@ describe("Entity — relationship navigation", () => {
 
     source.set(FriendOf, { target: second } as any);
     expect(source.targets(FriendOf)).toEqual([first]);
-    expect(onSet).toHaveBeenCalledOnce();
+    expect(onSet).toHaveBeenCalledTimes(2);
   });
 
   it("fires edge hooks with finalized indexes and detaches before final removal hooks", () => {

@@ -37,11 +37,7 @@ export function componentValue(component: Component, value: object): unknown {
   if (opaqueComponent(component)) {
     return { $opaque: component.meta.Class.name };
   }
-  return Object.fromEntries(
-    Object.entries(value)
-      .filter(([key]) => !(component.meta.isRelationship && key === "_targets"))
-      .map(([key, v]) => [key, serialize(v)])
-  );
+  return Object.fromEntries(Object.entries(value).map(([key, v]) => [key, serialize(v)]));
 }
 
 /** @internal Read policy through public relationship accessors, never core internals. */

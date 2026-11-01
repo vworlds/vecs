@@ -266,6 +266,24 @@ it("projects own entity components without scanning the registry and reads incom
   world.dispose();
 });
 
+it("serializes a relationship data field named target beside its edges", () => {
+  class Aim extends v.Relationship {
+    target = "";
+  }
+  const world = new World();
+  world.component(Aim);
+  const a = world.entity("a");
+  const b = world.entity("b").add(Aim, a).set(Aim, { target: "north" });
+  const local = new LocalWorld(world);
+  const result = local.command("vecs_entity", { entity: b.eid }) as {
+    components: Record<string, unknown>;
+    relationships: Record<string, unknown>;
+  };
+  expect(result.components.Aim).toEqual({ target: "north" });
+  expect(result.relationships.Aim).toEqual({ targets: [a.eid], children: [] });
+  world.dispose();
+});
+
 it("uses cached find membership without creating terms and otherwise performs one predicate pass", () => {
   class Data {
     value = 3;
