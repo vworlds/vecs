@@ -16,6 +16,7 @@ import {
   Phase,
   Query,
   RelationshipsModule,
+  Requires,
   Singleton,
   SingletonModule,
   SnapshotModule,
@@ -71,12 +72,20 @@ describe("Trait", () => {
     expect(reference.parent).toBeUndefined();
   });
 
-  it("marks exactly the eight built-in policy definitions in a fresh world", () => {
+  it("marks exactly the nine built-in policy definitions in a fresh world", () => {
     const world = new World();
     const expected = new Set<Entity>(
-      [Exclusive, Traversable, OwnedTarget, With, OneOf, Singleton, Implements, OnSnapshot].map(
-        (Class) => world.component(Class)
-      )
+      [
+        Exclusive,
+        Traversable,
+        OwnedTarget,
+        With,
+        Requires,
+        OneOf,
+        Singleton,
+        Implements,
+        OnSnapshot,
+      ].map((Class) => world.component(Class))
     );
     const definitions = world.query("Definitions").with(ComponentDef).build();
     for (const definition of definitions) {

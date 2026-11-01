@@ -7,6 +7,7 @@ import {
   Exclusive,
   OwnedTarget,
   Relationship,
+  Requires,
   SilenceSource,
   Traversable,
   With,
@@ -20,6 +21,8 @@ class Helmet {}
 class Armor {}
 class WornBy extends Relationship {}
 class OwnedBy extends Relationship {}
+class Visor {}
+class Plume {}
 
 function depthOf(w: World, entity: Entity): number | undefined {
   return w.entity(ParentOf).get(Traversable)!.depths.get(entity);
@@ -400,6 +403,189 @@ describe("RelationshipsModule", () => {
       // the source is already marked destroyed by then, so the With
       // irrevocability guard skips the throw (matching the teardown contract
       // documented at relationships.ts:40-44).
+      expect(() => w.clearAllEntities()).not.toThrow();
+      expect(w.entities.size).toBe(0);
+    });
+  });
+  describe("Requires trait", () => {
+    function setup(): { w: World; armor: Entity } {
+      const w = new World();
+      const armor = w.component(Armor);
+      w.component(Helmet).add(Requires, armor);
+      return { w, armor };
+    }
+
+    it("adds the companion when the bringer is added, keeping one already there", () => {
+      const { w } = setup();
+
+      const fresh = w.entity().add(Helmet);
+      const worn = w.entity().set(Armor, {});
+      const armor = worn.get(Armor);
+      worn.add(Helmet);
+
+      expect(fresh.has(Armor)).toBe(true);
+      expect(worn.get(Armor)).toBe(armor);
+    });
+
+    it("removes the companion with its only bringer", () => {
+      const { w } = setup();
+      const removed: number[] = [];
+      w.component(Armor).on("remove", (entity) => removed.push(entity.eid));
+      const e = w.entity().add(Helmet);
+
+      e.remove(Helmet);
+
+      expect(e.has(Helmet)).toBe(false);
+      expect(e.has(Armor)).toBe(false);
+      expect(removed).toEqual([e.eid]);
+    });
+
+    it("removes a companion the entity held before the bringer arrived", () => {
+      const { w } = setup();
+      const e = w.entity().add(Armor).add(Helmet);
+
+      e.remove(Helmet);
+
+      expect(e.has(Armor)).toBe(false);
+    });
+
+    it("brings the companion back when the bringer is added again", () => {
+      const { w } = setup();
+      const e = w.entity().add(Helmet);
+
+      e.remove(Helmet);
+      e.add(Helmet);
+
+      expect(e.has(Helmet)).toBe(true);
+      expect(e.has(Armor)).toBe(true);
+    });
+
+    it("keeps the companion while another bringer, through With, is present", () => {
+      const { w, armor } = setup();
+      w.component(Visor).add(With, armor);
+      const e = w.entity().add(Helmet).add(Visor);
+
+      e.remove(Helmet);
+      expect(e.has(Armor)).toBe(true);
+
+      e.remove(Visor);
+      expect(e.has(Armor)).toBe(true); // With never removes its companion
+    });
+
+    it("keeps the companion while another Requires bringer is present, and removes it with the last", () => {
+      const { w, armor } = setup();
+      w.component(Visor).add(Requires, armor);
+      const e = w.entity().add(Helmet).add(Visor);
+
+      e.remove(Visor);
+      expect(e.has(Armor)).toBe(true);
+
+      e.remove(Helmet);
+      expect(e.has(Armor)).toBe(false);
+    });
+
+    it("cascades through a companion that itself requires another", () => {
+      const { w } = setup();
+      w.component(Armor).add(Requires, w.component(Plume));
+      const e = w.entity().add(Helmet);
+      expect(e.has(Plume)).toBe(true);
+
+      e.remove(Helmet);
+
+      expect(e.has(Armor)).toBe(false);
+      expect(e.has(Plume)).toBe(false);
+    });
+
+    it("keeps the companion when attach replaces the bringer", () => {
+      const { w } = setup();
+      const e = w.entity().add(Helmet);
+
+      e.attach(new Helmet());
+
+      expect(e.has(Armor)).toBe(true);
+    });
+
+    it("does nothing extra on destroy: each component is removed once", () => {
+      const { w } = setup();
+      const removed: string[] = [];
+      w.component(Helmet).on("remove", () => removed.push("Helmet"));
+      w.component(Armor).on("remove", () => removed.push("Armor"));
+      const e = w.entity().add(Helmet);
+
+      e.destroy();
+
+      expect(e.destroyed).toBe(true);
+      expect(removed.sort()).toEqual(["Armor", "Helmet"]);
+    });
+
+    it("removes the companion when a system removes the bringer, at the flush", () => {
+      const { w } = setup();
+      const e = w.entity().add(Helmet);
+      const seen: boolean[] = [];
+      w.system("unequip").run(() => {
+        e.remove(Helmet);
+        seen.push(e.has(Armor));
+      });
+
+      w.progress(0, 0);
+
+      expect(seen).toEqual([true]);
+      expect(e.has(Helmet)).toBe(false);
+      expect(e.has(Armor)).toBe(false);
+    });
+
+    it("keeps the companion when a system removes and re-adds the bringer in one flush", () => {
+      const { w } = setup();
+      const e = w.entity().add(Helmet);
+      w.system("swap").run(() => {
+        e.remove(Helmet);
+        e.add(Helmet);
+      });
+
+      w.progress(0, 0);
+
+      expect(e.has(Helmet)).toBe(true);
+      expect(e.has(Armor)).toBe(true);
+    });
+
+    it("lists its bringers, and With's, on the companion's meta", () => {
+      const { w, armor } = setup();
+      w.component(Visor).add(With, armor);
+
+      expect(armor.meta.bringers).toEqual([w.component(Helmet).meta, w.component(Visor).meta]);
+      expect(w.component(Visor).meta.bringers).toEqual([]);
+    });
+
+    it("rejects relationships on either side", () => {
+      const w = new World();
+      expect(() => w.component(WornBy).add(Requires, w.component(OwnedBy))).toThrow(
+        "both be plain components"
+      );
+      // World partially mutated; discard it.
+    });
+
+    it("rejects being attached while the bringer is already in use", () => {
+      const w = new World();
+      const helmet = w.component(Helmet);
+      w.entity().add(Helmet);
+
+      expect(() => helmet.add(Requires, w.component(Armor))).toThrow("in use");
+      // World partially mutated; discard it.
+    });
+
+    it("rejects removing Requires once attached (irrevocable)", () => {
+      const { w, armor } = setup();
+
+      expect(() => w.component(Helmet).remove(Requires, armor)).toThrow(
+        "Requires cannot be removed once added"
+      );
+      // World partially mutated; discard it.
+    });
+
+    it("clearAllEntities tears down worlds with Requires configured and in use", () => {
+      const { w } = setup();
+      w.entity().add(Helmet);
+
       expect(() => w.clearAllEntities()).not.toThrow();
       expect(w.entities.size).toBe(0);
     });

@@ -13,10 +13,10 @@ import {
   type VecsSocket,
 } from "@vworlds/vecs-protocol";
 import { Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
-import { Relationship, With, type ComponentClass, type EID } from "@vworlds/vecs";
+import { Relationship, Requires, With, type ComponentClass, type EID } from "@vworlds/vecs";
 import { ClientWorld } from "../src/index.js";
 
-const testCid = new CidLayout(8);
+const testCid = new CidLayout(16);
 
 /** Wire type 1: a pose that a server streams, or that `Motion` brings when it sends none. */
 class Pose {
@@ -49,12 +49,26 @@ class Held extends Relationship {}
 /** A client-local intermediate that keeps bringing Pose after Motion is removed. */
 class LocalHint {}
 
+/** Wire type 7: brings `Motion` through `With`, making a chain of network bringers. */
+class Carrier {
+  @wireType("i32")
+  public value = 0;
+}
+
+/** Wire type 8: owns `Pose` through `Requires`. */
+class Drive {
+  @wireType("i32")
+  public value = 0;
+}
+
 const POSE = 1;
 const MOTION = 2;
 const HINT = 3;
 const PLAIN = 4;
 const HOLDER = 5;
 const HELD = 6;
+const CARRIER = 7;
+const DRIVE = 8;
 const EID_A = 1000;
 const EID_B = 1001;
 const TICK_MS = 10;
@@ -126,7 +140,7 @@ class Client {
 
   public constructor(private readonly _mode: "apply" | "progress") {
     this.world = new ClientWorld({
-      networkComponents: [Pose, Motion, Hint, Plain, Holder, Held],
+      networkComponents: [Pose, Motion, Hint, Plain, Holder, Held, Carrier, Drive],
       serverTickIntervalMs: TICK_MS,
     });
     this.world.component(Motion).add(With, this.world.component(Pose));
@@ -402,6 +416,90 @@ describe.each(["apply", "progress"] as const)(
 
       expect(client.world.entity(EID_A).has(Holder)).toBe(true);
       expect(client.world.entity(EID_A).has(Held)).toBe(false);
+    });
+  }
+);
+
+describe.each(["apply", "progress"] as const)(
+  "ClientWorld, frames applied by %s: network removals settled after the diff applies",
+  (mode) => {
+    it.each([
+      [CARRIER, MOTION, POSE],
+      [POSE, MOTION, CARRIER],
+      [MOTION, POSE, CARRIER],
+    ])(
+      "removes a chain of network bringers removed together, wire order %s, %s, %s",
+      (...order) => {
+        const client = new Client(mode);
+        client.world.component(Carrier).add(With, client.world.component(Motion));
+        client.frame([
+          set(EID_A, POSE, new Pose()),
+          set(EID_A, MOTION, new Motion()),
+          set(EID_A, CARRIER, new Carrier()),
+          set(EID_A, PLAIN, new Plain()),
+        ]);
+
+        client.frame(
+          [],
+          order.map((wireType): [EID, number] => [EID_A, wireType])
+        );
+
+        const entity = client.world.entity(EID_A);
+        expect(entity.has(Carrier)).toBe(false);
+        expect(entity.has(Motion)).toBe(false);
+        expect(entity.has(Pose)).toBe(false);
+        expect(entity.has(Plain)).toBe(true);
+      }
+    );
+
+    it("keeps a chain whose head stays, though the diff removes the rest", () => {
+      const client = new Client(mode);
+      client.world.component(Carrier).add(With, client.world.component(Motion));
+      client.frame([
+        set(EID_A, POSE, Object.assign(new Pose(), { x: 5 })),
+        set(EID_A, MOTION, new Motion()),
+        set(EID_A, CARRIER, new Carrier()),
+      ]);
+
+      client.frame(
+        [],
+        [
+          [EID_A, POSE],
+          [EID_A, MOTION],
+        ]
+      );
+
+      const entity = client.world.entity(EID_A);
+      expect(entity.has(Carrier)).toBe(true);
+      expect(entity.has(Motion)).toBe(true);
+      expect(entity.get(Pose)?.x).toBe(5);
+    });
+
+    it("keeps a component a present Requires bringer owns, and removes it with that bringer", () => {
+      const client = new Client(mode);
+      client.world.component(Drive).add(Requires, client.world.component(Pose));
+      client.frame([set(EID_A, DRIVE, new Drive())]);
+      expect(client.world.entity(EID_A).has(Pose)).toBe(true);
+
+      client.frame([], [[EID_A, POSE]]);
+      expect(client.world.entity(EID_A).has(Pose)).toBe(true);
+
+      client.frame([], [[EID_A, DRIVE]]);
+      expect(client.world.entity(EID_A).has(Drive)).toBe(false);
+      expect(client.world.entity(EID_A).has(Pose)).toBe(false);
+    });
+
+    it("hands a streamed pose over to a Requires bringer set in the same diff", () => {
+      const client = new Client(mode);
+      const removed: number[] = [];
+      client.world.component(Drive).add(Requires, client.world.component(Pose));
+      client.world.component(Pose).on("remove", (_entity, pose) => removed.push(pose.x));
+      client.frame([set(EID_A, POSE, Object.assign(new Pose(), { x: 9 }))]);
+
+      client.frame([set(EID_A, DRIVE, new Drive())], [[EID_A, POSE]]);
+
+      expect(client.world.entity(EID_A).get(Pose)?.x).toBe(9);
+      expect(removed).toEqual([]);
     });
   }
 );
