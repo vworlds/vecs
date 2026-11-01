@@ -160,11 +160,10 @@ describe("OneOf trait", () => {
     const e = w.entity().add(ResidesIn, forest);
     expect(e.hasTarget(ResidesIn, forest)).toBe(true);
 
-    // Teardown bypasses _onPolicyRemove (Entity._destroy routes the OneOf
-    // pair through _detachRelationship, which does not call _onPolicyRemove),
-    // so the irrevocability guard never fires during world destruction. The
-    // targetPolicyRemove guard also short-circuits when either side is
-    // destroyed (relationships.ts teardown path).
+    // Entity._destroy routes the OneOf pair through _detachRelationship after
+    // marking the carrier destroyed, and the OneOf `targetRemove` guard
+    // short-circuits when either side is destroyed (relationships.ts teardown
+    // path), so the irrevocability guard never fires during world destruction.
     expect(() => w.clearAllEntities()).not.toThrow();
     expect(w.entities.size).toBe(0);
     void residesIn;

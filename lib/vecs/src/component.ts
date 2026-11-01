@@ -44,9 +44,8 @@ export {
 /**
  * A per-component event map that narrows `add` / `remove` / `set` handlers to
  * the instance type `T` produces, narrows `validate` / `normalize` handlers to
- * that instance type, and narrows `targetAdd` / `targetRemove` /
- * `targetPolicyAdd` / `targetPolicyRemove` handlers to `T`'s relationship
- * instance type when `T` produces a relationship.
+ * that instance type, and narrows `targetAdd` / `targetRemove` handlers to
+ * `T`'s relationship instance type when `T` produces a relationship.
  */
 type ComponentEventMap<T extends ComponentType> = {
   add: HookHandler<InstanceType<T>>;
@@ -56,10 +55,6 @@ type ComponentEventMap<T extends ComponentType> = {
   targetRemove: TargetHandler<InstanceType<T> & Relationship>;
   validate: ValidateHandler<InstanceType<T>>;
   normalize: NormalizeHandler<InstanceType<T>>;
-  targetPolicyAdd: TargetHandler<InstanceType<T> & Relationship>;
-  targetPolicyRemove: TargetHandler<InstanceType<T> & Relationship>;
-  policyAdd: HookHandler;
-  policyRemove: HookHandler;
 };
 
 /** Callbacks declared alongside the {@link CustomSnapshot} policy value. */
@@ -128,12 +123,8 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
    * relationship instance type (for the `target*` events). See
    * {@link ComponentMeta.on} for full semantics.
    */
-  public override on<E extends HookEvent>(
-    event: E,
-    handler: ComponentEventMap<T>[E],
-    insert = false
-  ): this {
-    return super.on(event, handler as HookEventMap[E], insert);
+  public override on<E extends HookEvent>(event: E, handler: ComponentEventMap<T>[E]): this {
+    return super.on(event, handler as HookEventMap[E]);
   }
 
   /** Remove a previously-registered handler by reference. See {@link ComponentMeta.off}. */

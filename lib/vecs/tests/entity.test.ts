@@ -182,21 +182,40 @@ describe("Entity — components", () => {
     expect(onSet).toHaveBeenCalledWith(e, pos);
   });
 
-  it("attach triggers onSet but not onAdd when replacing", () => {
+  it("attach replacing an instance fires remove for the old, add for the new, then set", () => {
     const w = new World();
-    w.component(Position);
-    const onAdd = vi.fn();
-    const onSet = vi.fn();
-    w.component(Position).on("add", onAdd).on("set", onSet);
+    const calls: [string, Position][] = [];
+    w.component(Position)
+      .on("add", (_e, c) => calls.push(["add", c]))
+      .on("remove", (_e, c) => calls.push(["remove", c]))
+      .on("set", (_e, c) => calls.push(["set", c]));
     const e = w.entity();
     const pos1 = new Position();
     const pos2 = new Position();
     e.attach(pos1);
-    onAdd.mockClear();
-    onSet.mockClear();
+    calls.length = 0;
     e.attach(pos2);
-    expect(onAdd).not.toHaveBeenCalled();
-    expect(onSet).toHaveBeenCalledWith(e, pos2);
+    expect(calls).toEqual([
+      ["remove", pos1],
+      ["add", pos2],
+      ["set", pos2],
+    ]);
+    expect(e.get(Position)).toBe(pos2);
+  });
+
+  it("attach of the stored instance fires only set", () => {
+    const w = new World();
+    const calls: string[] = [];
+    w.component(Position)
+      .on("add", () => calls.push("add"))
+      .on("remove", () => calls.push("remove"))
+      .on("set", () => calls.push("set"));
+    const e = w.entity();
+    const pos = new Position();
+    e.attach(pos);
+    calls.length = 0;
+    e.attach(pos);
+    expect(calls).toEqual(["set"]);
   });
 
   it("attach handles exclusive components", () => {
