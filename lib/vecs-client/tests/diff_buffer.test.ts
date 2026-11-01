@@ -24,7 +24,7 @@ function CID(eid: EID, wireType: number): number {
   return cid_pack(eid, wireType);
 }
 
-function sortSnapshots(snapshots: ComponentSnapshot[]): ComponentSnapshot[] {
+function sortSnapshots(snapshots: readonly ComponentSnapshot[]): ComponentSnapshot[] {
   return [...snapshots].sort((a, b) => a.cid - b.cid);
 }
 
@@ -63,15 +63,11 @@ function SD(p: {
   snapshots: ComponentSnapshot[];
 }): Diff {
   const d = new Diff(p.from, p.to, p.removed);
-  d.snapshots = p.snapshots;
+  p.snapshots.forEach((snapshot) => d.upsertSnapshot(snapshot));
   if (p.resets) {
     d.resets = new Map(p.resets);
   }
   return d;
-}
-
-function hasMaterializedSnapshotMap(diff: Diff): boolean {
-  return (diff as unknown as { _smap?: Map<number, ComponentSnapshot> })._smap !== undefined;
 }
 
 function Color(sd: Diff, id: EID): string | undefined {
@@ -263,8 +259,7 @@ test("merge-add", () => {
   ip.push(sd3); // forces sd1 and sd2 to merge
 
   const r1 = ip.pull(100);
-  r1.snapshots = sortSnapshots(r1.snapshots);
-  expect(r1).toMatchObject({
+  expect({ ...r1, snapshots: sortSnapshots(r1.snapshots) }).toMatchObject({
     from: 0,
     to: 2,
     snapshots: sortSnapshots([...A1, ...B2]),
@@ -336,7 +331,6 @@ test("merge-remove", () => {
 
   const r1 = ip.pull(100);
   r1.removed = r1.removed || [];
-  r1.snapshots = r1.snapshots || [];
   expect(r1).toMatchObject({
     from: 0,
     to: 2,
@@ -367,8 +361,7 @@ test("merge-remove-readd", () => {
   const r1 = ip.pull(100);
 
   r1.removed = r1.removed || [];
-  r1.snapshots = sortSnapshots(r1.snapshots || []);
-  expect(r1).toMatchObject({
+  expect({ ...r1, snapshots: sortSnapshots(r1.snapshots) }).toMatchObject({
     from: 0,
     to: 4,
     removed: [],
@@ -378,20 +371,22 @@ test("merge-remove-readd", () => {
   expect(ip.pull(120)).toMatchObject(sd5);
 });
 
-test("Diff.getSnapshot works before and after smap materialization", () => {
+test("Diff.getSnapshot works before and after array materialization", () => {
   const position = makePosComponent(A, 0, 0);
   const color = makeColorComponent(A, "red");
   const sd = SD({ from: 0, to: 1, snapshots: [position, color] });
 
   expect(sd.getSnapshot(position.cid)).toBe(position);
   expect(sd.getSnapshot(CID(B, PositionWireType))).toBeUndefined();
-  expect(hasMaterializedSnapshotMap(sd)).toBe(false);
+  const snapshots = sd.snapshots;
+  expect(snapshots).toEqual([position, color]);
 
   expect(sd.smap.get(color.cid)).toBe(color);
   expect(sd.getSnapshot(color.cid)).toBe(color);
+  expect(sd.snapshots).toBe(snapshots);
 });
 
-test("Diff.upsertSnapshot replaces and appends without materializing smap", () => {
+test("Diff.upsertSnapshot replaces and appends in insertion order", () => {
   const original = makePosComponent(A, 0, 0);
   const replacement = makePosComponent(A, 5, 5);
   const added = makeColorComponent(A, "red");
@@ -402,7 +397,7 @@ test("Diff.upsertSnapshot replaces and appends without materializing smap", () =
 
   sd.upsertSnapshot(added);
   expect(sd.snapshots).toEqual([replacement, added]);
-  expect(hasMaterializedSnapshotMap(sd)).toBe(false);
+  expect(sd.snapshots).toBe(sd.snapshots);
 });
 
 test("Diff.upsertSnapshot keeps materialized smap and snapshots in sync", () => {
@@ -429,7 +424,8 @@ test("interpolated snapshots carry Position instances as payload", () => {
   const sd105 = ip.pull(105);
   const snapshot = sd105.getSnapshot(CID(A, PositionWireType));
 
-  expect(hasMaterializedSnapshotMap(sd105)).toBe(false);
+  expect(sd105.snapshots).toEqual([snapshot]);
+  expect(sd105.snapshots).toBe(sd105.snapshots);
   expect(snapshot?.payload).toBeInstanceOf(Position);
   expect(Pos(sd105, A)).toEqual({ x: 5, y: 10 });
 });

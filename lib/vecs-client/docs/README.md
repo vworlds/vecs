@@ -7,13 +7,13 @@ JSDoc on the source in `lib/vecs-client/src/` — read it in your IDE.
 ## Reading order
 
 1. [Client world](./client-world.md) — connecting, replication and baselines, optimistic frames and
-   gaps, render time, calling the server, and disposal.
+   gaps, read-only diff snapshots, render time, calling the server, and disposal.
 
 ## Map
 
-| Guide                                | Covers                                                                                                                                            |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [client-world.md](./client-world.md) | `ClientWorld`, `connectDgram`, baselines and `reset`, optimistic frames and the gap report, `renderFrame`, `invoke`/`listen`, `close`, `dispose`. |
+| Guide                                | Covers                                                                                                                                                                             |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [client-world.md](./client-world.md) | `ClientWorld`, `connectDgram`, baselines and `reset`, optimistic frames and the gap report, `Diff` snapshot reads and edits, `renderFrame`, `invoke`/`listen`, `close`, `dispose`. |
 
 ## See also
 
