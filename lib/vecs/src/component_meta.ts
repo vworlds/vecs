@@ -3,6 +3,8 @@ import { DenseSet } from "./util/dense_set.js";
 import type { EID, Entity, EntityClass } from "./entity/index.js";
 import type { ValidationResult } from "./reflection/defaults.js";
 
+const NO_BRINGERS: readonly ComponentMeta[] = [];
+
 export enum CleanupPolicy {
   Throw = "throw",
   Remove = "remove",
@@ -343,6 +345,12 @@ export class ComponentMeta {
   public onDeleteTarget = CleanupPolicy.Remove;
 
   /**
+   * @internal Metas of the plain components whose `With` or `Requires` pair
+   * names this one, in declaration order. `undefined` until the first pair.
+   */
+  public _bringers: ComponentMeta[] | undefined = undefined;
+
+  /**
    * @internal Peer metas of components that cannot coexist with this one on
    * the same entity. Set via {@link World.setExclusiveComponents}; `undefined`
    * means no restriction.
@@ -400,6 +408,34 @@ export class ComponentMeta {
     this.eid = ceid;
     this.bitPtr = new BitPtr(ceid);
     this.isRelationship = Class.prototype instanceof Relationship;
+  }
+
+  /**
+   * The plain components that bring this one along through a `With` or
+   * `Requires` pair, in declaration order. Empty when none does, and always
+   * empty for a relationship, whose `With` brings it one edge at a time.
+   */
+  public get bringers(): readonly ComponentMeta[] {
+    return this._bringers ?? NO_BRINGERS;
+  }
+
+  /**
+   * Whether `entity` carries a component that brings this one along through a
+   * `With` or `Requires` pair. Scans {@link bringers} without allocating.
+   *
+   * @param entity - Entity to look at.
+   */
+  public isBroughtOn(entity: Entity): boolean {
+    const bringers = this._bringers;
+    if (bringers === undefined) {
+      return false;
+    }
+    for (let i = 0; i < bringers.length; i++) {
+      if (entity.componentBitmask.has(bringers[i]!.eid)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Number of entities currently carrying this component eid. */

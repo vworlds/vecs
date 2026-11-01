@@ -197,6 +197,7 @@ gate or a hook installer; see [trait reflection](./components.md#reflecting-on-c
 | `OwnedTarget`     | An exclusive relationship owns its explicitly added target                         |
 | `OneOf`           | A relationship's targets must be direct children of a declared parent (enum-style) |
 | `With`            | Adding one component should bring another along, as a companion it does not own    |
+| `Requires`        | Adding one component should bring another, and removing it should take it away     |
 | `OnSnapshot`      | Choose a component's subtree snapshot policy                                       |
 
 Traits declare policy; modules implement it through hooks and metadata. Configure them in module
@@ -210,12 +211,23 @@ for the full model and custom-trait guidance.
 not remove `Position`, and a `Position` the entity already holds is left as it is. A networked
 client has one more rule, because the server decides what a client replicates but the client decides
 what it derives. **`ClientWorld.apply` skips a network removal of a component that another
-component present on the entity brings through `With`**, so a server can swap the source of a
-client-local component in one diff, say a streamed `Position` for a dead-reckoned `Motion`, and the
-entity never goes without it: no `remove` hook fires, and the queries and `DrawBy` children that
-match on it never see it leave. A bringer that the same diff sets counts as present. The entity-destroy
+component present on the entity brings through `With` or `Requires`**, so a server can swap the
+source of a client-local component in one diff, say a streamed `Position` for a dead-reckoned
+`Motion`, and the entity never goes without it: no `remove` hook fires, and the queries and `DrawBy`
+children that match on it never see it leave. The rule is judged once the diff has applied, so a
+bringer that the same diff sets counts as present and one it removes does not. The entity-destroy
 path is unaffected, and a relationship is removed as sent (see
 [Applying a frame](../../vecs-client/docs/client-world.md#applying-a-frame)).
+
+`Requires` is the owning counterpart, declared the same way:
+`world.component(DeadReckoned).add(Requires, world.component(Motion))` adds `Motion` with the tag,
+and removing the tag removes `Motion` unless another component on the entity still brings it. Pick
+it per pair: dead reckoning owns `Motion` and its prediction through `Requires`, but only brings the
+physics `Rotation` through `With`, because the body needs it either way. Do not hand-write a
+`remove` hook that removes companions; a hook stays only for state `Requires` cannot express, such
+as a component the module adds on demand. See
+[Component traits](./components.md#component-traits-policy-on-component-entities) for the full
+rules.
 
 ### Exclusive component groups
 

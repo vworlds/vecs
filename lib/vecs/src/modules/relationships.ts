@@ -8,6 +8,7 @@ import {
   Exclusive,
   OneOf,
   OwnedTarget,
+  Requires,
   SilenceSource,
   Traversable,
   With,
@@ -19,6 +20,7 @@ export {
   Exclusive,
   OneOf,
   OwnedTarget,
+  Requires,
   SilenceSource,
   Traversable,
   With,
@@ -27,8 +29,8 @@ export {
 /**
  * Built-in world module that registers the `ChildOf` relationship and
  * maintains ownership and depth tracking policies for relationship traits.
- * Declares `Exclusive`, `Traversable`, `OwnedTarget`, `With`, and `OneOf`
- * with the {@link Trait} marker.
+ * Declares `Exclusive`, `Traversable`, `OwnedTarget`, `With`, `Requires`, and
+ * `OneOf` with the {@link Trait} marker.
  *
  * Registered automatically by every {@link World}. It sets `ChildOf`'s
  * `onDeleteTarget` cleanup policy to {@link CleanupPolicy.Delete}, so
@@ -50,6 +52,12 @@ export {
  * rejects targets whose `ChildOf` parent is not the declared parent. `OneOf`
  * is irrevocable once attached.
  *
+ * `With` and `Requires` record each plain bringer on its companion's meta
+ * ({@link ComponentMeta.bringers}). `Requires` removes the companion when its
+ * bringer is removed from a live entity, unless the entity still carries
+ * another bringer; the check scans that list and allocates nothing. Both are
+ * irrevocable.
+ *
  * `OwnedTarget` and `Traversable` are irrevocable once attached: both
  * `entity.remove(Trait)` and `entity.attach(newInstance)` throw, and the world
  * must be discarded after the throw. Teardown bypasses these guards —
@@ -69,6 +77,7 @@ export class RelationshipsModule extends Module {
     const silenceSource = world.component(SilenceSource);
     const traversableTrait = world.component(Traversable).add(Trait);
     const withTrait = world.component(With).add(Trait);
+    const requiresTrait = world.component(Requires).add(Trait);
     const oneOfTrait = world.component(OneOf).add(Trait);
 
     childOf.meta.onDeleteTarget = CleanupPolicy.Delete;
@@ -154,9 +163,36 @@ export class RelationshipsModule extends Module {
         xMeta.on("targetPolicyAdd", (source, _rel, target) => source.add(yEntity, target));
       } else {
         xMeta.on("policyAdd", (entity) => entity.add(yEntity));
+        (yMeta._bringers ??= []).push(xMeta);
       }
     });
     this._forbidPairTraitRemoval(withTrait, "With");
+    this._forgetBringerOnTeardown(withTrait);
+
+    requiresTrait.meta.on("targetPolicyAdd", (xEntity, _requiresRelationship, yEntity): void => {
+      const xMeta = xEntity.meta;
+      const yMeta = yEntity.meta;
+      if (xMeta.isRelationship || yMeta.isRelationship) {
+        throw new Error("Requires: the component and its target must both be plain components");
+      }
+      if (xMeta.usageCount > 0) {
+        throw new Error("Requires cannot be added while the target component is in use");
+      }
+      xMeta.on("policyAdd", (entity) => entity.add(yEntity));
+      xMeta.on("policyRemove", (entity) => {
+        // An attach that replaces the bringer fires this hook with the bringer still present, and
+        // destruction does not fire it at all.
+        if (entity.destroyed || entity.componentBitmask.has(xMeta.eid)) {
+          return;
+        }
+        if (!yMeta.isBroughtOn(entity)) {
+          entity.remove(yEntity);
+        }
+      });
+      (yMeta._bringers ??= []).push(xMeta);
+    });
+    this._forbidPairTraitRemoval(requiresTrait, "Requires");
+    this._forgetBringerOnTeardown(requiresTrait);
 
     oneOfTrait.meta.on("targetPolicyAdd", (rel, _oneOf, parent): void => {
       if (!rel.meta.isRelationship) {
@@ -224,6 +260,22 @@ export class RelationshipsModule extends Module {
     }
 
     return this._depthOf(parent, relEid, traversable, visited) + 1;
+  }
+
+  /**
+   * Drop a bringer from its companion's {@link ComponentMeta.bringers} when
+   * teardown removes its `With` or `Requires` edge, so a reused eid never
+   * counts as a bringer. Install after {@link _forbidPairTraitRemoval}, whose
+   * throw stops any other removal before it reaches this handler.
+   */
+  private _forgetBringerOnTeardown(trait: Entity): void {
+    trait.meta.on("targetPolicyRemove", (carrier, _trait, target): void => {
+      const bringers = target.meta._bringers;
+      const index = bringers?.findIndex((meta) => meta.eid === carrier.eid) ?? -1;
+      if (index >= 0) {
+        bringers!.splice(index, 1);
+      }
+    });
   }
 
   /**

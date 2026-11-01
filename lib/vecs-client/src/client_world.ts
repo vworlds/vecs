@@ -19,6 +19,7 @@ import {
 import {
   type ComponentInstance,
   type ComponentClass,
+  type ComponentMeta,
   type EID,
   type Entity,
   Events,
@@ -26,7 +27,6 @@ import {
   Query,
   ON_LOAD,
   Relationship,
-  With,
 } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import {
@@ -144,7 +144,11 @@ export class ClientWorld extends NetworkWorld {
   private _input: unknown;
   // The diff `_pull` took from the buffer, which `_applyPulled` has yet to apply.
   private _pulled: Diff | undefined;
-  private _withRemovalKeys: Set<number> | undefined;
+  // Network removals of brought components, which `_releaseHeld` settles once the diff has
+  // applied: parallel entries of entity, component, and whether a present bringer keeps it.
+  private readonly _heldEntities: Entity[] = [];
+  private readonly _heldMetas: ComponentMeta[] = [];
+  private readonly _heldKept: boolean[] = [];
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
   private _closeNotice: CloseNotice | undefined;
@@ -185,14 +189,22 @@ export class ClientWorld extends NetworkWorld {
     // takes effect at the flush after the system, and until then `getOrCreateEntity(eid)` still
     // returns the entity being destroyed. The first system pulls the diff and destroys the
     // entities it removes; the flush that follows it completes the destruction and frees the
-    // eids; the second applies the snapshots and the component removals. Both run in ON_LOAD, in
-    // this order, before any system a game adds to the phase.
+    // eids; the second applies the snapshots and the component removals. A third settles the
+    // removals of brought components once the flush after the second has applied the diff. All
+    // run in ON_LOAD, in this order, before any system a game adds to the phase.
     this.system("ClientWorld:Pull")
       .phase(ON_LOAD)
       .run((now) => this._pull(now));
     this.system("ClientWorld:Apply")
       .phase(ON_LOAD)
       .run(() => this._applyPulled());
+    this.system("ClientWorld:Release")
+      .phase(ON_LOAD)
+      .run(() => {
+        if (this._heldEntities.length > 0) {
+          this._releaseHeld();
+        }
+      });
 
     if (options.socket) {
       this.attachSocket(options.socket);
@@ -418,12 +430,15 @@ export class ClientWorld extends NetworkWorld {
    * out of `apply`.
    *
    * A removal of a component that
-   * another component on the entity brings through `With` is skipped, so the entity keeps it: a
-   * server can replace the source of a client-local component (a streamed pose by a dead-reckoned
-   * one) in one diff, setting the new source and removing the old component, and the entity never
-   * goes without it. The rule applies to this network removal of a plain component only; destroying
-   * the entity through a reset removes everything, and a relationship is removed as sent.
-   * A bringer set by the same diff counts as present even before its snapshot is attached.
+   * another component on the entity brings through `With` or `Requires` is skipped, so the entity
+   * keeps it: a server can replace the source of a client-local component (a streamed pose by a
+   * dead-reckoned one) in one diff, setting the new source and removing the old component, and the
+   * entity never goes without it. The rule applies to this network removal of a plain component
+   * only; destroying the entity through a reset removes everything, and a relationship is removed
+   * as sent. It is judged once the diff has applied, at the end of `apply` or, under `progress()`,
+   * in the `ClientWorld:Release` system that follows `ClientWorld:Apply`: a bringer the same diff
+   * sets counts as present, one it removes does not, and a bringer whose own removal is held counts
+   * only if it is kept.
    *
    * A diff applies in a fixed order, which is what lets an entity id that the
    * server reuses mean two entities in one diff:
@@ -441,9 +456,10 @@ export class ClientWorld extends NetworkWorld {
    *    the entity in place.
    * 3. The removals of single components are applied.
    *
-   * Registered as two systems in the `ON_LOAD` phase, `ClientWorld:Pull` then
-   * `ClientWorld:Apply`, so `progress()` drives it: step 1 runs in the first, and
-   * the world flushes the destruction before the second applies steps 2 and 3. That
+   * Registered as three systems in the `ON_LOAD` phase, `ClientWorld:Pull`,
+   * `ClientWorld:Apply` and `ClientWorld:Release`, so `progress()` drives it: step 1
+   * runs in the first, the world flushes the destruction before the second applies
+   * steps 2 and 3, and the third settles the held removals of brought components. That
    * flush is what frees the eid for the new entity. `apply` does the same in one
    * call, which is only correct outside a system or `defer` scope (inside one the
    * destruction stays queued, and the snapshots of a reused eid would reach the
@@ -456,6 +472,9 @@ export class ClientWorld extends NetworkWorld {
     try {
       this._pull(now);
       this._applyPulled();
+      if (this._heldEntities.length > 0) {
+        this._releaseHeld();
+      }
     } finally {
       this._endCall();
     }
@@ -828,14 +847,9 @@ export class ClientWorld extends NetworkWorld {
     if (removed === undefined) {
       return;
     }
-    this._withRemovalKeys = undefined;
-    try {
-      for (const key of removed) {
-        const [eid, wireType] = this.cid.unpack(key);
-        this._removeComponent(eid, wireType, diff);
-      }
-    } finally {
-      this._withRemovalKeys = undefined;
+    for (const key of removed) {
+      const [eid, wireType] = this.cid.unpack(key);
+      this._removeComponent(eid, wireType);
     }
   }
 
@@ -898,7 +912,7 @@ export class ClientWorld extends NetworkWorld {
     entity.set(relClass, component);
   }
 
-  private _removeComponent(eid: EID, wireType: number, diff: Diff): void {
+  private _removeComponent(eid: EID, wireType: number): void {
     // Merged/interpolated client diffs can contain a net removal for an entity
     // whose create snapshot was compressed away before it materialized locally.
     const entity = this.getEntity(eid);
@@ -909,60 +923,79 @@ export class ClientWorld extends NetworkWorld {
     if (registered === undefined || !entity.get(registered.Class)) {
       return;
     }
-    // The server removed a component that another one on this entity still brings through `With`:
-    // the entity keeps it, as it would for any other holder of the bringer. A server that swaps the
-    // source of a client-local component, such as a streamed pose for a dead-reckoned one, relies
-    // on this to keep the component present throughout.
-    if (this._isBroughtByWith(entity, registered.Class, diff)) {
+    // A component that others can bring through `With` or `Requires` waits for `_releaseHeld`,
+    // which decides once the diff has applied: a bringer this diff sets is present by then, and one
+    // it removes is gone. A relationship has no bringers, so it is removed as sent.
+    const meta = this.component(registered.Class).meta;
+    if (meta.bringers.length > 0) {
+      this._heldEntities.push(entity);
+      this._heldMetas.push(meta);
+      this._heldKept.push(false);
       return;
     }
     entity.remove(registered.Class);
   }
 
-  // Whether a component on `entity` brings `Class` through `With`. Only the network-removal path
-  // pays for the lookup, and only for a component that is there to remove. A relationship is never
-  // skipped: `With` brings it one edge at a time, so no component present stands for the whole
-  // relationship.
-  //
-  // Use the diff's final membership: a bringer set by this diff counts as present even while its
-  // snapshot is queued. Otherwise a present network bringer counts only if this diff neither removes
-  // it nor resets its entity. A client-local bringer is judged by entity.has alone; With does not
-  // remove companions, so a local intermediate can keep bringing without a transitive walk.
-  // Index removals lazily, once per applied diff, only upon reaching a present network bringer.
-  private _isBroughtByWith(entity: Entity, Class: ComponentClass, diff: Diff): boolean {
-    const component = this.component(Class);
-    if (component.meta.isRelationship) {
-      return false;
+  /**
+   * Settle the network removals {@link ClientWorld._removeComponent} held back, after the diff
+   * has applied: in `ClientWorld:Release` under `progress()`, at the end of {@link apply}
+   * otherwise. The server removed each one, so it goes unless a present component brings it
+   * through `With` or `Requires`. A bringer that is itself held counts only if it is kept, so a
+   * chain of network bringers the diff removes together goes as a whole, and a cycle that nothing
+   * else brings goes too. Allocates nothing; the held entries are cleared on return.
+   */
+  private _releaseHeld(): void {
+    const entities = this._heldEntities;
+    const metas = this._heldMetas;
+    const kept = this._heldKept;
+    try {
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (let i = 0; i < entities.length; i++) {
+          if (!kept[i] && this._keepsHeld(entities[i]!, metas[i]!)) {
+            kept[i] = true;
+            changed = true;
+          }
+        }
+      }
+      for (let i = 0; i < entities.length; i++) {
+        const entity = entities[i]!;
+        if (!kept[i] && !entity.destroyed) {
+          entity.remove(metas[i]!.eid);
+        }
+      }
+    } finally {
+      entities.length = 0;
+      metas.length = 0;
+      kept.length = 0;
     }
-    for (const bringer of component.children(With)) {
-      if (this._diffSets(diff, entity, bringer)) {
-        return true;
-      }
-      if (!entity.has(bringer)) {
+  }
+
+  // Whether a present bringer keeps `meta` on `entity`: one that is not held, or one held and kept.
+  private _keepsHeld(entity: Entity, meta: ComponentMeta): boolean {
+    const bringers = meta.bringers;
+    for (let b = 0; b < bringers.length; b++) {
+      const bringer = bringers[b]!;
+      if (!entity.has(bringer.eid)) {
         continue;
       }
-      const registered = this.networkComponents.find((component) => component.eid === bringer.eid);
-      if (registered === undefined) {
-        return true;
-      }
-      if (diff.resets?.has(entity.eid)) {
-        continue;
-      }
-      this._withRemovalKeys ??= new Set(diff.removed);
-      if (!this._withRemovalKeys.has(this.cid.pack(entity.eid, registered.wireType))) {
+      const held = this._heldIndex(entity, bringer);
+      if (held < 0 || this._heldKept[held]) {
         return true;
       }
     }
     return false;
   }
 
-  // Whether `diff` carries a snapshot of the component `bringer` for `entity`.
-  private _diffSets(diff: Diff, entity: Entity, bringer: Entity): boolean {
-    const registered = this.networkComponents.find((component) => component.eid === bringer.eid);
-    return (
-      registered !== undefined &&
-      diff.getSnapshot(this.cid.pack(entity.eid, registered.wireType)) !== undefined
-    );
+  // The index of the held removal of `meta` from `entity`, or -1.
+  private _heldIndex(entity: Entity, meta: ComponentMeta): number {
+    for (let i = 0; i < this._heldEntities.length; i++) {
+      if (this._heldEntities[i] === entity && this._heldMetas[i] === meta) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   // Destroy every network entity so an incoming baseline can recreate them

@@ -1,4 +1,4 @@
-import { DontSnapshot, Module, POST_UPDATE, With, type Entity } from "@vworlds/vecs";
+import { DontSnapshot, Module, POST_UPDATE, Requires, With, type Entity } from "@vworlds/vecs";
 import {
   copyMotionParams,
   defaultMotionParams,
@@ -230,9 +230,11 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
 
     world
       .component(DeadReckoned)
-      .add(With, world.component(Motion).eid)
+      // `Requires` takes the baseline and the prediction away with the tag. The physics rotation is
+      // only brought along: the body needs it whether or not it is dead reckoned.
+      .add(Requires, world.component(Motion).eid)
       .add(With, world.component(PhysicsRotation).eid)
-      .add(With, world.component(MotionPrediction).eid)
+      .add(Requires, world.component(MotionPrediction).eid)
       .on("add", (entity) => {
         entity.remove(RenderPosition);
         entity.remove(RenderRotation);
@@ -243,9 +245,8 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
         if (entity.destroyed) {
           return;
         }
-        entity.remove(Motion);
+        // The module writes these two only when it needs them, so the tag cannot bring them.
         entity.remove(MotionParams);
-        entity.remove(MotionPrediction);
         entity.remove(DeadReckonedMoving);
         if (world.deferred) {
           // The render pose is added by the guard at the end of the frame, not by a command queued

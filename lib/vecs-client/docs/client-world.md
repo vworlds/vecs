@@ -108,27 +108,36 @@ size the window for slow players are in
 ## Applying a frame
 
 `apply()` destroys reset entities first, applies snapshots next, and removes single components last.
-A reset destroys every component, including client-local companions brought through `With`.
+A reset destroys every component, including client-local companions brought through `With` or
+`Requires`.
 
 A removal of a single component is skipped while another component present on the entity **brings
-it through `With`**, so the entity keeps it. The rule exists for components that a client derives
-from a replicated one. Dead reckoning is the example: `Motion` brings a client-local `Position` and
-`Rotation` (`world.component(Motion).add(With, world.component(Position))`), and the diff in which
-the server switches a streamed body to dead reckoning sets `Motion` and removes `Position` and
-`Rotation`. Applied literally, the entity would end the frame without a render pose, and the
-queries, hooks and `DrawBy` children that match on it would see it leave and come back. With the
-rule it never goes without one: no `remove` hook fires for it, and nothing that watches it
+it through `With` or `Requires`**, so the entity keeps it. The rule exists for components that a
+client derives from a replicated one. Dead reckoning is the example: `Motion` brings a client-local
+`Position` and `Rotation` (`world.component(Motion).add(With, world.component(Position))`), and the
+diff in which the server switches a streamed body to dead reckoning sets `Motion` and removes
+`Position` and `Rotation`. Applied literally, the entity would end the frame without a render pose,
+and the queries, hooks and `DrawBy` children that match on it would see it leave and come back. With
+the rule it never goes without one: no `remove` hook fires for it, and nothing that watches it
 re-enters.
 
-- A bringer that the same diff sets counts as present, although its snapshot has not been
-  attached yet when the removals are checked.
-- The rule looks at the entity's other components, so a bringer that is gone is no reason to keep a
-  component: once nothing brings it, the server's removal applies. Removing a bringer does not take
-  its companions with it either; `With` only brings them along.
+The rule is judged once the diff has applied, against the entity as it then is:
+
+- A removal of a component that something can bring (its `ComponentMeta.bringers` is not empty) is
+  held back. Under `progress()` the `ClientWorld:Release` system, which runs right after
+  `ClientWorld:Apply` in `ON_LOAD`, settles the held removals once the flush after `Apply` has set
+  and removed what the diff carries; `apply()` settles them at its end. So a bringer that the same
+  diff sets counts as present, and one it removes does not, whatever the wire order.
+- A bringer whose own removal is held counts only if it is kept, so a chain of network bringers that
+  the diff removes together goes as a whole, while a client-local bringer keeps its companion.
+- Once nothing brings the component, the server's removal applies. Removing a `With` bringer does
+  not take its companions with it; removing a `Requires` bringer does, unless another bringer
+  remains (see [Component traits](../../vecs/docs/components.md#component-traits-policy-on-component-entities)).
 - It applies to plain components. A relationship is removed as sent, since `With` brings it one
   edge at a time and no single component stands for the whole relationship.
-- It costs nothing outside the removal path: a diff without removals is applied as before, and a
-  removal of a component that no `With` brings pays one lookup of the component's bringers.
+- It costs nothing outside the removal path: a diff without removals is applied as before, and
+  `ClientWorld:Release` returns after one length check when nothing is held. A removal of a
+  component that nothing brings is applied at once.
 
 ## Optimistic frames and gaps
 
@@ -188,12 +197,14 @@ once, with one `exit` and one `enter`, as it is for a client that acks at once. 
 skipped still updates the entity in place: its snapshots overwrite the components, and its removals
 take away the components the entity lost after the reset, so the final state is the same either way.
 
-Under `progress()` the order takes two systems, `ClientWorld:Pull` and `ClientWorld:Apply`, both in
-`ON_LOAD` and both run before any system you add to the phase. The first runs the handlers of
-server requests, pulls the diff and destroys the reset entities. Destroying is queued inside a
-system and completes at the flush after it, which frees the ids, so the second system creates the new
-entities on clean ids. Calling `apply(now)` yourself does both in one call and is only correct
-outside a system or a `defer` scope, where the destruction takes effect at once.
+Under `progress()` the order takes three systems, `ClientWorld:Pull`, `ClientWorld:Apply` and
+`ClientWorld:Release`, all in `ON_LOAD` and all run before any system you add to the phase. The
+first runs the handlers of server requests, pulls the diff and destroys the reset entities.
+Destroying is queued inside a system and completes at the flush after it, which frees the ids, so the
+second system creates the new entities on clean ids. The third settles the removals of brought
+components held back by the second, once the flush after it has applied the diff (see
+[Applying a frame](#applying-a-frame)). Calling `apply(now)` yourself does all three in one call and
+is only correct outside a system or a `defer` scope, where the destruction takes effect at once.
 
 ## Render time
 
