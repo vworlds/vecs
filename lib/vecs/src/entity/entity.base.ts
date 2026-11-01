@@ -1,3 +1,4 @@
+import type { PendingEdges } from "../command.js";
 import { ComponentMeta, type ComponentInstance, type ComponentType } from "../component_meta.js";
 import type { Query } from "../query/index.js";
 import { IterableArrayMap, type ReadonlyIterableArrayMap } from "../util/array_map.js";
@@ -22,6 +23,9 @@ export class Base {
 
   /** @internal Relationship eid -> source entities targeting this entity. */
   protected _incoming: IterableArrayMap<DenseSet<Entity>> | undefined = undefined;
+
+  /** @internal Relationship edge commands this entity queued that have not applied yet. */
+  protected _pendingEdges: PendingEdges | undefined = undefined;
 
   /**
    * Bitmask of component type ids currently attached to this entity. Used by

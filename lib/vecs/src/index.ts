@@ -68,7 +68,13 @@ export type {
   VecsMember,
 } from "./reflection/member_types.js";
 export type { ValidationResult, Violations } from "./reflection/defaults.js";
-export { Entity, type EID, type EntityClass, Identity } from "./entity/index.js";
+export {
+  Entity,
+  type EID,
+  type EntityClass,
+  Identity,
+  type TargetReadOptions,
+} from "./entity/index.js";
 export { Module, type ModuleConfig } from "./module.js";
 export { MoveSubtreeError } from "./world/world.transfers.js";
 export { IdentityModule } from "./modules/identity.js";

@@ -78,6 +78,7 @@ export class Deferred extends Queries {
         cmd.entity._modified(cmd.meta);
         return;
       case CommandKind.Remove:
+        cmd.entity._consumePendingEdge(cmd);
         cmd.entity._remove(cmd.meta);
         return;
       case CommandKind.Destroy:
@@ -87,9 +88,11 @@ export class Deferred extends Queries {
         cmd.entity._attach(cmd.meta, cmd.component);
         return;
       case CommandKind.AddTarget:
+        cmd.entity._consumePendingEdge(cmd);
         cmd.entity._addTarget(cmd.meta, cmd.target);
         return;
       case CommandKind.RemoveTarget:
+        cmd.entity._consumePendingEdge(cmd);
         cmd.entity._removeTarget(cmd.meta, cmd.target);
         return;
     }
