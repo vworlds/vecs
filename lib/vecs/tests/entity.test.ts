@@ -869,9 +869,9 @@ describe("Entity — relationship navigation", () => {
     const source = w.entity();
     const target = w.entity();
 
-    expect(() => source.add(FriendOf)).toThrow(/requires a target/);
-    expect(() => source.add(Position, target)).toThrow(/requires a Relationship/);
-    expect(() => source.remove(Position, target)).toThrow(/requires a Relationship/);
+    expect(() => source.add(w.component(FriendOf))).toThrow(/requires a target/);
+    expect(() => source.add(w.component(Position), target)).toThrow(/requires a Relationship/);
+    expect(() => source.remove(w.component(Position), target)).toThrow(/requires a Relationship/);
     expect(() => source.attach(new FriendOf())).toThrow(/cannot attach Relationship/);
   });
 
@@ -1059,8 +1059,10 @@ describe("Entity — relationship navigation", () => {
     source.remove(FriendOf, target);
     expect(source.has(FriendOf)).toBe(false);
 
-    expect(() => source.add(Position, target.eid)).toThrow(/requires a Relationship/);
-    expect(() => source.remove(Position, target.eid)).toThrow(/requires a Relationship/);
+    expect(() => source.add(w.component(Position), target.eid)).toThrow(/requires a Relationship/);
+    expect(() => source.remove(w.component(Position), target.eid)).toThrow(
+      /requires a Relationship/
+    );
     expect(() => source.add(FriendOf, 999999)).toThrow(/No entity with eid/);
     expect(() => source.remove(FriendOf, 999999)).toThrow(/No entity with eid/);
   });

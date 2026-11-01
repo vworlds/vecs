@@ -159,7 +159,7 @@ describe("RelationshipsModule", () => {
     const w = new World();
     w.component(Inventory).add(Exclusive).add(OwnedTarget);
 
-    expect(() => w.entity().add(Inventory)).toThrow(/requires a target/);
+    expect(() => w.entity().add(w.component(Inventory))).toThrow(/requires a target/);
   });
 
   it("composes OwnedTarget with existing edge hooks", () => {
