@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   ChildOf,
-  CleanupPolicy,
+  ComponentDef,
+  Delete,
   DependsOn,
   type Entity,
   Exclusive,
+  OnDelete,
+  OnDeleteTarget,
   OwnedTarget,
   Relationship,
+  Remove,
   SilenceSource,
+  Throw,
+  Trait,
   Traversable,
   With,
   World,
@@ -20,6 +26,7 @@ class Helmet {}
 class Armor {}
 class WornBy extends Relationship {}
 class OwnedBy extends Relationship {}
+class InRoom extends Relationship {}
 
 function depthOf(w: World, entity: Entity): number | undefined {
   return w.entity(ParentOf).get(Traversable)!.depths.get(entity);
@@ -116,7 +123,7 @@ describe("RelationshipsModule", () => {
   it("throws mid-destroy when component deletion hits a dependent-trait guard (world is unusable after)", () => {
     const w = new World();
     const exclusive = w.component(Exclusive);
-    exclusive.meta.onDelete = CleanupPolicy.Remove;
+    exclusive.add(OnDelete, Remove);
 
     expect(() => exclusive.destroy()).toThrow(/dependent relationship trait/);
     // A throw during _destroy is fatal: the entity is partially torn down and
@@ -402,6 +409,81 @@ describe("RelationshipsModule", () => {
       // documented at relationships.ts:40-44).
       expect(() => w.clearAllEntities()).not.toThrow();
       expect(w.entities.size).toBe(0);
+    });
+  });
+
+  describe("cleanup policy traits", () => {
+    it("declares OnDelete and OnDeleteTarget as traits and gives ChildOf (OnDeleteTarget, Delete)", () => {
+      const w = new World();
+      const traits = w.query("Traits").with(ComponentDef, Trait).build();
+
+      expect(traits.has(w.component(OnDelete))).toBe(true);
+      expect(traits.has(w.component(OnDeleteTarget))).toBe(true);
+      expect(traits.has(w.component(Delete))).toBe(false);
+      expect(w.component(ChildOf).targets(OnDeleteTarget)).toEqual([w.component(Delete)]);
+      w.dispose();
+    });
+
+    it("cascades a target's destruction to its sources under (OnDeleteTarget, Delete)", () => {
+      const w = new World();
+      w.component(InRoom).add(OnDeleteTarget, Delete);
+      const room = w.entity();
+      const lamp = w.entity().add(InRoom, room);
+
+      room.destroy();
+
+      expect(lamp.destroyed).toBe(true);
+    });
+
+    it("replaces the policy on a second add and restores Remove when the edge is removed", () => {
+      const w = new World();
+      const inRoom = w.component(InRoom).add(OnDeleteTarget, Delete);
+      inRoom.add(OnDeleteTarget, Remove);
+      expect(inRoom.targets(OnDeleteTarget)).toEqual([w.component(Remove)]);
+
+      const first = w.entity();
+      const lamp = w.entity().add(InRoom, first);
+      first.destroy();
+      expect(lamp.destroyed).toBe(false);
+      expect(lamp.has(InRoom)).toBe(false);
+
+      inRoom.add(OnDeleteTarget, Delete);
+      inRoom.remove(OnDeleteTarget, Delete);
+      const second = w.entity();
+      lamp.add(InRoom, second);
+      second.destroy();
+      expect(lamp.destroyed).toBe(false);
+      expect(lamp.has(InRoom)).toBe(false);
+    });
+
+    it("applies OnDelete to carriers and restores Throw when the edge is removed", () => {
+      const w = new World();
+      const helmet = w.component(Helmet).add(OnDelete, Delete);
+      const wearer = w.entity().add(Helmet);
+      helmet.destroy();
+      expect(wearer.destroyed).toBe(true);
+
+      const armor = w.component(Armor).add(OnDelete, Remove);
+      armor.remove(OnDelete, Remove);
+      w.entity().add(Armor);
+      expect(() => armor.destroy()).toThrow(/component eid is still in use/);
+    });
+
+    it("rejects Throw, a non-policy target and a non-relationship carrier for OnDeleteTarget", () => {
+      const first = new World();
+      expect(() => first.component(InRoom).add(OnDeleteTarget, Throw)).toThrow(
+        "OnDeleteTarget accepts Remove or Delete, not Throw"
+      );
+
+      const second = new World();
+      const stranger = second.entity();
+      expect(() => second.component(InRoom).add(OnDeleteTarget, stranger)).toThrow(/OneOf: target/);
+
+      const third = new World();
+      third.component(NotRelationship);
+      expect(() => third.component(NotRelationship).add(OnDeleteTarget, Delete)).toThrow(
+        "OnDeleteTarget can only be added to a Relationship component"
+      );
     });
   });
 });

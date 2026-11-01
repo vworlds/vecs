@@ -3,6 +3,10 @@ import { DenseSet } from "./util/dense_set.js";
 import type { EID, Entity, EntityClass } from "./entity/index.js";
 import type { ValidationResult } from "./reflection/defaults.js";
 
+/**
+ * @internal The cleanup policy a component entity's meta stores. Declare it
+ * with the `OnDelete` and `OnDeleteTarget` traits.
+ */
 export enum CleanupPolicy {
   Throw = "throw",
   Remove = "remove",
@@ -337,10 +341,16 @@ export class ComponentMeta {
   /** Whether this relationship permits only one target. */
   public relationshipExclusive = false;
 
-  /** Applied to entities carrying this component when this component entity is deleted. */
-  public onDelete = CleanupPolicy.Throw;
-  /** Applied to entities targeting a deleted entity through this relationship. */
-  public onDeleteTarget = CleanupPolicy.Remove;
+  /**
+   * @internal Applied to entities carrying this component when this component
+   * entity is deleted. Written by the `OnDelete` trait.
+   */
+  public _onDelete = CleanupPolicy.Throw;
+  /**
+   * @internal Applied to entities targeting a deleted entity through this
+   * relationship. Written by the `OnDeleteTarget` trait.
+   */
+  public _onDeleteTarget = CleanupPolicy.Remove;
 
   /**
    * @internal Peer metas of components that cannot coexist with this one on

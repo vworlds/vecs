@@ -27,14 +27,18 @@ export { Filter } from "./filter.js";
 export { ComponentDef, Trait } from "./component_def.js";
 export {
   ChildOf,
+  Delete,
   DependsOn,
   Exclusive,
+  OnDelete,
+  OnDeleteTarget,
   OneOf,
   OwnedTarget,
+  Remove,
   SilenceSource,
+  Throw,
 } from "./modules/relationships.js";
 export {
-  CleanupPolicy,
   Component,
   Implements,
   Relationship,

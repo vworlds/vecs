@@ -24,7 +24,6 @@ import {
 } from "./modules/snapshot_types.js";
 
 export {
-  CleanupPolicy,
   ComponentMeta,
   Implements,
   Relationship,

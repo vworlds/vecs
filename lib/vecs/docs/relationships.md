@@ -49,7 +49,7 @@ cannot maintain a field:
 - **A stored `Entity` dangles.** Reuse never makes it name another entity, because a destroyed
   `Entity` stays `destroyed`, but nothing clears the field when the entity dies. Writes through it
   are silently dropped, including `ensure` (see [mutating in place](./entities.md#getmut-and-ensure-mutating-in-place)).
-- **An edge is cleaned up for you.** When the target is destroyed, `onDeleteTarget` removes the edge
+- **An edge is cleaned up for you.** When the target is destroyed, the `OnDeleteTarget` policy removes the edge
   or destroys the source (see [Cleanup when a target dies](#cleanup-when-a-target-dies)). The
   reverse index (`children`), `target` and `parent` queries, `groupBy` and network replication work
   on edges only.
@@ -67,7 +67,7 @@ contact events), and hooks that run while an entity or an edge target is being d
 
 | Class           | Purpose                                                                                                                    |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `ChildOf`       | Exclusive parent/child hierarchy. `onDeleteTarget = Delete`: destroying a parent destroys its `ChildOf` children.          |
+| `ChildOf`       | Exclusive parent/child hierarchy. `(OnDeleteTarget, Delete)`: destroying a parent destroys its `ChildOf` children.         |
 | `DependsOn`     | Exclusive pipeline ordering: phases chain to each other and systems attach to phases through it.                           |
 | `SilenceSource` | Exclusive query silence domain; configured via [`ignoreSource`](./queries-and-filters.md#silencing-feedback-ignoresource). |
 
@@ -330,18 +330,25 @@ write and no stale reference to guard.
 ## Cleanup when a target dies
 
 What happens to each incoming edge when its target entity is destroyed is governed by the
-relationship's `meta.onDeleteTarget`:
+relationship's `OnDeleteTarget` trait. Its target is the policy:
 
-| Policy                 | Meaning                                                                                    |
-| ---------------------- | ------------------------------------------------------------------------------------------ |
-| `CleanupPolicy.Remove` | Default. Remove only the edge to the destroyed target; other targets remain attached.      |
-| `CleanupPolicy.Delete` | Destroy each source entity that has an edge to the destroyed target through this relation. |
+| Policy   | Meaning                                                                                    |
+| -------- | ------------------------------------------------------------------------------------------ |
+| `Remove` | Default. Remove only the edge to the destroyed target; other targets remain attached.      |
+| `Delete` | Destroy each source entity that has an edge to the destroyed target through this relation. |
 
 ```ts
-import { CleanupPolicy } from "@vworlds/vecs";
+import { Delete, OnDeleteTarget } from "@vworlds/vecs";
 
-world.component(MyRel).meta.onDeleteTarget = CleanupPolicy.Delete;
+world.component(MyRel).add(OnDeleteTarget, Delete);
 ```
+
+`OnDeleteTarget` is an exclusive pair-form [trait](./design-guide.md#component-traits-policy-on-component-entities): adding
+another policy replaces the current one, removing the edge restores `Remove`, and `Throw` or any
+other target throws. Because the policy is a trait, reflection sees it:
+`world.component(MyRel).target(OnDeleteTarget)` names the policy, and `vecs-mcp` lists it among the
+relationship's traits. Unlike the other relationship traits, it can change while the relationship
+is in use; the next destroyed target follows the new policy.
 
 `ChildOf` ships with `Delete`, so destroying a parent recursively destroys its subtree:
 
@@ -354,8 +361,8 @@ With the default `Remove`, cleanup follows normal per-edge semantics: `onTargetR
 destroyed target, and the relationship component remains if another edge survives. Removing the
 last edge also removes the component.
 
-`onDeleteTarget` is independent from `onDelete`: `onDeleteTarget` applies when a relationship
-**target** is destroyed; `onDelete` applies when the relationship **component entity itself** is
+`OnDeleteTarget` is independent from `OnDelete`: `OnDeleteTarget` applies when a relationship
+**target** is destroyed; `OnDelete` applies when the relationship **component entity itself** is
 destroyed (see
 [Components — cleanup policies](./components.md#cleanup-policies-destroying-a-component-entity)).
 
@@ -446,7 +453,7 @@ payload gets its own ghost. List `ChildOf` or a custom relationship explicitly i
 | `world.component(R).on("targetAdd", handler)`    | Register a `(source, relationship, target)` edge-add handler.                                                                                              |
 | `world.component(R).on("targetRemove", handler)` | Register a `(source, relationship, target)` edge-remove handler.                                                                                           |
 | `world.component(R).add(OwnedTarget)`            | Adopt and destroy explicit targets; requires `Exclusive`.                                                                                                  |
-| `meta.onDeleteTarget`                            | `Remove` (default) per edge or `Delete` the source when a target dies.                                                                                     |
+| `world.component(R).add(OnDeleteTarget, policy)` | `Remove` (default) per edge or `Delete` the source when a target dies.                                                                                     |
 | `world.component(R).add(Traversable)`            | Enable depth tracking for cascade ordering; requires `Exclusive`.                                                                                          |
 | `{ target: [R, q] }` / `{ parent: q }`           | Reactive existential DSL operators through relationship targets.                                                                                           |
 | `{ source: [R, q] }` / `{ children: q }`         | Filter-only DSL operators down the reverse index.                                                                                                          |

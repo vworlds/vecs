@@ -3,10 +3,11 @@ import {
   type ComponentClass,
   type EID,
   type Entity,
-  CleanupPolicy,
+  Delete,
   Exclusive,
   Identity,
   Module,
+  OnDelete,
   OneOf,
   OwnedTarget,
   Phase,
@@ -16,6 +17,7 @@ import {
   With,
   World,
 } from "../src/index.js";
+import { CleanupPolicy } from "../src/component_meta.js";
 
 class Handle {}
 class Marker {}
@@ -49,7 +51,7 @@ describe("World.dispose", () => {
   it("keeps application remove hooks during the infrastructure pass without cascading Delete policies", () => {
     class Tag {}
     const world = new World();
-    world.component(Tag).meta.onDelete = CleanupPolicy.Delete;
+    world.component(Tag).add(OnDelete, Delete);
     const removed: EID[] = [];
     world.component(Tag).on("remove", (entity) => removed.push(entity.eid));
     const survivor = world.entity().add(Tag);
@@ -58,7 +60,7 @@ describe("World.dispose", () => {
     // carrier's own removal may fire the hook, exactly once.
     world.dispose();
     expect(removed).toEqual([survivor.eid]);
-    expect(key.meta.onDelete).toBe(CleanupPolicy.Remove);
+    expect(key.meta._onDelete).toBe(CleanupPolicy.Remove);
   });
 
   describe("application entities", () => {
@@ -257,7 +259,7 @@ describe("World.dispose", () => {
       world.component(WornBy).add(With, OwnedBy);
       target.childOf(owner);
       owner.add(Owns, target).add(ParentOf, target).add(ResidesIn, target).add(WornBy, target);
-      owner.meta.onDelete = CleanupPolicy.Delete;
+      owner.add(OnDelete, Delete);
       const carrier = world.component(class Carrier {}).add(owner);
       const removals = countRemovals(world, Handle);
       expect(() => world.dispose()).not.toThrow();

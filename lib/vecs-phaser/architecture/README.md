@@ -752,7 +752,7 @@ GameObject in the same frame, interpolated frames included.
   and an entity without `DrawBy`, because nothing was derived into its `Rotation` for the removal to
   undo.
 - **Without `DrawBy`** the tag does nothing, and removing it changes nothing. When `DrawBy` is
-  removed — for example because its parent was destroyed, under `CleanupPolicy.Remove` — the child
+  removed — for example because its parent was destroyed, under `(OnDeleteTarget, Remove)` — the child
   keeps the pose it was last resolved to, and removing the tag later leaves that pose alone.
 - **A tagged child's `Rotation` is derived**, so writing or replicating `Rotation` on it is
   overwritten every frame.
@@ -797,7 +797,7 @@ scans `entity.children(DrawIn)` and adopts it. A `DrawBy` child similarly waits 
 
 ### Container lifetime
 
-Both display relationships use `CleanupPolicy.Remove`: destroying a display parent detaches
+Both display relationships use `(OnDeleteTarget, Remove)`: destroying a display parent detaches
 children instead of destroying them. If the child also has `ChildOf` to that parent, `ChildOf`'s
 `Delete` policy owns the destruction cascade.
 

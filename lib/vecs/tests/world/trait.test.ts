@@ -4,22 +4,27 @@ import {
   ClonePublic,
   ComponentDef,
   CustomSnapshot,
+  Delete,
   DontSnapshot,
   type Entity,
   Exclusive,
   Identity,
   Implements,
   ImplementsModule,
+  OnDelete,
+  OnDeleteTarget,
   OnSnapshot,
   OneOf,
   OwnedTarget,
   Phase,
   Query,
   RelationshipsModule,
+  Remove,
   Singleton,
   SingletonModule,
   SnapshotModule,
   System,
+  Throw,
   Trait,
   Traversable,
   With,
@@ -71,12 +76,21 @@ describe("Trait", () => {
     expect(reference.parent).toBeUndefined();
   });
 
-  it("marks exactly the eight built-in policy definitions in a fresh world", () => {
+  it("marks exactly the ten built-in policy definitions in a fresh world", () => {
     const world = new World();
     const expected = new Set<Entity>(
-      [Exclusive, Traversable, OwnedTarget, With, OneOf, Singleton, Implements, OnSnapshot].map(
-        (Class) => world.component(Class)
-      )
+      [
+        Exclusive,
+        Traversable,
+        OwnedTarget,
+        With,
+        OneOf,
+        OnDelete,
+        OnDeleteTarget,
+        Singleton,
+        Implements,
+        OnSnapshot,
+      ].map((Class) => world.component(Class))
     );
     const definitions = world.query("Definitions").with(ComponentDef).build();
     for (const definition of definitions) {
@@ -91,6 +105,9 @@ describe("Trait", () => {
       ClonePublic,
       DontSnapshot,
       CustomSnapshot,
+      Throw,
+      Remove,
+      Delete,
       Phase,
       Query,
       System,

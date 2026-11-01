@@ -16,7 +16,7 @@ import { tag, wireType } from "@vworlds/vecs-wire";
  * belonging to a player) — it stays server-side. Use `DrawIn` when the client
  * needs to know the display parent to build the Phaser scene graph.
  *
- * Configure with `CleanupPolicy.Remove` (not `Delete`): destroying a display
+ * Configure with `(OnDeleteTarget, Remove)` (not `Delete`): destroying a display
  * parent detaches children rather than destroying them. The reparent system
  * re-adds orphaned children to the scene root.
  *
@@ -41,7 +41,7 @@ export class DrawIn extends Relationship {}
  * `Position` on the client to store the computed value (the `Position` is
  * client-local, never networked).
  *
- * Configure with `CleanupPolicy.Remove` (not `Delete`): destroying a display
+ * Configure with `(OnDeleteTarget, Remove)` (not `Delete`): destroying a display
  * parent detaches children rather than destroying them. The child survives on
  * the scene root, and keeps the last pose it was resolved to.
  *
@@ -87,7 +87,7 @@ export class DrawBy extends Relationship {}
  *   rotation: its `Rotation` becomes `angle`, now taken relative to the world,
  *   and its offset is no longer rotated.
  * - When `DrawBy` is removed (for example because the parent was destroyed, as
- *   `DrawBy` uses `CleanupPolicy.Remove`) the child keeps the pose it was last
+ *   `DrawBy` uses `(OnDeleteTarget, Remove)`) the child keeps the pose it was last
  *   resolved to, tagged or not, and removing the tag later leaves that pose
  *   alone.
  *
