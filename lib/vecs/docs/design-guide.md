@@ -269,7 +269,8 @@ these policies.
 
 - **Target storage is private.** Read edges with `target` / `targets` / `hasTarget`; mutate them only
   with `add(Rel, target)` and `remove(Rel, target)` (or `remove(Rel)` for all edges). There is no
-  public `Relationship.target` field.
+  public `Relationship.target` field. Naming a data field `target` or `targets` is discouraged
+  because `entity.target(Rel)` / `entity.targets(Rel)` use that vocabulary for edges.
 - **Relationships can be networked** when listed in `networkComponents`. A relationship snapshot
   carries all target eids plus the relationship's ordinary wire fields. The client reconciles the
   complete edge set and creates ghost targets that have not arrived yet. Use a dedicated

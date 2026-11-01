@@ -162,7 +162,8 @@ export interface ResolvedSnapshotOptions {
 }
 
 /**
- * @internal Capture a relationship instance's own fields, minus target storage.
+ * @internal Capture a relationship instance's own data fields; symbol-keyed target
+ * storage is not among `Object.keys`.
  *
  * Ownership and cleanup decisions live in the snapshot, not in the transfer.
  * Destroying a source root can cascade through a `CleanupPolicy.Delete` edge to
@@ -175,9 +176,6 @@ export interface ResolvedSnapshotOptions {
 export function _relationshipData(instance: Relationship): ComponentInstance {
   const data: Record<string, unknown> = {};
   for (const key of Object.keys(instance)) {
-    if (key === "target" || key === "targets" || key === "_targets") {
-      continue;
-    }
     data[key] = (instance as unknown as Record<string, unknown>)[key];
   }
   return data;
