@@ -4,6 +4,12 @@ import { Decoder, wireType } from "@vworlds/vecs-wire";
 import { Networked } from "../src/index.js";
 import { ReplicationSim } from "./harness/replication_sim.js";
 import { symmetric } from "./harness/lossy_link.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(4);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
 
 class Position {
   @wireType("i32")
@@ -53,7 +59,7 @@ describe("gated idle keepalives over the lossy harness", () => {
     const tap = client.down.tap;
     client.down.tap = (data) => {
       tap?.(data);
-      const message = new Decoder(data).read(Server2Client);
+      const message = new Decoder(data).read(decodeServer2Client);
       messages.push(message);
       if (messages.length === 1) {
         client.down.blocked = true;

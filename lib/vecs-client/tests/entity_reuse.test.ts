@@ -1,3 +1,4 @@
+import { CidLayout } from "@vworlds/vecs-protocol";
 import { describe, expect, it } from "vitest";
 import {
   ComponentSnapshot,
@@ -12,6 +13,8 @@ import {
 import { Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
 import type { EID, Entity } from "@vworlds/vecs";
 import { ClientWorld } from "../src/index.js";
+
+const testCid = new CidLayout(4);
 
 // The server reuses the id of a destroyed entity, and the wire carries no entity generation. A
 // diff that resets an eid (removes the whole entity) and snapshots the same eid is telling the
@@ -81,7 +84,7 @@ function encode(value: IEncodable | object): Uint8Array {
 
 function snapshot(eid: EID, type: number, component: object): EncodedSnapshot {
   return new EncodedSnapshot(
-    encode(new ComponentSnapshot({ eid, wireType: type, payload: encode(component) })),
+    encode(new ComponentSnapshot(testCid, { eid, wireType: type, payload: encode(component) })),
     eid,
     type
   );
@@ -98,7 +101,7 @@ function health(eid: EID, hp: number): EncodedSnapshot {
 /** A snapshot of a wire type the client did not register, which it cannot decode. */
 function undecodable(eid: EID): EncodedSnapshot {
   return new EncodedSnapshot(
-    encode(new ComponentSnapshot({ eid, wireType: 3, payload: new Uint8Array([1]) })),
+    encode(new ComponentSnapshot(testCid, { eid, wireType: 3, payload: new Uint8Array([1]) })),
     eid,
     3
   );
@@ -115,7 +118,7 @@ function deliver(
   } = {}
 ): void {
   socket.receive(
-    encode(new Server2Client({ diff: new StateDiff({ fromFrame, toFrame, ...changes }) }))
+    encode(new Server2Client({ diff: new StateDiff(testCid, { fromFrame, toFrame, ...changes }) }))
   );
 }
 

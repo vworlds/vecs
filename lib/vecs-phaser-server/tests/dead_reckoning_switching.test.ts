@@ -45,6 +45,17 @@ import { phaserInterpolators } from "../../vecs-phaser-client/src/sync.js";
 import { symmetric } from "../../vecs-server/tests/harness/lossy_link.js";
 import { ReplicationSim, type SimClient } from "../../vecs-server/tests/harness/replication_sim.js";
 import { DeadReckoned, DeadReckonedModule, PhaserServerModule } from "../src/index.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(
+  2 ** Math.ceil(Math.log2(phaserNetworkComponents.length + phaserMotionComponents.length + 1))
+);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
+const decodeComponentSnapshot = {
+  wireDecode: (decoder: Decoder) => ComponentSnapshot.decodeWith(testCid, decoder),
+};
 
 const HZ = 30;
 const NETWORK_COMPONENTS = [...phaserNetworkComponents, ...phaserMotionComponents];
@@ -212,7 +223,7 @@ class Rig {
     const harness = this.client.down.tap;
     this.client.down.tap = (data) => {
       harness?.(data);
-      const diff = new Decoder(data).read(Server2Client).diff;
+      const diff = new Decoder(data).read(decodeServer2Client).diff;
       if (diff === undefined) {
         return;
       }
@@ -226,7 +237,7 @@ class Rig {
         return carried;
       };
       for (const encoded of diff.snapshots) {
-        const snapshot = new Decoder(encoded.bytes).read(ComponentSnapshot);
+        const snapshot = new Decoder(encoded.bytes).read(decodeComponentSnapshot);
         const name = WIRE_NAMES.get(snapshot.wireType);
         if (name !== undefined) {
           carriedOf(snapshot.eid).set.set(name, snapshot.payload);

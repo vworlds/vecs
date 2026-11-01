@@ -1,12 +1,4 @@
-export {
-  ALL_COMPONENTS,
-  LOCAL_COMPONENT_MIN,
-  cid_pack,
-  cid_unpack,
-  getLocalComponentMin,
-  setLocalComponentMin,
-  type CID,
-} from "./cid.js";
+export { ALL_COMPONENTS, CidLayout, type CID } from "./cid.js";
 export {
   NetworkWorld,
   type NetworkWorldOptions,

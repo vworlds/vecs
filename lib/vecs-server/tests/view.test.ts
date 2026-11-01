@@ -12,6 +12,15 @@ import { NetworkClient, Networked, ServerWorld, View } from "../src/index.js";
 import { TrackerCache } from "../src/view.js";
 import { symmetric } from "./harness/lossy_link.js";
 import { ReplicationSim } from "./harness/replication_sim.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(4);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
+const decodeComponentSnapshot = {
+  wireDecode: (decoder: Decoder) => ComponentSnapshot.decodeWith(testCid, decoder),
+};
 
 // A View keeps three sets between two sends: the entities visible now, those that entered since
 // the last send (the client is sent a full snapshot) and those that left it (the client is sent a
@@ -289,7 +298,7 @@ describe("a session whose view covers two cells of an interest grid", () => {
       take: () => {
         const frames = socket.sent
           .slice(taken)
-          .map((bytes) => new Decoder(bytes).read(Server2Client));
+          .map((bytes) => new Decoder(bytes).read(decodeServer2Client));
         taken = socket.sent.length;
         return frames;
       },
@@ -315,7 +324,7 @@ describe("a session whose view covers two cells of an interest grid", () => {
 
   function snapshotsOf(frame: Server2Client): Array<{ eid: number; wireType: number }> {
     return frame.diff!.snapshots.map((s) => {
-      const snapshot = new Decoder(s.bytes).read(ComponentSnapshot);
+      const snapshot = new Decoder(s.bytes).read(decodeComponentSnapshot);
       return { eid: snapshot.eid, wireType: snapshot.wireType };
     });
   }

@@ -17,6 +17,15 @@ import {
   View,
   type ServerWorldOptions,
 } from "../src/index.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(2);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
+const decodeComponentSnapshot = {
+  wireDecode: (decoder: Decoder) => ComponentSnapshot.decodeWith(testCid, decoder),
+};
 
 // The optimistic base (`ServerWorldOptions.redundancyFrames`): a healthy session is sent each frame as
 // a delta from `max(ack, base)`, where `base` is the state frame of the send R sends ago (the frame
@@ -129,7 +138,7 @@ function step(rig: Rig): Server2Client[] {
   const before = rig.socket.sent.length;
   rig.world.progress(nowMs, TICK_MS);
   nowMs += TICK_MS;
-  return rig.socket.sent.slice(before).map((bytes) => new Decoder(bytes).read(Server2Client));
+  return rig.socket.sent.slice(before).map((bytes) => new Decoder(bytes).read(decodeServer2Client));
 }
 
 /** Deliver a client message to the server at the current time. */
@@ -224,13 +233,13 @@ function fromFrameOf(frame: Server2Client): number {
 /** The entities that have a snapshot in the frame. */
 function eidsIn(frame: Server2Client): number[] {
   return frame.diff!.snapshots.map(
-    (snapshot) => new Decoder(snapshot.bytes).read(ComponentSnapshot).eid
+    (snapshot) => new Decoder(snapshot.bytes).read(decodeComponentSnapshot).eid
   );
 }
 
 function xOf(frame: Server2Client, eid: number): number | undefined {
   for (const snapshot of frame.diff!.snapshots) {
-    const decoded = new Decoder(snapshot.bytes).read(ComponentSnapshot);
+    const decoded = new Decoder(snapshot.bytes).read(decodeComponentSnapshot);
     if (decoded.eid === eid) {
       return new Decoder(decoded.payload).read(Position).x;
     }

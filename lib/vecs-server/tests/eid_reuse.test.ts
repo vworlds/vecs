@@ -5,6 +5,15 @@ import { DEFAULT_ID_REUSE_WAIT_FRAMES, ON_UPDATE, POST_UPDATE, type Entity } fro
 import { Networked, type ServerWorld } from "../src/index.js";
 import { symmetric, type DuplexConditions } from "./harness/lossy_link.js";
 import { ReplicationSim, type SimClient } from "./harness/replication_sim.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(4);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
+const decodeComponentSnapshot = {
+  wireDecode: (decoder: Decoder) => ComponentSnapshot.decodeWith(testCid, decoder),
+};
 
 // A replicated entity's eid is freed when the entity is destroyed, and the id pool hands the lowest
 // free id out first, so a later entity can take it. The wire carries no entity generation: a client
@@ -964,12 +973,12 @@ function recordWire(client: SimClient, eid: number): WireFrame[] {
   const previousTap = client.down.tap;
   client.down.tap = (data) => {
     previousTap?.(data);
-    const diff = new Decoder(data).read(Server2Client).diff;
+    const diff = new Decoder(data).read(decodeServer2Client).diff;
     if (diff === undefined) {
       return;
     }
     const snapshots = diff.snapshots
-      .map((encoded) => new Decoder(encoded.bytes).read(ComponentSnapshot))
+      .map((encoded) => new Decoder(encoded.bytes).read(decodeComponentSnapshot))
       .filter((snapshot) => snapshot.eid === eid)
       .map((snapshot) => describeSnapshot(snapshot.eid, snapshot.wireType));
     const removed = diff.removed
@@ -997,7 +1006,7 @@ function loseFirstRemoval(client: SimClient, eid: number, wire: WireFrame[]): vo
     if (lost) {
       return false;
     }
-    const diff = new Decoder(data).read(Server2Client).diff;
+    const diff = new Decoder(data).read(decodeServer2Client).diff;
     if (diff === undefined || !diff.resets?.some(([id]) => id === eid)) {
       return false;
     }

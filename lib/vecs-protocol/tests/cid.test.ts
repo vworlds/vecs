@@ -1,139 +1,62 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import {
-  ALL_COMPONENTS,
-  cid_pack,
-  cid_unpack,
-  getLocalComponentMin,
-  setLocalComponentMin,
-} from "../src/cid.js";
+import { describe, expect, it } from "vitest";
+import { ALL_COMPONENTS, CidLayout } from "../src/cid.js";
 
-describe("cid_pack", () => {
-  beforeEach(() => {
-    setLocalComponentMin(256);
+describe("CidLayout", () => {
+  it.each([2, 32, 64, 256, 1024, 2 ** 30])("round-trips bounds for %s", (minimum) => {
+    const layout = new CidLayout(minimum);
+    expect(layout.wireTypeShift).toBe(Math.log2(minimum));
+    expect(layout.wireTypeMask).toBe(minimum - 1);
+    expect(layout.maxWireType).toBe(minimum - 1);
+    expect(layout.maxEntityId).toBe(2 ** (32 - Math.log2(minimum)) - 1);
+    expect(layout.unpack(layout.pack(0, 0))).toEqual([0, 0]);
+    expect(layout.pack(layout.maxEntityId, layout.maxWireType)).toBe(0xffffffff);
+    expect(layout.unpack(0xffffffff)).toEqual([layout.maxEntityId, layout.maxWireType]);
+    expect(() => layout.pack(layout.maxEntityId + 1, 0)).toThrow(/exceeds maximum/);
+    expect(() => layout.pack(0, layout.maxWireType + 1)).toThrow(/exceeds maximum wire type/);
   });
 
-  it("packs and unpacks entity 0 with wire type 0", () => {
-    const cid = cid_pack(0, 0);
-    const [eid, wireType] = cid_unpack(cid);
-    expect(eid).toBe(0);
-    expect(wireType).toBe(0);
+  it("pins the 28-component sector schema's overflow limits", () => {
+    const layout = new CidLayout(32);
+    expect(layout.maxEntityId).toBe(134217727);
+    expect(layout.maxWireType).toBe(31);
+    expect(layout.unpack(layout.pack(134217727, 31))).toEqual([134217727, 31]);
+    expect(() => layout.pack(134217728, 1)).toThrow(
+      "cid_pack: entity id 134217728 exceeds maximum 134217727 for localComponentMin=32. " +
+        "Increase localComponentMin or use a smaller entity id."
+    );
+    expect(() => layout.pack(1, 32)).toThrow(
+      "cid_pack: wire type id 32 exceeds maximum wire type 31. " +
+        "Ensure wire type id is less than localComponentMin=32."
+    );
   });
 
-  it("packs and unpacks default boundary case", () => {
-    const maxEid = 16777215;
-    const maxWireType = 255;
-
-    const cid = cid_pack(maxEid, maxWireType);
-    const [eid, wireType] = cid_unpack(cid);
-    expect(eid).toBe(maxEid);
-    expect(wireType).toBe(maxWireType);
-  });
-
-  it("reverses cid_pack with cid_unpack", () => {
-    const testCases = [
-      [0, 0],
+  it("preserves negative-id checks and accepts the all-components sentinel", () => {
+    const layout = new CidLayout(256);
+    expect(() => layout.pack(-1, 0)).toThrow(/entity id must be non-negative/);
+    expect(() => layout.pack(0, -1)).toThrow(/wire type id must be non-negative/);
+    expect(layout.unpack(layout.pack(1000, ALL_COMPONENTS))).toEqual([1000, ALL_COMPONENTS]);
+    for (const [eid, wireType] of [
       [1, 0],
       [255, 1],
-      [16777215, 255],
       [1000, 100],
-    ];
-
-    for (const [eid, wireType] of testCases) {
-      const cid = cid_pack(eid, wireType);
-      const [unpackedEid, unpackedWireType] = cid_unpack(cid);
-      expect([unpackedEid, unpackedWireType]).toEqual([eid, wireType]);
+      [16777215, 255],
+    ]) {
+      expect(layout.unpack(layout.pack(eid, wireType))).toEqual([eid, wireType]);
     }
+    expect(() => layout.pack(2 ** 30, 0)).toThrow(/exceeds maximum/);
   });
 
-  it("throws on negative entity id", () => {
-    expect(() => cid_pack(-1, 0)).toThrow(/entity id must be non-negative/);
-  });
-
-  it("throws on entity id at boundary + 1", () => {
-    const maxEid = 16777215;
-    expect(() => cid_pack(maxEid + 1, 0)).toThrow(/exceeds maximum/);
-  });
-
-  it("throws on entity id far exceeding boundary", () => {
-    expect(() => cid_pack(2 ** 24, 0)).toThrow(/exceeds maximum/);
-    expect(() => cid_pack(2 ** 30, 0)).toThrow(/exceeds maximum/);
-  });
-
-  it("throws on negative wire type id", () => {
-    expect(() => cid_pack(0, -1)).toThrow(/wire type id must be non-negative/);
-  });
-
-  it("throws on wire type id exceeding wireTypeMask", () => {
-    expect(() => cid_pack(0, 256)).toThrow(/exceeds maximum wire type/);
-  });
-
-  it("accepts wire type id equal to ALL_COMPONENTS sentinel", () => {
-    expect(() => cid_pack(0, ALL_COMPONENTS)).not.toThrow();
-    const cid = cid_pack(0, ALL_COMPONENTS);
-    const [eid, wireType] = cid_unpack(cid);
-    expect(eid).toBe(0);
-    expect(wireType).toBe(ALL_COMPONENTS);
-  });
-
-  it("works with custom LOCAL_COMPONENT_MIN = 64", () => {
-    setLocalComponentMin(64);
-    const wireTypeShift = 6;
-    const maxEid = (1 << (32 - wireTypeShift)) - 1;
-
-    const cid = cid_pack(maxEid, 63);
-    const [eid, wireType] = cid_unpack(cid);
-    expect(eid).toBe(maxEid);
-    expect(wireType).toBe(63);
-    expect(() => cid_pack(maxEid + 1, 0)).toThrow(/exceeds maximum/);
-  });
-
-  it("works with custom LOCAL_COMPONENT_MIN = 1024", () => {
-    setLocalComponentMin(1024);
-    const wireTypeShift = 10;
-    const maxEid = (1 << (32 - wireTypeShift)) - 1;
-
-    const cid = cid_pack(maxEid, 1023);
-    const [eid, wireType] = cid_unpack(cid);
-    expect(eid).toBe(maxEid);
-    expect(wireType).toBe(1023);
-    expect(() => cid_pack(maxEid + 1, 0)).toThrow(/exceeds maximum/);
-  });
-
-  it("works with minimum LOCAL_COMPONENT_MIN = 2", () => {
-    setLocalComponentMin(2);
-    const wireTypeShift = 1;
-    const maxEid = 2 ** (32 - wireTypeShift) - 1;
-
-    const cid = cid_pack(maxEid, 1);
-    const [eid, wireType] = cid_unpack(cid);
-    expect(eid).toBe(maxEid);
-    expect(wireType).toBe(1);
-    expect(() => cid_pack(maxEid + 1, 0)).toThrow(/exceeds maximum/);
-  });
-});
-
-describe("setLocalComponentMin", () => {
-  beforeEach(() => {
-    setLocalComponentMin(256);
-  });
-
-  it("rejects a non power-of-two value", () => {
-    expect(() => setLocalComponentMin(3)).toThrow(/power-of-two/);
-  });
-
-  it("rejects values below 2", () => {
-    expect(() => setLocalComponentMin(1)).toThrow(/power-of-two/);
-  });
-
-  it("rejects misaligned values without leaving the module half-updated", () => {
-    // Previously the value was assigned before the alignment check, so a
-    // rejected value left LOCAL_COMPONENT_MIN out of sync with the derived
-    // shift/mask and the next getLocalComponentMin() call threw. The setter is
-    // now atomic: it validates first and only then updates any state.
-    expect(() => setLocalComponentMin(3)).toThrow();
-    expect(() => getLocalComponentMin()).not.toThrow();
-    expect(getLocalComponentMin()).toBe(256);
-    const cid = cid_pack(16777215, 255);
-    expect(cid_unpack(cid)).toEqual([16777215, 255]);
-  });
+  it.each([0, 1, -2, 3, 2.5, NaN, Infinity, 2 ** 31, 2 ** 32, 2 ** 40, Number.MAX_SAFE_INTEGER])(
+    "rejects %s without affecting another layout",
+    (minimum) => {
+      const existing = new CidLayout(64);
+      const packed = existing.pack(1234, 63);
+      expect(() => new CidLayout(minimum)).toThrow(/localComponentMin/);
+      expect(existing.pack(1234, 63)).toBe(packed);
+      expect(existing.unpack(packed)).toEqual([1234, 63]);
+      const next = new CidLayout(1024);
+      expect(next.unpack(next.pack(1234, 1023))).toEqual([1234, 1023]);
+      expect(existing.unpack(packed)).toEqual([1234, 63]);
+    }
+  );
 });

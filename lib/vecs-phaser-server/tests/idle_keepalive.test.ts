@@ -24,6 +24,14 @@ import { phaserInterpolators } from "../../vecs-phaser-client/src/sync.js";
 import { ReplicationSim } from "../../vecs-server/tests/harness/replication_sim.js";
 import { symmetric } from "../../vecs-server/tests/harness/lossy_link.js";
 import { DeadReckoned, DeadReckonedModule, DeadReckonedMoving } from "../src/dead_reckoned.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(
+  2 ** Math.ceil(Math.log2(phaserNetworkComponents.length + phaserMotionComponents.length + 1))
+);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
 
 let sim: ReplicationSim | undefined;
 beforeAll(preloadPhysics);
@@ -175,7 +183,7 @@ describe("idle keepalive end to end", () => {
     let dropped = 0;
     client.down.tap = (data) => {
       tap?.(data);
-      const diff = new Decoder(data).read(Server2Client).diff;
+      const diff = new Decoder(data).read(decodeServer2Client).diff;
       if (lost && diff?.toFrame === frame) {
         client.down.blocked = true;
         dropped++;

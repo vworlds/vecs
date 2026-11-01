@@ -1,3 +1,4 @@
+import { CidLayout } from "@vworlds/vecs-protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   Client2Server,
@@ -10,6 +11,8 @@ import {
 } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
 import { ClientWorld } from "../src/index.js";
+
+const testCid = new CidLayout(2);
 
 class Position {
   @wireType("i32")
@@ -105,12 +108,14 @@ function positionBaseline(eid: number, toFrame: number, x: number, y: number): U
   const payload = new Encoder(new Uint8Array(1024));
   payload.write(position);
   const snapshot = new EncodedSnapshot(
-    encode(new ComponentSnapshot({ eid, wireType: 1, payload: payload.getBuffer() })),
+    encode(new ComponentSnapshot(testCid, { eid, wireType: 1, payload: payload.getBuffer() })),
     eid,
     1
   );
   return encode(
-    new Server2Client({ diff: new StateDiff({ fromFrame: 0, toFrame, snapshots: [snapshot] }) })
+    new Server2Client({
+      diff: new StateDiff(testCid, { fromFrame: 0, toFrame, snapshots: [snapshot] }),
+    })
   );
 }
 

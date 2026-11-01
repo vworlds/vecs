@@ -20,6 +20,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { DeadReckonedModule } from "../../src/modules/dead_reckoned.js";
 import { phaserInterpolators } from "../../src/sync.js";
 import { BODY, removeOnWire, setOnWire } from "./dead_reckoned_fixtures.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(
+  2 ** Math.ceil(Math.log2(phaserNetworkComponents.length + phaserMotionComponents.length + 1))
+);
 
 const worlds: ClientWorld[] = [];
 afterEach(() => worlds.splice(0).forEach((world) => world.dispose()));
@@ -130,7 +135,7 @@ function setup(blendMs = 100) {
     const encoder = new Encoder(new Uint8Array(65536));
     encoder.write(
       new Server2Client({
-        diff: new StateDiff({ fromFrame: frame - 1, toFrame: frame, snapshots, removed }),
+        diff: new StateDiff(testCid, { fromFrame: frame - 1, toFrame: frame, snapshots, removed }),
       })
     );
     socket.receive(encoder.getBuffer().slice());

@@ -9,8 +9,6 @@ import {
   SessionRPC,
   StateDiff,
   type CloseNotice,
-  cid_pack,
-  cid_unpack,
   decodeRelationshipSnapshot,
   NetworkWorld,
   type NetworkWorldOptions,
@@ -168,6 +166,7 @@ export class ClientWorld extends NetworkWorld {
     this.component(Networked);
     this._networkedQuery = this.query("ClientWorld:Networked").with(Networked).track().build();
     this._diffBuffer = new DiffBuffer(
+      this.cid,
       options.interpolatorBucketLength ?? 3,
       options.serverTickIntervalMs ?? 1000 / 30,
       (snapshot) => this.decodeComponentSnapshot(snapshot),
@@ -593,7 +592,7 @@ export class ClientWorld extends NetworkWorld {
     }
     let message: Server2Client;
     try {
-      message = new Decoder(data).read(Server2Client);
+      message = Server2Client.decodeWith(this.cid, new Decoder(data));
     } catch (error) {
       // A frame that cannot be decoded — truncated or random bytes, or a field tag
       // from a newer protocol version — must not throw into the transport.
@@ -832,7 +831,7 @@ export class ClientWorld extends NetworkWorld {
     this._withRemovalKeys = undefined;
     try {
       for (const key of removed) {
-        const [eid, wireType] = cid_unpack(key);
+        const [eid, wireType] = this.cid.unpack(key);
         this._removeComponent(eid, wireType, diff);
       }
     } finally {
@@ -950,7 +949,7 @@ export class ClientWorld extends NetworkWorld {
         continue;
       }
       this._withRemovalKeys ??= new Set(diff.removed);
-      if (!this._withRemovalKeys.has(cid_pack(entity.eid, registered.wireType))) {
+      if (!this._withRemovalKeys.has(this.cid.pack(entity.eid, registered.wireType))) {
         return true;
       }
     }
@@ -962,7 +961,7 @@ export class ClientWorld extends NetworkWorld {
     const registered = this.networkComponents.find((component) => component.eid === bringer.eid);
     return (
       registered !== undefined &&
-      diff.getSnapshot(cid_pack(entity.eid, registered.wireType)) !== undefined
+      diff.getSnapshot(this.cid.pack(entity.eid, registered.wireType)) !== undefined
     );
   }
 

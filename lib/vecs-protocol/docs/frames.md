@@ -38,6 +38,35 @@ the reading side out first.
 
 ## Diffs and their labels
 
+### Per-world component ids
+
+Use `world.cid` when you pack or unpack a component id. Each `NetworkWorld` creates its own
+`CidLayout` from the ordered `networkComponents` list: the next power of two at least as large
+as the component count plus one (minimum 2). Different worlds in one process can use different
+schemas; each connection still needs matching component order on both peers. Local component
+registration does not change this layout.
+
+For standalone tools, construct `new CidLayout(localComponentMin)` with a power-of-two safe
+integer in `[2, 2^31)`. Read `maxEntityId` and `maxWireType` before allocating ids: `pack` throws
+on overflow rather than truncating them. Changing the layout changes how you interpret the
+same packed `u32`; it does not add bytes or a schema discriminator to the wire.
+
+Pass the owning world's layout as the first constructor argument to `ComponentSnapshot` and
+`StateDiff`. They retain it for encoding with `Encoder.write`. Decode either class or a server
+frame with `ComponentSnapshot.decodeWith(layout, decoder)`, `StateDiff.decodeWith(layout, decoder)`
+or `Server2Client.decodeWith(layout, decoder)`, not `Decoder.read(Class)`. The layout is necessary
+to distinguish component removals from reset markers, which carry an additional frame varint.
+`Client2Server` has no packed ids and still uses `Decoder.read(Client2Server)`.
+
+If you use the client buffer directly, pass the same layout first to `DiffBuffer`, `Diff` and its
+`ComponentSnapshot` (from `@vworlds/vecs-client`). `diffFromStateDiff` uses the layout retained by
+the wire diff. Normal `ServerWorld` and `ClientWorld` usage wires all of this for you.
+
+The old global setters/getters, live minimum binding and free pack/unpack exports have no
+replacement singleton: migrate callers to the appropriate world's `cid.pack` and `cid.unpack`.
+
+### Frame ranges
+
 A `StateDiff` carries `toFrame`, `fromFrame`, the encoded component snapshots and the removed
 components. `fromFrame` `0` marks a **baseline**, the whole view as of `toFrame`. Any other value
 marks a **delta**: everything that changed after `fromFrame`, up to and including `toFrame`, each
@@ -67,14 +96,15 @@ The claim may then be false, because the last `redundancyFrames` sends were all 
   deltas from the ack until the client has caught up.
 
 ```ts
-import { Client2Server, Server2Client, StateDiff } from "@vworlds/vecs-protocol";
+import { CidLayout, Client2Server, Server2Client, StateDiff } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 
 const frameEncoder = new Encoder(new Uint8Array(1024));
+const layout = new CidLayout(32); // In an application, use the matching world's cid.
 frameEncoder.write(
-  new Server2Client({ diff: new StateDiff({ fromFrame: 6, toFrame: 8 }), optimistic: true })
+  new Server2Client({ diff: new StateDiff(layout, { fromFrame: 6, toFrame: 8 }), optimistic: true })
 );
-const frame = new Decoder(frameEncoder.getBuffer()).read(Server2Client);
+const frame = Server2Client.decodeWith(layout, new Decoder(frameEncoder.getBuffer()));
 frame.optimistic; // true: the server presumed the client holds frame 6
 
 const ackEncoder = new Encoder(new Uint8Array(1024));

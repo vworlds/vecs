@@ -1,3 +1,4 @@
+import { CidLayout } from "@vworlds/vecs-protocol";
 import { describe, expect, it } from "vitest";
 import { isDeepStrictEqual } from "node:util";
 import type { EID } from "@vworlds/vecs";
@@ -9,10 +10,12 @@ import {
 } from "@vworlds/vecs-protocol";
 import { HISTORY_LENGTH, History, validateHistoryFrames } from "../src/history.js";
 
+const testCid = new CidLayout(256);
+
 function diff(toFrame: number): StateDiff {
   const snapshotBytes = new Uint8Array([toFrame]);
 
-  return new StateDiff({
+  return new StateDiff(testCid, {
     fromFrame: toFrame - 1,
     toFrame,
     snapshots: [new EncodedSnapshot(snapshotBytes, 123, 1)],
@@ -30,12 +33,12 @@ function stateDiff(
   removed: RemovedComponent[] = [],
   resets: EntityReset[] = []
 ): StateDiff {
-  return new StateDiff({ fromFrame: toFrame - 1, toFrame, snapshots, removed, resets });
+  return new StateDiff(testCid, { fromFrame: toFrame - 1, toFrame, snapshots, removed, resets });
 }
 
 describe("History", () => {
   it("counts a reset-only frame as content for state bases, the pull shortcut and eviction", () => {
-    const history = new History(4, 0);
+    const history = new History(testCid, 4, 0);
     history.push(stateDiff(1, [snapshot(123, 1)]));
     history.push(stateDiff(2, [], [], [[123, 2]]));
     history.push(stateDiff(3));
@@ -43,9 +46,9 @@ describe("History", () => {
 
     expect(history.lastContentFrame).toBe(2);
     expect(history.pull(1, 4)).toEqual(
-      new StateDiff({ fromFrame: 1, toFrame: 4, resets: [[123, 2]] })
+      new StateDiff(testCid, { fromFrame: 1, toFrame: 4, resets: [[123, 2]] })
     );
-    expect(history.pull(2, 4)).toEqual(new StateDiff({ fromFrame: 2, toFrame: 4 }));
+    expect(history.pull(2, 4)).toEqual(new StateDiff(testCid, { fromFrame: 2, toFrame: 4 }));
     history.push(stateDiff(5));
     expect(history.canPullAfterPush(1)).toBe(false);
     history.push(stateDiff(6));
@@ -55,11 +58,11 @@ describe("History", () => {
 
   it("retains 64 frames by default, about two seconds at 30 Hz", () => {
     expect(HISTORY_LENGTH).toBe(64);
-    expect(new History().oldestFrame).toBe(-1 - 64 + 1);
+    expect(new History(testCid).oldestFrame).toBe(-1 - 64 + 1);
   });
 
   it("starts primed with empty negative frames", () => {
-    const history = new History();
+    const history = new History(testCid);
 
     expect(history.lastFrame).toBe(-1);
     expect(history.oldestFrame).toBe(-HISTORY_LENGTH);
@@ -74,7 +77,7 @@ describe("History", () => {
   });
 
   it("pushes frame 0 first and drops the oldest primed frame", () => {
-    const history = new History();
+    const history = new History(testCid);
     const frame0 = diff(0);
 
     history.push(frame0);
@@ -86,7 +89,7 @@ describe("History", () => {
   });
 
   it("starts from a provided last frame for late sessions", () => {
-    const history = new History(HISTORY_LENGTH, 9);
+    const history = new History(testCid, HISTORY_LENGTH, 9);
     const frame10 = diff(10);
     const oldest = 9 - HISTORY_LENGTH + 1;
 
@@ -109,7 +112,7 @@ describe("History", () => {
   });
 
   it("keeps only the latest frames in the circular buffer", () => {
-    const history = new History(5);
+    const history = new History(testCid, 5);
     const frames: StateDiff[] = [];
 
     for (let frame = 0; frame <= 20; frame++) {
@@ -128,7 +131,7 @@ describe("History", () => {
   });
 
   it("rejects non-sequential pushes", () => {
-    const history = new History();
+    const history = new History(testCid);
 
     expect(() => history.push(diff(1))).toThrow("Expected frame 0, got 1");
     history.push(diff(0));
@@ -136,7 +139,7 @@ describe("History", () => {
   });
 
   it("pulls a single frame by returning the indexed diff", () => {
-    const history = new History();
+    const history = new History(testCid);
     const frame0 = stateDiff(0, [snapshot(1, 1)]);
 
     history.push(frame0);
@@ -145,7 +148,7 @@ describe("History", () => {
   });
 
   it("pulls a forged diff with the requested frame range", () => {
-    const history = new History();
+    const history = new History(testCid);
     history.push(stateDiff(0, [snapshot(1, 1)]));
     history.push(stateDiff(1, [snapshot(2, 1)]));
     history.push(stateDiff(2, [snapshot(3, 1)]));
@@ -159,7 +162,7 @@ describe("History", () => {
   });
 
   it("lets snapshots and removals for a component cancel each other", () => {
-    const history = new History();
+    const history = new History(testCid);
     const firstPosition = snapshot(1, 1, 10);
     const latestPosition = snapshot(1, 1, 20);
 
@@ -180,7 +183,7 @@ describe("History", () => {
 
   describe("an entity reset within the span", () => {
     it("is pulled as a reset at its frame, with the snapshots that follow it", () => {
-      const history = new History();
+      const history = new History(testCid);
       const latestPosition = snapshot(1, 1, 20);
 
       history.push(stateDiff(0, [snapshot(1, 1, 10)]));
@@ -195,7 +198,7 @@ describe("History", () => {
     });
 
     it("keeps nothing of the removed entity: the snapshots before the reset are gone", () => {
-      const history = new History();
+      const history = new History(testCid);
 
       history.push(stateDiff(0, [snapshot(1, 1, 10), snapshot(1, 2, 10)]));
       history.push(stateDiff(1, [], [], [[1, 1]]));
@@ -208,7 +211,7 @@ describe("History", () => {
     });
 
     it("is also a reset when the reset and the snapshots share one frame's diff", () => {
-      const history = new History();
+      const history = new History(testCid);
 
       history.push(stateDiff(0, [snapshot(1, 1, 10), snapshot(1, 2, 10)]));
       history.push(stateDiff(1, [snapshot(1, 1, 20)], [], [[1, 1]]));
@@ -221,7 +224,7 @@ describe("History", () => {
     });
 
     it("applies a frame's reset before its snapshots, not after", () => {
-      const history = new History();
+      const history = new History(testCid);
 
       history.push(stateDiff(0, [snapshot(1, 1, 10)]));
       history.push(stateDiff(1, [snapshot(1, 2, 5)], [], [[1, 1]]));
@@ -234,7 +237,7 @@ describe("History", () => {
     });
 
     it("keeps the removal of a component after the reset, so a client that skipped the reset applies it", () => {
-      const history = new History();
+      const history = new History(testCid);
 
       history.push(stateDiff(0, [snapshot(1, 1, 10), snapshot(1, 2, 10)]));
       history.push(stateDiff(1, [], [], [[1, 1]]));
@@ -249,7 +252,7 @@ describe("History", () => {
     });
 
     it("keeps the removal of a component that was never snapshotted after the reset", () => {
-      const history = new History();
+      const history = new History(testCid);
 
       history.push(stateDiff(0, [snapshot(1, 1, 10), snapshot(1, 2, 10)]));
       history.push(stateDiff(1, [], [], [[1, 1]]));
@@ -263,7 +266,7 @@ describe("History", () => {
     });
 
     it("drops the removals of single components that precede the reset", () => {
-      const history = new History();
+      const history = new History(testCid);
 
       history.push(stateDiff(0, [snapshot(1, 1), snapshot(1, 2)]));
       history.push(stateDiff(1, [], [[1, 3]]));
@@ -277,7 +280,7 @@ describe("History", () => {
     });
 
     it("keeps only the newest reset, and what follows it, when the entity is reset again", () => {
-      const history = new History();
+      const history = new History(testCid);
 
       history.push(stateDiff(0, [snapshot(1, 1, 10)]));
       history.push(stateDiff(1, [], [], [[1, 1]]));
@@ -294,7 +297,7 @@ describe("History", () => {
     });
 
     it("is removed outright, with the frame of its last reset, if it is not snapshotted again", () => {
-      const history = new History();
+      const history = new History(testCid);
 
       history.push(stateDiff(0, [snapshot(1, 1, 10)]));
       history.push(stateDiff(1, [], [], [[1, 1]]));
@@ -308,7 +311,7 @@ describe("History", () => {
     });
 
     it("leaves the other entities of the span as they are", () => {
-      const history = new History();
+      const history = new History(testCid);
 
       history.push(stateDiff(0, [snapshot(1, 1, 10), snapshot(2, 1, 10)]));
       history.push(stateDiff(1, [snapshot(2, 1, 11)], [], [[1, 1]]));
@@ -322,7 +325,7 @@ describe("History", () => {
     });
 
     it("is not a reset for a span that starts after it: its snapshots are pulled alone", () => {
-      const history = new History();
+      const history = new History(testCid);
 
       history.push(stateDiff(0, [snapshot(1, 1, 10)]));
       history.push(stateDiff(1, [], [], [[1, 1]]));
@@ -338,7 +341,7 @@ describe("History", () => {
     });
 
     it("repeats the same reset, with the same frame, in every span that includes it", () => {
-      const history = new History();
+      const history = new History(testCid);
 
       history.push(stateDiff(0, [snapshot(1, 1, 10)]));
       history.push(stateDiff(1, [], [], [[1, 1]]));
@@ -352,7 +355,7 @@ describe("History", () => {
     });
 
     it("is a plain delta for an entity that was only snapshotted within the span", () => {
-      const history = new History();
+      const history = new History(testCid);
 
       history.push(stateDiff(0, [snapshot(1, 1, 10)]));
       history.push(stateDiff(1, [snapshot(1, 1, 11)]));
@@ -366,7 +369,7 @@ describe("History", () => {
     });
 
     it("returns the frame's own diff, with its reset, for a single-frame pull", () => {
-      const history = new History();
+      const history = new History(testCid);
       const frame = stateDiff(0, [snapshot(1, 1)], [], [[1, 0]]);
 
       history.push(frame);
@@ -376,7 +379,7 @@ describe("History", () => {
     });
 
     it("counts a frame that holds only a reset as content, for the window", () => {
-      const history = new History(3);
+      const history = new History(testCid, 3);
       history.push(stateDiff(0, [], [], [[1, 0]]));
       history.push(stateDiff(1));
       history.push(stateDiff(2));
@@ -389,7 +392,7 @@ describe("History", () => {
   });
 
   it("lets a reset cancel prior snapshots and removals for the entity", () => {
-    const history = new History();
+    const history = new History(testCid);
 
     history.push(stateDiff(0, [snapshot(1, 1), snapshot(1, 2)]));
     history.push(stateDiff(1, [], [[1, 3]]));
@@ -403,7 +406,7 @@ describe("History", () => {
   });
 
   it("keeps a reset when it is followed by narrower component removals", () => {
-    const history = new History();
+    const history = new History(testCid);
 
     history.push(stateDiff(0, [snapshot(1, 1)]));
     history.push(stateDiff(1, [], [], [[1, 1]]));
@@ -417,7 +420,7 @@ describe("History", () => {
   });
 
   it("can pull from the frame just before the oldest one it holds, and no further back", () => {
-    const history = new History(4);
+    const history = new History(testCid, 4);
     for (let frame = 0; frame <= 9; frame++) {
       history.push(stateDiff(frame, [snapshot(1, 1, frame)]));
     }
@@ -434,7 +437,7 @@ describe("History", () => {
 
   describe("the frame the state last changed", () => {
     it("is the frame the history started at until a frame with content is pushed", () => {
-      const history = new History(4, 9);
+      const history = new History(testCid, 4, 9);
       expect(history.lastContentFrame).toBe(9);
 
       history.push(stateDiff(10));
@@ -444,7 +447,7 @@ describe("History", () => {
     });
 
     it("is the newest frame pushed with a snapshot or a removal, and no later empty frame moves it", () => {
-      const history = new History(4);
+      const history = new History(testCid, 4);
 
       history.push(stateDiff(0, [snapshot(1, 1)]));
       expect(history.lastContentFrame).toBe(0);
@@ -459,7 +462,7 @@ describe("History", () => {
     });
 
     it("stays when the frame that held the content leaves the window", () => {
-      const history = new History(3);
+      const history = new History(testCid, 3);
       history.push(stateDiff(0, [snapshot(1, 1)]));
       for (let frame = 1; frame <= 8; frame++) {
         history.push(stateDiff(frame));
@@ -470,7 +473,7 @@ describe("History", () => {
     });
 
     it("lets a pull from it or from any later frame answer an empty delta without merging", () => {
-      const history = new History(8);
+      const history = new History(testCid, 8);
       history.push(stateDiff(0, [snapshot(1, 1)]));
       for (let frame = 1; frame <= 6; frame++) {
         history.push(stateDiff(frame));
@@ -489,7 +492,7 @@ describe("History", () => {
 
   describe("frames that left the window", () => {
     it("remembers the newest one that left holding a snapshot or a removal", () => {
-      const history = new History(3);
+      const history = new History(testCid, 3);
       expect(history.evictedContentFrame).toBe(Number.NEGATIVE_INFINITY);
 
       history.push(stateDiff(0, [snapshot(1, 1)]));
@@ -515,7 +518,7 @@ describe("History", () => {
     });
 
     it("pulls from an ack older than the window while only empty frames have left it", () => {
-      const history = new History(3);
+      const history = new History(testCid, 3);
       history.push(stateDiff(0, [snapshot(1, 1, 10)]));
       for (let frame = 1; frame <= 8; frame++) {
         history.push(stateDiff(frame));
@@ -531,7 +534,7 @@ describe("History", () => {
     });
 
     it("keeps the client's own frame as the start of the diff, never a later one", () => {
-      const history = new History(3);
+      const history = new History(testCid, 3);
       for (let frame = 0; frame <= 50; frame++) {
         history.push(stateDiff(frame));
       }
@@ -542,7 +545,7 @@ describe("History", () => {
     });
 
     it("refuses an ack older than a frame that left holding something", () => {
-      const history = new History(3);
+      const history = new History(testCid, 3);
       history.push(stateDiff(0, [snapshot(1, 1)]));
       for (let frame = 1; frame <= 8; frame++) {
         history.push(stateDiff(frame));
@@ -553,7 +556,7 @@ describe("History", () => {
     });
 
     it("looks ahead to the frame the next push evicts", () => {
-      const history = new History(3);
+      const history = new History(testCid, 3);
       history.push(stateDiff(0, [snapshot(1, 1)]));
       history.push(stateDiff(1));
       history.push(stateDiff(2));
@@ -574,8 +577,8 @@ describe("History", () => {
     // history long enough never to forget, over random sparse changes.
     it("merges to exactly what a history that kept every frame would, whenever it can", () => {
       const next = lcg(12345);
-      const short = new History(6);
-      const long = new History(500);
+      const short = new History(testCid, 6);
+      const long = new History(testCid, 500);
       const mismatches: string[] = [];
       let answerable = 0;
       let refused = 0;
@@ -687,7 +690,7 @@ describe("a pulled delta", () => {
   // includes frames that reset an entity and snapshot it again, in one frame or across several.
   it("takes a client to the same state as applying the frames it merges one by one", () => {
     const next = lcg(777);
-    const history = new History(400);
+    const history = new History(testCid, 400);
     const states: ClientState[] = [new Map()];
     const mismatches: string[] = [];
     let spansWithAReset = 0;
@@ -722,7 +725,7 @@ describe("a pulled delta", () => {
   // removals after the reset, bring the entity to where it is.
   it("takes a client that holds any later frame to the same state, skipping the resets it has applied", () => {
     const next = lcg(4242);
-    const history = new History(400);
+    const history = new History(testCid, 400);
     const states: ClientState[] = [new Map()];
     const mismatches: string[] = [];
     let skipped = 0;
