@@ -107,6 +107,14 @@ size the window for slow players are in
 
 ## Applying a frame
 
+When you use `DiffBuffer` directly, read `diff.snapshots` to iterate its snapshots in
+insertion order. The read-only array is cached until the next snapshot edit; repeated
+upserts during interpolation do not rebuild it. Use `diff.upsertSnapshot(snapshot)`
+to replace a cid without moving it, or append a new cid, and `diff.deleteSnapshot(cid)`
+to remove one. Use `getSnapshot(cid)` or the read-only `smap` view for keyed reads.
+Do not assign or mutate `snapshots` or `smap`. The owning implementation is
+[`diff_buffer.ts`](../src/diff_buffer.ts).
+
 `apply()` destroys reset entities first, applies snapshots next, and removes single components last.
 A reset destroys every component, including client-local companions brought through `With`.
 

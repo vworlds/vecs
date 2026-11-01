@@ -245,6 +245,16 @@ The gap comes from V8's allocation-site pretenuring, not from extra work. Under
 the faster of the two. Neither the sector-tick benchmark nor the ECS microbenchmark, which create
 and destroy entities inside a longer-running process, shows the slowdown.
 
+## Client diff interpolation
+
+Run `node --import ./bench/register-dist.mjs bench/diff-buffer-pull.ts` after building.
+It prints microseconds per pull and per snapshot for 100, 500, 1,000, 2,000 and 4,000
+snapshots, using one position interpolator, a three-slot buffer and a new frame every
+other pull. Each size warms up for 200 pulls and measures 1,000. Frame construction
+is outside timing; the consumer's `snapshots` read is included. Set `BENCH_VECS_ROOT`
+to another built checkout for back-to-back comparison. Shared-host timings are noisy;
+compare the per-snapshot scaling, not an absolute threshold.
+
 ## Injected forEach setup
 
 Run `node --import ./bench/register-dist.mjs bench/foreach-inject.ts` after building. It times a

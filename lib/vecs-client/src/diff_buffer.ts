@@ -79,20 +79,19 @@ export class ComponentSnapshot {
  * frame is newer than the state the pull starts from. The others were applied
  * already, and the snapshots and removals that follow them apply in place.
  *
- * A diff keeps two views of the same snapshots: `snapshots` (an ordered array,
- * the form decoded from the wire and consumed by callers) and `smap` (a
- * cid-keyed map, used for fast lookup and overwrite during merge). `smap` is
- * built lazily from `snapshots` on first access. Use `getSnapshot` /
- * `upsertSnapshot` when keyed access should preserve the current representation.
+ * Snapshots live in a cid-keyed map in insertion order. Replacing a cid keeps
+ * its position; a new cid appends. Use `upsertSnapshot` / `deleteSnapshot` to
+ * edit it. `snapshots` lazily caches a read-only array until the next edit.
  */
 export class Diff {
-  public snapshots: ComponentSnapshot[] = [];
   /**
    * The entities this diff removes outright, each with the server frame of its newest removal,
    * or `undefined` when it removes none, which is the usual diff and allocates nothing.
    */
   public resets: Map<EID, number> | undefined;
-  private _smap: Map<number, ComponentSnapshot> | undefined;
+  private readonly _smap = new Map<number, ComponentSnapshot>();
+  #snapshots: readonly ComponentSnapshot[] = [];
+  #snapshotsDirty = false;
 
   /** Create a frame range whose packed ids all use `cid`. */
   public constructor(
@@ -103,53 +102,46 @@ export class Diff {
     public removed?: number[]
   ) {}
 
-  public get smap(): Map<number, ComponentSnapshot> {
-    if (this._smap) {
-      return this._smap;
+  /** Read-only keyed view; use the snapshot methods for edits. */
+  public get smap(): ReadonlyMap<number, ComponentSnapshot> {
+    return this._smap;
+  }
+
+  /** Insertion-ordered array, materialized once after one or more snapshot edits. */
+  public get snapshots(): readonly ComponentSnapshot[] {
+    if (this.#snapshotsDirty) {
+      this.#snapshots = [...this._smap.values()];
+      this.#snapshotsDirty = false;
     }
-    return (this._smap = new Map<number, ComponentSnapshot>(
-      (this.snapshots || []).map((s) => [s.cid, s])
-    ));
+    return this.#snapshots;
   }
 
-  public set smap(v: Map<number, ComponentSnapshot>) {
-    this._smap = v;
-    this.updateSnapshotsFromMap();
+  /** Remove a cid, invalidating the array only if it was present. */
+  public deleteSnapshot(cid: CID): void {
+    if (this._smap.delete(cid)) {
+      this.#snapshotsDirty = true;
+    }
   }
 
+  /** Look up a cid without materializing the array. */
   public getSnapshot(cid: CID): ComponentSnapshot | undefined {
-    if (this._smap) {
-      return this._smap.get(cid);
-    }
-    return this.snapshots.find((snapshot) => snapshot.cid === cid);
+    return this._smap.get(cid);
   }
 
+  /** Replace in place or append a new cid, without materializing the array. */
   public upsertSnapshot(snapshot: ComponentSnapshot): void {
-    if (this._smap) {
-      this._smap.set(snapshot.cid, snapshot);
-      this.updateSnapshotsFromMap();
-      return;
-    }
-    const index = this.snapshots.findIndex((existing) => existing.cid === snapshot.cid);
-    if (index === -1) {
-      this.snapshots.push(snapshot);
-      return;
-    }
-    this.snapshots[index] = snapshot;
-  }
-
-  public updateSnapshotsFromMap(): void {
-    this.snapshots = [...this.smap.values()];
+    this._smap.set(snapshot.cid, snapshot);
+    this.#snapshotsDirty = true;
   }
 }
 
-/** Decode snapshots and key removals using the wire diff's layout. */
+/** Decode snapshots in wire insertion order and key removals using the wire diff's layout. */
 export function diffFromStateDiff(sd: StateDiff): Diff {
   const d = new Diff(sd.cid, sd.fromFrame, sd.toFrame);
-  d.snapshots = sd.snapshots.map((snapshot) => {
+  for (const snapshot of sd.snapshots) {
     const wire = WireComponentSnapshot.decodeWith(sd.cid, new Decoder(snapshot.bytes));
-    return new ComponentSnapshot(sd.cid, wire.eid, wire.wireType, wire.payload);
-  });
+    d.upsertSnapshot(new ComponentSnapshot(sd.cid, wire.eid, wire.wireType, wire.payload));
+  }
   d.removed = sd.removed.map(([eid, wireType]) => sd.cid.pack(eid, wireType));
   if (sd.resets !== undefined && sd.resets.length > 0) {
     d.resets = new Map(sd.resets);
@@ -600,7 +592,7 @@ export class DiffBuffer {
     // only the snapshots the diff itself holds are the new entity's.
     const targetResets = target.resets;
     const renderedResets = sd.resets;
-    target.snapshots.forEach((targetSnapshot) => {
+    target.smap.forEach((targetSnapshot) => {
       const interpolate = this._componentInterpolators.get(targetSnapshot.wireType);
       if (!interpolate) {
         return;
@@ -775,39 +767,44 @@ export function merge(
   const superseded = supersededBy(b, a);
   const resets = mergeResets(a, b, mutateAccumulator);
 
-  const removed = new Set<number>();
-  addToSet(removed, a.removed as number[] | undefined);
+  const removed = a.removed?.length || b.removed?.length ? new Set<number>() : undefined;
+  if (removed !== undefined) {
+    addToSet(removed, a.removed);
+  }
   if (superseded !== undefined) {
     // a's component removals of an entity b resets are moot.
-    removed.forEach((r) => {
+    removed?.forEach((r) => {
       if (superseded.has(a.cid.unpack(r)[0])) {
         removed.delete(r);
       }
     });
   }
-  addToSet(removed, b.removed as number[] | undefined);
+  if (removed !== undefined) {
+    addToSet(removed, b.removed);
+  }
 
-  const as = mutateAccumulator ? a.smap : new Map(a.smap);
+  const m = mutateAccumulator ? a : new Diff(a.cid, a.from, b.to);
+  if (!mutateAccumulator) {
+    a.smap.forEach((s) => m.upsertSnapshot(s));
+  }
   if (superseded !== undefined) {
     // a's snapshots of an entity b resets describe the removed entity.
-    as.forEach((_, cid) => {
+    m.smap.forEach((_, cid) => {
       if (superseded.has(a.cid.unpack(cid)[0])) {
-        as.delete(cid);
+        m.deleteSnapshot(cid);
       }
     });
   }
   const bs = b.smap;
   bs.forEach((s) => {
-    as.set(s.cid, s);
-    removed.delete(s.cid); // undelete re-added entities
+    m.upsertSnapshot(s);
+    removed?.delete(s.cid); // undelete re-added entities
   });
-  removed.forEach((r) => as.delete(r));
+  removed?.forEach((r) => m.deleteSnapshot(r));
 
-  const m = mutateAccumulator ? a : new Diff(a.cid, a.from, b.to, undefined);
   m.to = b.to;
-  m.removed = removed.size ? [...removed] : undefined;
+  m.removed = removed?.size ? [...removed] : undefined;
   m.resets = resets;
-  m.smap = as;
 
   return m;
 }
