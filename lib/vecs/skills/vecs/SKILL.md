@@ -118,7 +118,7 @@ other anti-patterns and pitfalls; each rule below links to the detail.
   resolver derives a tagged child's `Rotation` every frame, so writing `Rotation` on it has no
   effect; set `InheritRotation.angle` instead.
   ([Turning with the parent](../../../vecs-phaser-client/README.md#turning-with-the-parent))
-- `@vworlds/vecs-phaser`: `DrawBy` and `DrawIn` use `CleanupPolicy.Remove`, so destroying a display
+- `@vworlds/vecs-phaser`: `DrawBy` and `DrawIn` use `(OnDeleteTarget, Remove)`, so destroying a display
   parent detaches its children and leaves them alive, unlike `ChildOf`. Add `ChildOf` to the parent,
   or make the child an owned target, when it must die with the parent.
   ([Destroying the display parent](../../../vecs-phaser-client/README.md#destroying-the-display-parent))

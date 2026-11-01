@@ -68,8 +68,8 @@ child opts in below, the parent's rotation neither turns the offset nor the chil
 
 ### Destroying the display parent
 
-`DrawIn` and `DrawBy` use `CleanupPolicy.Remove` (`DisplaySetupModule` sets it, and it is the default
-for any relationship), unlike `ChildOf`, which uses `Delete`. Destroying a display parent therefore
+`DrawIn` and `DrawBy` use `(OnDeleteTarget, Remove)` (`DisplaySetupModule` adds it, and `Remove` is
+the default for any relationship), unlike `ChildOf`, which uses `Delete`. Destroying a display parent therefore
 only removes the edge from each child: the child **entity** is not destroyed, and a `DrawBy` child
 stays on the scene root with the pose it was last resolved to.
 

@@ -165,8 +165,8 @@ export interface ResolvedSnapshotOptions {
  * @internal Capture a relationship instance's own fields, minus target storage.
  *
  * Ownership and cleanup decisions live in the snapshot, not in the transfer.
- * Destroying a source root can cascade through a `CleanupPolicy.Delete` edge to
- * an entity the caller did not select, and that is the correct reading of "the
+ * Destroying a source root can cascade through an `(OnDeleteTarget, Delete)`
+ * relationship to an entity the caller did not select, and that is the correct reading of "the
  * source is gone" rather than a leak — which is why the reverse direction holds
  * too: an edge pointing *into* the subtree from outside is never carried across,
  * by a successful move or by a rollback. Inbound state belongs to whatever world

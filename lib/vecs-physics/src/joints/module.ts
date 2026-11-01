@@ -1,4 +1,4 @@
-import { CleanupPolicy, Exclusive, Implements, Module } from "@vworlds/vecs";
+import { Delete, Exclusive, Implements, Module, OnDeleteTarget } from "@vworlds/vecs";
 
 import { BodyModule } from "../body/module.js";
 import { PhysicsCoreModule } from "../core/module.js";
@@ -33,12 +33,10 @@ export class JointsModule extends Module {
     // body's joints with it. Without the policy the default `Remove` would only drop
     // the edge and leave a bodiless joint entity behind.
     const jointBodyA = world.component(JointBodyA);
-    jointBodyA.add(Exclusive);
-    jointBodyA.meta.onDeleteTarget = CleanupPolicy.Delete;
+    jointBodyA.add(Exclusive).add(OnDeleteTarget, Delete);
 
     const jointBodyB = world.component(JointBodyB);
-    jointBodyB.add(Exclusive);
-    jointBodyB.meta.onDeleteTarget = CleanupPolicy.Delete;
+    jointBodyB.add(Exclusive).add(OnDeleteTarget, Delete);
 
     world.component(Joint);
     world.component(RevoluteJoint);

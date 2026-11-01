@@ -190,7 +190,7 @@ applies incoming relationship cleanup policies (see
 [Relationships](./relationships.md#cleanup-when-a-target-dies)). After destruction the entity must
 not be used.
 
-If the entity is itself in use as a component key, `destroy` honors `meta.onDelete` — by default
+If the entity is itself in use as a component key, `destroy` honors its `OnDelete` policy — by default
 it throws while carriers remain ([Components — cleanup policies](./components.md#cleanup-policies-destroying-a-component-entity)).
 
 A `destroy()` thrown synchronously (a `Throw`-policy component entity still in use) leaves the world

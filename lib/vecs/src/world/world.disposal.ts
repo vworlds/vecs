@@ -141,8 +141,8 @@ export class Disposal extends Transfers {
       const meta = entity.meta;
       meta._onPolicyRemove = undefined;
       meta._onTargetPolicyRemove = undefined;
-      meta.onDelete = CleanupPolicy.Remove;
-      meta.onDeleteTarget = CleanupPolicy.Remove;
+      meta._onDelete = CleanupPolicy.Remove;
+      meta._onDeleteTarget = CleanupPolicy.Remove;
     }
   }
 
