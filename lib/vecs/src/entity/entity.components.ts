@@ -124,13 +124,17 @@ export class Components extends Relationships {
     meta: ComponentMeta,
     instance: ComponentInstance
   ): void {
-    const previous = this.world._removalInFlight;
-    this.world._removalInFlight = { entity: this, ceid: meta.eid, instance };
-    try {
-      this.world._notifyComponentRemoved(meta.eid, this);
-    } finally {
-      this.world._removalInFlight = previous;
-    }
+    const world = this.world;
+    const previousEntity = world._removedEntity;
+    const previousCeid = world._removedCeid;
+    const previousInstance = world._removedInstance;
+    world._removedEntity = this;
+    world._removedCeid = meta.eid;
+    world._removedInstance = instance;
+    world._notifyComponentRemoved(meta.eid, this);
+    world._removedEntity = previousEntity;
+    world._removedCeid = previousCeid;
+    world._removedInstance = previousInstance;
   }
 
   /**
@@ -503,6 +507,8 @@ export class Components extends Relationships {
    * component until the queue drains. When applied, queries fire `exit`
    * callbacks after storage is cleared and the `onRemove` hook fires last.
    * Inject removed components into `exit`; `get(C)` there returns `undefined`.
+   * If a synchronous exit callback throws, the world is left partial; treat
+   * this as a programming error and do not continue using that world.
    *
    * Relationship components take an explicit `target` to remove one edge. The
    * target is resolved eagerly via {@link World.entity}: any

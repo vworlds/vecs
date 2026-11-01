@@ -909,6 +909,8 @@ system after whatever produces the entity/companion.
 - **Inject removed components into `exit`.** `entity.get(C)` returns `undefined` after
   removal, even in a synchronous standalone query callback; injection retains the removed instance.
   Entity destruction retains storage during synchronous teardown, but do not rely on that distinction.
+- **Do not reuse a world after a throwing synchronous removal callback.** A thrown `exit`
+  interrupts teardown and leaves the world partial; treat it as a programming error.
 - **A system is in exactly one phase.** Plan splits accordingly.
 - **Structural changes are deferred and flushed _after_ each system** — visible to later systems
   this tick, not to the current system mid-iteration.

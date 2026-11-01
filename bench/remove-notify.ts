@@ -10,7 +10,15 @@ class B {
 
 const count = 10_000;
 const rounds = 100;
-for (const scenario of ["no-query", "predicate", "exclusive"] as const) {
+const scenarios = ["no-query", "predicate", "exclusive"] as const;
+const selected = process.argv[2];
+if (selected !== undefined && !scenarios.some((scenario) => scenario === selected)) {
+  throw new Error(`Unknown removal scenario: ${selected}`);
+}
+for (const scenario of scenarios) {
+  if (selected !== undefined && scenario !== selected) {
+    continue;
+  }
   const world = new World();
   world.component(A);
   world.component(B);

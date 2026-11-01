@@ -828,6 +828,8 @@ function _snapshotInjectedRaw(
 
 /** Resolve only a missing slot; ordinary entity reads never expose this register. */
 function _removedInjected(e: Entity, ceid: EID): ComponentInstance | undefined {
-  const removal = e.world._removalInFlight;
-  return removal?.entity === e && removal.ceid === ceid ? removal.instance : undefined;
+  const world = e.world;
+  return world._removedEntity === e && world._removedCeid === ceid
+    ? world._removedInstance
+    : undefined;
 }

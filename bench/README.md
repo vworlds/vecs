@@ -259,3 +259,5 @@ median nanoseconds per removal for no query, a storage-reading watched predicate
 component swap (including the replacement add). Each scenario warms up for 20 batches and measures
 100 batches of 10,000 entities; setup/addition is outside the timed removal loop. Compare identical
 before/after runs on an idle host. `REMOVE_NOTIFY` rows include the scenario and batch counts.
+Pass `exclusive`, `predicate`, or `no-query` as the final argument to isolate one scenario for
+`node --cpu-prof` profiling; unknown scenario names fail rather than producing an empty run.

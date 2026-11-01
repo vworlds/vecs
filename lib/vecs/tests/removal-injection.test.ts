@@ -181,7 +181,7 @@ describe("removal injection", () => {
     expect(entity.targets(Link)).toEqual([]);
   });
 
-  it("does not inject another entity or component and restores the register on a throw", () => {
+  it("does not inject another entity or component when an exit throws", () => {
     const world = new World();
     world.component(A);
     world.component(B);
@@ -205,7 +205,6 @@ describe("removal injection", () => {
 
     expect(() => entity.remove(A)).toThrow("exit failed");
     expect(entity.get(A)).toBeUndefined();
-    expect(() => getInjected(entity, [aId], true, [])).toThrow("query does not contain component");
   });
 
   it("retains destroy-time storage for exit injection and remove hooks", () => {
