@@ -82,7 +82,7 @@ export class BodyPoseOutModule extends Module {
             continue;
           }
           const body = entity.get(ids.body) as Body | undefined;
-          if (body?.type !== BodyType.Dynamic) {
+          if (body === undefined || body.type !== BodyType.Dynamic) {
             continue;
           }
           eids[changedCount++] = entity.eid;
