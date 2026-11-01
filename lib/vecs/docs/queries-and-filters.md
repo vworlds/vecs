@@ -62,6 +62,14 @@ Terms are cached by canonical key, so the upkeep is paid once per distinct exclu
 query. Each query that uses it adds one membership check per change of the set, and the positive
 term comes first, so most checks stop there.
 
+### Terms
+
+A `Term` is a live entity set for one predicate node in the query term graph. Consumers receive
+`TermEventKind.Enter` and `TermEventKind.Exit` for actual membership changes, plus an optional
+refresh signal when data or shape changes without a membership flip. `Term` and `TermConsumer` are
+the extension interfaces for building custom term kinds; use the query DSL to reach built-in terms
+rather than constructing them directly.
+
 - Use `.without` only when the exclusion is needed, and pair it with positive terms that keep the
   query's members small. A query with only `.without` terms tracks every entity in the world, so
   its `enter` fires for each created entity.

@@ -1,7 +1,8 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
+import * as vecs from "../src/index.js";
 
 type PackageJson = {
   exports?: {
@@ -61,6 +62,43 @@ async function readPackageJson(path: string): Promise<PackageJson> {
 }
 
 describe("package exports", () => {
+  it("documents every runtime export", async () => {
+    const docsRoot = resolve(repoRoot, "lib/vecs/docs");
+    const files: string[] = [];
+    const collect = async (directory: string): Promise<void> => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const path = resolve(directory, entry.name);
+        if (entry.isDirectory()) {
+          await collect(path);
+        } else if (entry.isFile() && entry.name.endsWith(".md")) {
+          files.push(path);
+        }
+      }
+    };
+    await collect(docsRoot);
+    files.push(
+      resolve(repoRoot, "lib/vecs/README.md"),
+      resolve(repoRoot, "lib/vecs/skills/vecs/SKILL.md")
+    );
+    const documentation = (await Promise.all(files.map((path) => readFile(path, "utf8")))).join(
+      "\n"
+    );
+    const exclusions: Record<string, string> = {};
+
+    const undocumented = Object.keys(vecs).filter(
+      (name) =>
+        vecs[name as keyof typeof vecs] !== undefined &&
+        !documentation.includes(name) &&
+        !exclusions[name]
+    );
+    expect(
+      undocumented,
+      Object.entries(exclusions)
+        .map(([name, reason]) => `${name}: ${reason}`)
+        .join("\n")
+    ).toEqual([]);
+  });
+
   it("does not publish development exports pointing at omitted source files", async () => {
     await Promise.all(
       publishedPackages.map(async (path) => {

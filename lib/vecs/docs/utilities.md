@@ -95,18 +95,31 @@ for (const [key, value] of map) {
 
 ### Reference
 
-| Method              | Description                                                            |
-| ------------------- | ---------------------------------------------------------------------- |
-| `set(key, val)`     | Insert or replace the value at `key`.                                  |
-| `get(key)`          | Retrieve the value at `key`, or `undefined` if no entry exists.        |
-| `has(key)`          | `true` when an entry exists at `key`.                                  |
-| `delete(key)`       | Remove the entry at `key`. Swaps last item into vacated slot (O(1)).   |
-| `forEach(cb)`       | Visit every entry in dense item order, invoking `cb(value, key, map)`. |
-| `entries()`         | Iterator over `[key, value]` entries in dense item order.              |
-| `values()`          | Every present value in dense item order as `T[]`.                      |
-| `[Symbol.iterator]` | Same as `entries()`; supports `for..of`.                               |
-| `clear()`           | Remove all entries and reset `size` to zero.                           |
-| `size`              | The number of entries currently in the map.                            |
+| Method              | Description                                                                                           |
+| ------------------- | ----------------------------------------------------------------------------------------------------- |
+| `set(key, val)`     | Insert or replace the value at `key`.                                                                 |
+| `get(key)`          | Retrieve the value at `key`, or `undefined` if no entry exists.                                       |
+| `has(key)`          | `true` when an entry exists at `key`.                                                                 |
+| `delete(key)`       | Remove the entry at `key`. Swaps last item into vacated slot (O(1)).                                  |
+| `forEach(cb)`       | Visit every entry in dense item order, invoking `cb(value, key, map)`.                                |
+| `forEachSafe(cb)`   | Safe when the callback deletes only the current entry; other mutations during the scan are undefined. |
+| `entries()`         | Iterator over `[key, value]` entries in dense item order.                                             |
+| `values()`          | Every present value in dense item order as `T[]`.                                                     |
+| `[Symbol.iterator]` | Same as `entries()`; supports `for..of`.                                                              |
+| `clear()`           | Remove all entries and reset `size` to zero.                                                          |
+| `size`              | The number of entries currently in the map.                                                           |
+
+## `DenseSet`
+
+`DenseSet` (`lib/vecs/src/util/dense_set.ts`) is an internal dense set implementation used by the
+core library; its safe iteration method is documented here because it is part of the exported
+utility surface.
+
+### Reference
+
+| Method            | Description                                                                                           |
+| ----------------- | ----------------------------------------------------------------------------------------------------- |
+| `forEachSafe(cb)` | Safe when the callback deletes only the current entry; other mutations during the scan are undefined. |
 
 ## `Bitset`
 
