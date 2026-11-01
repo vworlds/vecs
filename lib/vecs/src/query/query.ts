@@ -459,7 +459,11 @@ export class Query<
     return this;
   }
 
-  /** Register an exit callback; components are snapshotted, system clocks are filled at replay. */
+  /**
+   * Register an exit callback. Inject removed components: `entity.get(C)` returns
+   * `undefined` for a removed slot even in synchronous query callbacks. Systems
+   * snapshot injected components at exit time and fill clocks at replay.
+   */
   public exit<const J extends readonly (ComponentInjectElement | K)[]>(
     inject: readonly [...J],
     callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void

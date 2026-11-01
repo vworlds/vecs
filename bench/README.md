@@ -251,3 +251,11 @@ Run `node --import ./bench/register-dist.mjs bench/foreach-inject.ts` after buil
 one-entity `Query.forEach` with component injection against the bare callback form and prints
 `FOREACH_INJECT` with nanoseconds per call, their ratio and a checksum. The injected form caches
 its invoker per callback, so the figure left over is per-entity resolution, not per-call setup.
+
+## Component removal routing
+
+Run `node --import ./bench/register-dist.mjs bench/remove-notify.ts` after building. It reports
+median nanoseconds per removal for no query, a storage-reading watched predicate, and an exclusive
+component swap (including the replacement add). Each scenario warms up for 20 batches and measures
+100 batches of 10,000 entities; setup/addition is outside the timed removal loop. Compare identical
+before/after runs on an idle host. `REMOVE_NOTIFY` rows include the scenario and batch counts.

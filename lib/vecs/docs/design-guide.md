@@ -390,8 +390,9 @@ Why:
   place and calls `entity.modified(C)` (see §7) needs no cast.
 - **Resolved once.** Injection resolves a component's id when the callback is registered;
   `entity.get(C)` resolves the class on every call. In an `exit` callback injection matters more
-  still: it reads the snapshot captured when the entity left, while a `get` at replay time can find
-  the component already removed.
+  still: it preserves the removed instance (captured at exit time for systems), while
+  `entity.get(C)` returns `undefined` for the removed slot even inside a synchronous query
+  `exit` callback. Inject `C` rather than reading it back from the entity.
 
 Components listed in the inject tuple but **not** guaranteed by `.with(...)` resolve as
 `T | undefined` (the types reflect this) — guard them; the ones in `.with` are always present.
@@ -905,6 +906,9 @@ system after whatever produces the entity/companion.
 
 ## 9. Pitfalls / gotchas checklist
 
+- **Inject removed components into `exit`.** `entity.get(C)` returns `undefined` after
+  removal, even in a synchronous standalone query callback; injection retains the removed instance.
+  Entity destruction retains storage during synchronous teardown, but do not rely on that distinction.
 - **A system is in exactly one phase.** Plan splits accordingly.
 - **Structural changes are deferred and flushed _after_ each system** — visible to later systems
   this tick, not to the current system mid-iteration.
