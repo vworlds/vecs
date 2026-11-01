@@ -55,10 +55,7 @@ export class Lifecycle extends Components {
       let selfCarry = 0;
       if (entityMeta) {
         selfCarry = this._components.has(entityMeta.eid) ? 1 : 0;
-        if (
-          entityMeta.usageCount > selfCarry &&
-          entityMeta.onDelete === CleanupPolicy.Throw
-        ) {
+        if (entityMeta.usageCount > selfCarry && entityMeta.onDelete === CleanupPolicy.Throw) {
           throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
         }
       }
