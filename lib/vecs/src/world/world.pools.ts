@@ -1,8 +1,6 @@
-import type { EID } from "../entity/index.js";
+import { RESERVED_EID, type EID } from "../entity/index.js";
 import { IdPool, type IdPoolConfig, validateIdPoolConfigs } from "../util/id_pool.js";
 import { Base, type WorldOptions } from "./world.base.js";
-
-const RESERVED_EID = 0;
 
 export const DEFAULT_POOLS: readonly IdPoolConfig[] = [
   { name: "component", min: 1, max: 899 },

@@ -4,12 +4,11 @@ import {
   type ComponentType,
   type Relationship,
 } from "./component.js";
-import { Entity, type EID } from "./entity/index.js";
+import { Entity, RESERVED_EID as TARGET_ENTITY, type EID } from "./entity/index.js";
 import { type World } from "./world/index.js";
 import { _resolveRelationship, type MaybeRequired } from "./dsl.js";
 
-// EID 0 is reserved, keeping target projection arrays numeric and SMI-friendly.
-const TARGET_ENTITY = 0;
+// Injection uses the reserved id to keep target projection arrays numeric and SMI-friendly.
 
 /** Inject the processing system tick's absolute timestamp in milliseconds. System callbacks only. */
 export const Now: unique symbol = Symbol("Now");

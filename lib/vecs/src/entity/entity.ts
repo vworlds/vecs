@@ -6,6 +6,9 @@ import { IdentityEntity } from "./entity.identity.js";
 /** Entity id assigned by a {@link World}. */
 export type EID = number;
 
+/** Entity id reserved by the world and used for target injection. */
+export const RESERVED_EID = 0;
+
 export type EntityClass<T extends Entity = Entity> = new (
   world: World,
   eid: EID,

@@ -8,7 +8,7 @@ import {
 } from "../component.js";
 import { ComponentDef, Trait } from "../component_def.js";
 import { Relationship, _slotHandlers } from "../component_meta.js";
-import { Entity, type EID, type EntityClass } from "../entity/index.js";
+import { Entity, RESERVED_EID, type EID, type EntityClass } from "../entity/index.js";
 import {
   _defaultNormalize,
   _defaultValidate,
@@ -21,8 +21,6 @@ import { _classChain, _declareMembers } from "../reflection/vecs_struct.js";
 import { type IdPool } from "../util/id_pool.js";
 import { Entities } from "./world.entities.js";
 import { type World } from "./world.js";
-
-const RESERVED_EID = 0;
 
 /** Hook events a class can implement as a static `vecs_<event>` method. */
 const STATIC_HOOK_EVENTS: readonly HookEvent[] = [
