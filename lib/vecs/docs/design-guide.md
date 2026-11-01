@@ -207,7 +207,12 @@ for the full model and custom-trait guidance.
 
 `With` is a pair-form trait: `world.component(Motion).add(With, world.component(Position))` adds a
 `Position` whenever a `Motion` is added. It only brings the companion along: removing `Motion` does
-not remove `Position`, and a `Position` the entity already holds is left as it is. A networked
+not remove `Position`, and a `Position` the entity already holds is left as it is. `With` is
+inclusion, not requirement (see the [settled decision](../../../architecture/DECISIONS.md#with-adds-never-removes)).
+Reach for it when the bringer is never removed from a live entity (it is the entity's identity, or
+the entity dies with it), or when an orphaned companion is harmless. Otherwise own the companion
+explicitly: remove it in the bringer's `remove` hook, or use the owning trait once it ships
+([#463](https://github.com/vworlds/vecs/issues/463)). A networked
 client has one more rule, because the server decides what a client replicates but the client decides
 what it derives. **`ClientWorld.apply` skips a network removal of a component that another
 component present on the entity brings through `With`**, so a server can swap the source of a
@@ -403,7 +408,13 @@ intent) exists from the moment the entity does, with its neutral value. The main
 requires it in `.with(...)`, injects it and writes it in place only when the value changes. Give it
 its neutral value where the entity is composed, or declare it with `With` on the component that
 makes the entity relevant (`world.component(Ship).add(With, world.component(Thrusting))`, during
-setup, see §3), so no creation path can forget it.
+setup, see §3), so no creation path can forget it. `With` only adds, so use it when the bringer is
+never removed from a live entity or an orphaned companion is harmless (the condition in §3); the
+`Ship` example fits because `Ship` is the entity's identity and `Thrusting` lives and dies with it.
+A bringer that comes and goes needs the companion owned explicitly. For example, a `DefaultWeapon`
+that is never removed from its entity brings `ShootingCooldown`
+(`world.component(DefaultWeapon).add(With, world.component(ShootingCooldown))`), which replaces an
+`enter` system that only set the cooldown on first use.
 
 ```ts
 // ❌ set on first use: Thrusting is optional to every reader, and creation is split
@@ -879,27 +890,27 @@ system after whatever produces the entity/companion.
 
 ## 8. Anti-patterns (keep ECS semantics)
 
-| Smell                                                                  | Do instead                                                                                                                                           |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A side `Map<eid, resource>`                                            | Store the resource in a **companion component**; let queries drive its lifecycle; release in `onRemove`.                                             |
-| An imperative runtime object with `start()/stop()/track/enable`        | A **module** + the world's own lifecycle (`clearAllEntities()`, closing the world). Systems live on the world; they don't need a wrapper to turn on. |
-| Builder/factory helpers that _create entities_ (`createArc(world, …)`) | Let callers `world.entity().add(Networked).set(Arc, …).set(FillStyle, …)`. Components are small and optional; the caller adds exactly what it wants. |
-| A god component with many optional fields                              | Split into small single-purpose components; absence encodes "not applicable."                                                                        |
-| A large nested `inventory`, `brain`, or progression object             | Use an owned target entity when the subobject needs its own components, systems, and lifecycle.                                                      |
-| A side `Map<ownerEid, SubsystemState>`                                 | Create a target entity and add an explicit edge; use `Exclusive` + `OwnedTarget` only for destructive ownership.                                     |
-| An `eid` or `Entity` stored in a component field as a link             | A relationship edge: vecs cleans it up; a stored eid can name another entity once reused ([why](./relationships.md#link-with-edges-not-stored-ids)). |
-| A component field holding a child entity, destroyed in `onRemove`      | `Exclusive` + `OwnedTarget`: dropping the edge destroys the child; no hook, no stale field ([§7](#owned-target-entities-entity-valued-properties)).  |
-| `entity.destroyed` guards on an entity looked up from a stored link    | A missing edge: replace the link. Keep checks for event buffers; writes need none ([why](./relationships.md#link-with-edges-not-stored-ids)).        |
-| `OwnedTarget` on `CurrentEnemy`, `InCell`, `Team`, or shared state     | Use a normal relationship; replacing or removing an owned edge destroys its target.                                                                  |
-| One owned target used as a collection                                  | Use multiple child/item entities; owned targets model zero-or-one aggregates.                                                                        |
-| Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, onEnter: true })` when update owns initialization.                                                                           |
-| One system trying to act in two phases                                 | Split into two systems, one per phase.                                                                                                               |
-| Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                        |
-| `.each` scanning every entity to detect change                         | Reactive `.update(C)` — fires only on change.                                                                                                        |
-| `entity.get(C)` for a component the callback always uses               | Inject it (`inject: [C]`); keep `get` for a component that is conditionally needed and rarely required.                                              |
-| `has`/`set` on first use of state a system maintains                   | Create it with its neutral value (or via `With`); require it in `.with` and inject it ([§4](#maintained-state-exists-from-creation)).                |
-| Treating target storage as component data                              | Use `add(Rel, target)` / `remove(Rel, target)` and read with `target` / `targets` / `hasTarget`; target storage is private.                          |
-| A `registerFooSystem(world)` wrapper per system                        | Declare the system inline in the module's `init`.                                                                                                    |
+| Smell                                                                  | Do instead                                                                                                                                                                                                                                                     |
+| ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A side `Map<eid, resource>`                                            | Store the resource in a **companion component**; let queries drive its lifecycle; release in `onRemove`.                                                                                                                                                       |
+| An imperative runtime object with `start()/stop()/track/enable`        | A **module** + the world's own lifecycle (`clearAllEntities()`, closing the world). Systems live on the world; they don't need a wrapper to turn on.                                                                                                           |
+| Builder/factory helpers that _create entities_ (`createArc(world, …)`) | Let callers `world.entity().add(Networked).set(Arc, …).set(FillStyle, …)`. Components are small and optional; the caller adds exactly what it wants, and `With` adds a companion for the caller under one rule ([§4](#maintained-state-exists-from-creation)). |
+| A god component with many optional fields                              | Split into small single-purpose components; absence encodes "not applicable."                                                                                                                                                                                  |
+| A large nested `inventory`, `brain`, or progression object             | Use an owned target entity when the subobject needs its own components, systems, and lifecycle.                                                                                                                                                                |
+| A side `Map<ownerEid, SubsystemState>`                                 | Create a target entity and add an explicit edge; use `Exclusive` + `OwnedTarget` only for destructive ownership.                                                                                                                                               |
+| An `eid` or `Entity` stored in a component field as a link             | A relationship edge: vecs cleans it up; a stored eid can name another entity once reused ([why](./relationships.md#link-with-edges-not-stored-ids)).                                                                                                           |
+| A component field holding a child entity, destroyed in `onRemove`      | `Exclusive` + `OwnedTarget`: dropping the edge destroys the child; no hook, no stale field ([§7](#owned-target-entities-entity-valued-properties)).                                                                                                            |
+| `entity.destroyed` guards on an entity looked up from a stored link    | A missing edge: replace the link. Keep checks for event buffers; writes need none ([why](./relationships.md#link-with-edges-not-stored-ids)).                                                                                                                  |
+| `OwnedTarget` on `CurrentEnemy`, `InCell`, `Team`, or shared state     | Use a normal relationship; replacing or removing an owned edge destroys its target.                                                                                                                                                                            |
+| One owned target used as a collection                                  | Use multiple child/item entities; owned targets model zero-or-one aggregates.                                                                                                                                                                                  |
+| Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, onEnter: true })` when update owns initialization.                                                                                                                                                                                     |
+| One system trying to act in two phases                                 | Split into two systems, one per phase.                                                                                                                                                                                                                         |
+| Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                                                                                                                                  |
+| `.each` scanning every entity to detect change                         | Reactive `.update(C)` — fires only on change.                                                                                                                                                                                                                  |
+| `entity.get(C)` for a component the callback always uses               | Inject it (`inject: [C]`); keep `get` for a component that is conditionally needed and rarely required.                                                                                                                                                        |
+| `has`/`set` on first use of state a system maintains                   | Create it with its neutral value (or via `With`); require it in `.with` and inject it ([§4](#maintained-state-exists-from-creation)).                                                                                                                          |
+| Treating target storage as component data                              | Use `add(Rel, target)` / `remove(Rel, target)` and read with `target` / `targets` / `hasTarget`; target storage is private.                                                                                                                                    |
+| A `registerFooSystem(world)` wrapper per system                        | Declare the system inline in the module's `init`.                                                                                                                                                                                                              |
 
 ---
 
@@ -920,6 +931,11 @@ system after whatever produces the entity/companion.
   Calling it every tick fires `onSet`, `update` watchers and replication every tick. Read with `get`;
   call `getMut` only when a change is intended (see
   [`getMut` and `ensure`](./entities.md#getmut-and-ensure-mutating-in-place)).
+- **`With` never removes its companion.** Removing a bringer that can leave a live entity orphans
+  the companion, and a `.without(Bringer)` query still matches the entity because the companion
+  stays. Use `With` only when the bringer is never removed or an orphan is harmless; otherwise
+  remove the companion in the bringer's `remove` hook (see §3 and the
+  [settled decision](../../../architecture/DECISIONS.md#with-adds-never-removes)).
 - **A callback that always uses a component should inject it, not `get` it.** `entity.get(C)` is for
   a component that is conditionally needed and rarely required (see §4).
 - **Membership is fixed by `.with(...)` / `.without(...)` / `.update(C)`;** `update(C)` watches `C`
