@@ -151,7 +151,8 @@ export class RateTickSource extends BaseTickSource {
 
   /** Upstream clock, or `undefined` when this source counts world frames. */
   public get source(): ITickSource | undefined {
-    return this._source;
+    // While ALWAYS_TICK_SOURCE is deprecated, a world clock reads back as the constant.
+    return this._source instanceof AlwaysTickSource ? ALWAYS_TICK_SOURCE : this._source;
   }
 
   /** @internal */
@@ -214,11 +215,13 @@ export class AlwaysTickSource implements ITickSource {
 
 /**
  * Legacy every-frame clock marker. Passing it to `system.tickSource()` or
- * `system.rate()` resolves to the system's own world clock, but `system.cadence`
- * never returns it.
+ * `system.rate()` resolves to the system's own world clock. During this
+ * deprecation release, `system.cadence` (and `RateTickSource.source`) still
+ * return it for a system on its world's default clock.
  *
- * @deprecated Compare `system.cadence` with `system.world.alwaysTickSource`
- * instead. Each world owns its own every-frame clock so nested worlds do not
- * share deltas. This constant will be removed in the next release.
+ * @deprecated Use `system.hasDefaultCadence`. Each world owns its own
+ * every-frame clock (`world.alwaysTickSource`) so nested worlds do not share
+ * deltas. Next release this constant is removed and `system.cadence` returns
+ * `world.alwaysTickSource` for default-cadence systems.
  */
 export const ALWAYS_TICK_SOURCE: ITickSource = new AlwaysTickSource();

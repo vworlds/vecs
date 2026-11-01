@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { World } from "../src/index.js";
+import { ALWAYS_TICK_SOURCE, World } from "../src/index.js";
 
 describe("per-world always tick source", () => {
   it("gives each world its own every-frame clock", () => {
     const a = new World();
     const b = new World();
     expect(a.alwaysTickSource).not.toBe(b.alwaysTickSource);
-    expect(a.system("s").cadence).toBe(a.alwaysTickSource);
+    const s = a.system("s");
+    expect(s.hasDefaultCadence).toBe(true);
+    expect(s.cadence).toBe(ALWAYS_TICK_SOURCE);
+    a.progress(0, 5);
+    b.progress(0, 9);
+    expect(a.alwaysTickSource.didTick).toBe(true);
+    expect(a.alwaysTickSource.lastFireDelta).toBe(5);
+    expect(b.alwaysTickSource.lastFireDelta).toBe(9);
   });
 
   it("keeps deltas separate when world B is stepped inside a system of world A", () => {

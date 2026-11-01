@@ -168,8 +168,10 @@ describe("System introspection", () => {
   it("exposes default, interval, rate and replaced cadence without ticking", () => {
     const world = new World();
     const system = world.system("clock");
-    expect(system.cadence).toBe(world.alwaysTickSource);
+    expect(system.cadence).toBe(ALWAYS_TICK_SOURCE);
+    expect(system.hasDefaultCadence).toBe(true);
     system.interval(0.5);
+    expect(system.hasDefaultCadence).toBe(false);
     const interval = system.cadence as IntervalTickSource;
     expect(interval).toBeInstanceOf(IntervalTickSource);
     expect(interval.seconds).toBe(0.5);
@@ -179,7 +181,7 @@ describe("System introspection", () => {
     expect(rate.rate).toBe(3);
     expect(rate.source).toBe(interval);
     system.rate(2, ALWAYS_TICK_SOURCE);
-    expect((system.cadence as RateTickSource).source).toBe(world.alwaysTickSource);
+    expect((system.cadence as RateTickSource).source).toBe(ALWAYS_TICK_SOURCE);
     expect((system.cadence as RateTickSource).rate).toBe(2);
     system.tickSource(interval);
     expect(system.cadence).toBe(interval);
@@ -190,7 +192,7 @@ describe("System introspection", () => {
     expect(frames.source).toBeUndefined();
     const everyOther = world.system("every other").rate(2).cadence as RateTickSource;
     expect(everyOther.rate).toBe(2);
-    expect(everyOther.source).toBe(world.alwaysTickSource);
+    expect(everyOther.source).toBe(ALWAYS_TICK_SOURCE);
   });
 
   it("lists disabled systems and reports enable/disable state", () => {

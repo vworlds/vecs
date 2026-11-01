@@ -148,11 +148,21 @@ export class System<R extends ComponentType[] = []>
   }
 
   /**
-   * Current cadence clock. Compare with {@link World.alwaysTickSource} to recognise
+   * Current cadence clock. Use {@link hasDefaultCadence} to recognise
    * the default every-frame cadence; interval/rate configuration replaces it.
    */
   public get cadence(): ITickSource {
-    return this._tickSource;
+    // Deprecation window: report the legacy constant for the world's default clock.
+    return this.hasDefaultCadence ? ALWAYS_TICK_SOURCE : this._tickSource;
+  }
+
+  /**
+   * True when this system runs on its world's every-frame clock, i.e. no
+   * interval, rate or tick source was configured. Prefer this over comparing
+   * {@link cadence} by identity.
+   */
+  public get hasDefaultCadence(): boolean {
+    return this._tickSource === this.world.alwaysTickSource;
   }
 
   /**
