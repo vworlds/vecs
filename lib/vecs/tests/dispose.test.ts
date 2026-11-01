@@ -49,7 +49,7 @@ describe("World.dispose", () => {
   it("keeps application remove hooks during the infrastructure pass without cascading Delete policies", () => {
     class Tag {}
     const world = new World();
-    world.component(Tag).onDelete = CleanupPolicy.Delete;
+    world.component(Tag).meta.onDelete = CleanupPolicy.Delete;
     const removed: EID[] = [];
     world.component(Tag).on("remove", (entity) => removed.push(entity.eid));
     const survivor = world.entity().add(Tag);
