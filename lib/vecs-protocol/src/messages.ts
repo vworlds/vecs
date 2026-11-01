@@ -1,6 +1,6 @@
 import type { EID } from "@vworlds/vecs";
 import { Decoder, Encoder, type IEncodable } from "@vworlds/vecs-wire";
-import { ALL_COMPONENTS, cid_pack, cid_unpack } from "./cid.js";
+import { ALL_COMPONENTS, CidLayout } from "./cid.js";
 import { RPC } from "./rpc.js";
 
 const FIELD_DIFF = 1;
@@ -19,20 +19,27 @@ export class ComponentSnapshot implements IEncodable {
   public wireType = 0;
   public payload = new Uint8Array();
 
-  public constructor(values?: Partial<ComponentSnapshot>) {
+  /** Create a snapshot encoded with the owning world's layout. */
+  public constructor(
+    /** Packing rules for this snapshot's connection. */
+    public readonly cid: CidLayout,
+    values?: Partial<Omit<ComponentSnapshot, "cid">>
+  ) {
     if (values) {
       Object.assign(this, values);
     }
   }
 
+  /** Write the packed id and payload with this snapshot's layout. */
   public wireEncode(encoder: Encoder): void {
-    encoder.write_u32(cid_pack(this.eid, this.wireType));
+    encoder.write_u32(this.cid.pack(this.eid, this.wireType));
     encoder.write_buffer(this.payload);
   }
 
-  public static wireDecode(decoder: Decoder): ComponentSnapshot {
-    const [eid, wireType] = cid_unpack(decoder.read_u32());
-    return new ComponentSnapshot({
+  /** Decode a snapshot using the receiving world's layout. */
+  public static decodeWith(cid: CidLayout, decoder: Decoder): ComponentSnapshot {
+    const [eid, wireType] = cid.unpack(decoder.read_u32());
+    return new ComponentSnapshot(cid, {
       eid,
       wireType,
       payload: decoder.read_bytes(),
@@ -124,34 +131,41 @@ export class StateDiff implements IEncodable {
   public removed: RemovedComponent[] = [];
   public resets: EntityReset[] | undefined = undefined;
 
-  public constructor(values?: Partial<StateDiff>) {
+  /** Create a diff encoded with the owning world's layout. */
+  public constructor(
+    /** Packing rules for every removal, reset and encoded snapshot in this diff. */
+    public readonly cid: CidLayout,
+    values?: Partial<Omit<StateDiff, "cid">>
+  ) {
     if (values) {
       Object.assign(this, values);
     }
   }
 
+  /** Write this diff, packing removals and reset markers with its layout. */
   public wireEncode(encoder: Encoder): void {
     encoder.write_u32(this.toFrame);
     encoder.write_u32(this.fromFrame);
     encoder.write_u32(this.snapshots.length);
     this.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot.bytes));
     encoder.write_u32(this.removed.length + (this.resets?.length ?? 0));
-    this.removed.forEach(([eid, wireType]) => encoder.write_u32(cid_pack(eid, wireType)));
+    this.removed.forEach(([eid, wireType]) => encoder.write_u32(this.cid.pack(eid, wireType)));
     this.resets?.forEach(([eid, frame]) => {
-      encoder.write_u32(cid_pack(eid, ALL_COMPONENTS));
+      encoder.write_u32(this.cid.pack(eid, ALL_COMPONENTS));
       encoder.write_u32(this.toFrame - frame);
     });
   }
 
-  public static wireDecode(decoder: Decoder): StateDiff {
-    const diff = new StateDiff({ toFrame: decoder.read_u32(), fromFrame: decoder.read_u32() });
+  /** Decode removals and reset markers using the receiving world's layout. */
+  public static decodeWith(cid: CidLayout, decoder: Decoder): StateDiff {
+    const diff = new StateDiff(cid, { toFrame: decoder.read_u32(), fromFrame: decoder.read_u32() });
     const snapshotCount = decoder.read_u32();
     for (let i = 0; i < snapshotCount; i++) {
       diff.snapshots.push(new EncodedSnapshot(decoder.read_bytes()));
     }
     const removedCount = decoder.read_u32();
     for (let i = 0; i < removedCount; i++) {
-      const removal = cid_unpack(decoder.read_u32());
+      const removal = cid.unpack(decoder.read_u32());
       if (removal[1] === ALL_COMPONENTS) {
         (diff.resets ??= []).push([removal[0], diff.toFrame - decoder.read_u32()]);
       } else {
@@ -274,13 +288,14 @@ export class Server2Client implements IEncodable {
     }
   }
 
-  public static wireDecode(decoder: Decoder): Server2Client {
+  /** Decode a server frame and its diff using the receiving world's layout. */
+  public static decodeWith(cid: CidLayout, decoder: Decoder): Server2Client {
     const message = new Server2Client();
     while (!decoder.EOF) {
       const tag = decoder.read_u8();
       switch (tag) {
         case FIELD_DIFF:
-          message.diff = decoder.read(StateDiff);
+          message.diff = StateDiff.decodeWith(cid, decoder);
           break;
         case FIELD_RPC: {
           const count = decoder.read_u32();

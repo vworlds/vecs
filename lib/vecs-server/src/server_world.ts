@@ -10,7 +10,7 @@ import {
   resolveRpcId,
   StateDiff,
   ALL_COMPONENTS,
-  cid_pack,
+  CidLayout,
   encodeRelationshipSnapshot,
   NetworkWorld,
   type CloseNotice,
@@ -417,7 +417,13 @@ class ServerClientSession {
   public socket!: VecsSocket;
   public entity!: Entity;
 
+  /**
+   * Create per-connection history with the owning world's packing rules.
+   * The zero-argument ECS component default uses an empty-schema layout;
+   * live sessions always receive their world's layout explicitly.
+   */
   public constructor(
+    cid: CidLayout = new CidLayout(2),
     lastFrame = -1,
     historyFrames = HISTORY_LENGTH,
     redundancyFrames: number | undefined = undefined
@@ -426,7 +432,7 @@ class ServerClientSession {
     this.lastDiffFrame = lastFrame;
     this.sent =
       redundancyFrames === undefined ? undefined : new SentFrames(redundancyFrames, lastFrame);
-    this.history = new History(historyFrames, lastFrame);
+    this.history = new History(cid, historyFrames, lastFrame);
     this.rtt = new RttEstimator();
   }
 }
@@ -539,11 +545,11 @@ export class ServerWorld extends NetworkWorld {
         .with(Networked, registered.Class)
         .phase(storePhase)
         .update({ watch: registered.Class, onEnter: true }, (entity, component) => {
-          this._snapshotCache.delete(cid_pack(entity.eid, registered.wireType));
+          this._snapshotCache.delete(this.cid.pack(entity.eid, registered.wireType));
           this._record(entity, registered.wireType, component);
         })
         .exit((entity) => {
-          this._snapshotCache.delete(cid_pack(entity.eid, registered.wireType));
+          this._snapshotCache.delete(this.cid.pack(entity.eid, registered.wireType));
           this._record(entity, registered.wireType, undefined);
         })
         .track();
@@ -904,7 +910,7 @@ export class ServerWorld extends NetworkWorld {
         view._resyncAll();
       }
 
-      const latest = new StateDiff({ fromFrame: toFrame - 1, toFrame });
+      const latest = new StateDiff(this.cid, { fromFrame: toFrame - 1, toFrame });
       const { snapshots, removed } = latest;
 
       // One frame's diff can hold the reset of an entity that left the view and the
@@ -1106,7 +1112,7 @@ export class ServerWorld extends NetworkWorld {
       }
       session.resyncFrame = latest.toFrame;
       session.resyncSentAtMs = nowMs;
-      return new StateDiff({
+      return new StateDiff(this.cid, {
         fromFrame: 0,
         toFrame: latest.toFrame,
         snapshots: latest.snapshots,
@@ -1312,6 +1318,7 @@ export class ServerWorld extends NetworkWorld {
     this._sessionCreated = true;
     const entity = this.entity().add(Networked).add(NetworkClient).add(View);
     const session = new ServerClientSession(
+      this.cid,
       this._frame - 1,
       this._historyFrames,
       this._redundancyFrames
@@ -1570,9 +1577,9 @@ export class ServerWorld extends NetworkWorld {
     // (never 0, which would read as a full baseline) so the push is always in
     // range for the client's diff buffer.
     const toFrame = session.history.lastFrame + 1;
-    session.history.push(new StateDiff({ fromFrame: toFrame - 1, toFrame }));
+    session.history.push(new StateDiff(this.cid, { fromFrame: toFrame - 1, toFrame }));
     const frame = new Server2Client({
-      diff: new StateDiff({ fromFrame: Math.max(session.ackFrame, 1), toFrame }),
+      diff: new StateDiff(this.cid, { fromFrame: Math.max(session.ackFrame, 1), toFrame }),
       rpc,
       rpcSettledBelow: session.rpc.settledBelow,
       close: session.closeNotice,
@@ -1613,7 +1620,7 @@ export class ServerWorld extends NetworkWorld {
     wireType: number,
     component: ComponentInstance | undefined
   ): void {
-    this._updates.set(cid_pack(entity.eid, wireType), { entity, wireType, component });
+    this._updates.set(this.cid.pack(entity.eid, wireType), { entity, wireType, component });
   }
 
   private _pushEntitySnapshots(entity: Entity, snapshots: EncodedSnapshot[]): void {
@@ -1632,7 +1639,7 @@ export class ServerWorld extends NetworkWorld {
     component: ComponentInstance
   ): EncodedSnapshot {
     const eid = entity.eid;
-    const cid = cid_pack(eid, wireType);
+    const cid = this.cid.pack(eid, wireType);
     const cached = this._snapshotCache.get(cid);
     if (cached) {
       return cached;
@@ -1653,7 +1660,7 @@ export class ServerWorld extends NetworkWorld {
     }
     const payload = payloadEncoder.getBuffer().slice();
     const snapshot = new EncodedSnapshot(
-      this._encode(new ComponentSnapshot({ eid, wireType, payload })),
+      this._encode(new ComponentSnapshot(this.cid, { eid, wireType, payload })),
       eid,
       wireType
     );

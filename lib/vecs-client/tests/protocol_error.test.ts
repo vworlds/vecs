@@ -1,3 +1,4 @@
+import { CidLayout } from "@vworlds/vecs-protocol";
 import { describe, expect, it } from "vitest";
 import {
   ComponentSnapshot,
@@ -16,10 +17,10 @@ import {
   type ClientWorldDisconnectEvent,
 } from "../src/index.js";
 
+const testCid = new CidLayout(4);
+
 // These tests use [Position, Velocity] (2 components, localComponentMin = 4), so
 // wire type 3 fits in a packed component id but names no registered component.
-// Separate file so the global localComponentMin doesn't conflict with the
-// existing client tests that use [Position] (localComponentMin = 2).
 
 const UNREGISTERED_WIRE_TYPE = 3;
 
@@ -80,7 +81,7 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
 
 function makeSnapshot(eid: EID, wireType: number, payload: Uint8Array): EncodedSnapshot {
   return new EncodedSnapshot(
-    encodeMessage(new ComponentSnapshot({ eid, wireType, payload })),
+    encodeMessage(new ComponentSnapshot(testCid, { eid, wireType, payload })),
     eid,
     wireType
   );
@@ -111,7 +112,7 @@ function diffFrame(
   removed: RemovedComponent[] = []
 ): Uint8Array {
   return encodeMessage(
-    new Server2Client({ diff: new StateDiff({ fromFrame, toFrame, snapshots, removed }) })
+    new Server2Client({ diff: new StateDiff(testCid, { fromFrame, toFrame, snapshots, removed }) })
   );
 }
 

@@ -1,8 +1,7 @@
 import {
   ComponentSnapshot as WireComponentSnapshot,
   StateDiff,
-  cid_pack,
-  cid_unpack,
+  CidLayout,
   type CID,
 } from "@vworlds/vecs-protocol";
 import { Decoder } from "@vworlds/vecs-wire";
@@ -45,18 +44,24 @@ export class ComponentSnapshot {
   public payload: Uint8Array | ComponentInstance;
   public readonly cid: CID;
 
-  public constructor(eid: EID, wireType: number, payload: Uint8Array | ComponentInstance) {
+  /** Create a snapshot keyed with its owning world's layout. */
+  public constructor(
+    layout: CidLayout,
+    eid: EID,
+    wireType: number,
+    payload: Uint8Array | ComponentInstance
+  ) {
     this.eid = eid;
     this.wireType = wireType;
     this.payload = payload;
-    this.cid = cid_pack(eid, wireType);
+    this.cid = layout.pack(eid, wireType);
   }
 }
 
 /**
  * The component snapshots, removals and resets for a frame range.
  *
- * `removed` holds the ids (`cid_pack(eid, wireType)`) of single components that
+ * `removed` holds the ids (`layout.pack(eid, wireType)`) of single components that
  * are gone. `resets` holds the entities that are gone altogether, each with the
  * server frame of its newest removal. Within one diff the changes apply in a
  * fixed order, the one `ClientWorld.apply` follows:
@@ -88,7 +93,10 @@ export class Diff {
   #snapshots: readonly ComponentSnapshot[] = [];
   #snapshotsDirty = false;
 
+  /** Create a frame range whose packed ids all use `cid`. */
   public constructor(
+    /** Layout shared by every snapshot and removal in this diff. */
+    public readonly cid: CidLayout,
     public from: number,
     public to: number,
     public removed?: number[]
@@ -127,14 +135,14 @@ export class Diff {
   }
 }
 
-/** Decode wire snapshots into a cid-keyed diff, preserving wire insertion order. */
+/** Decode snapshots in wire insertion order and key removals using the wire diff's layout. */
 export function diffFromStateDiff(sd: StateDiff): Diff {
-  const d = new Diff(sd.fromFrame, sd.toFrame);
+  const d = new Diff(sd.cid, sd.fromFrame, sd.toFrame);
   for (const snapshot of sd.snapshots) {
-    const wire = new Decoder(snapshot.bytes).read(WireComponentSnapshot);
-    d.upsertSnapshot(new ComponentSnapshot(wire.eid, wire.wireType, wire.payload));
+    const wire = WireComponentSnapshot.decodeWith(sd.cid, new Decoder(snapshot.bytes));
+    d.upsertSnapshot(new ComponentSnapshot(sd.cid, wire.eid, wire.wireType, wire.payload));
   }
-  d.removed = sd.removed.map(([eid, wireType]) => cid_pack(eid, wireType));
+  d.removed = sd.removed.map(([eid, wireType]) => sd.cid.pack(eid, wireType));
   if (sd.resets !== undefined && sd.resets.length > 0) {
     d.resets = new Map(sd.resets);
   }
@@ -187,7 +195,10 @@ export class DiffBuffer {
   // of their position-like component).
   private readonly _componentInterpolators: Map<number, ComponentInterpolator>;
 
+  /** Buffer and interpolate diffs for one client world's layout. */
   public constructor(
+    /** The client world's packing rules; must match the diffs pushed into this buffer. */
+    private readonly _cid: CidLayout,
     private max_length: number = MAX_LENGTH, // max bucket length
     private server_tick_interval: number = 1000 / 60, // server tick interval FPS configuration
     private readonly _decodeComponentSnapshot?: DecodeComponentSnapshot,
@@ -224,7 +235,7 @@ export class DiffBuffer {
     const resets = sd.resets;
     if (resets !== undefined) {
       this._state.forEach((_, cid) => {
-        if (resets.has(cid_unpack(cid)[0])) {
+        if (resets.has(this._cid.unpack(cid)[0])) {
           this._state.delete(cid);
         }
       });
@@ -254,7 +265,7 @@ export class DiffBuffer {
   // in the bucket + interpolation
   public pull(now: number): Diff {
     const next = this.bucket[0];
-    let sd = new Diff(this._stateVersion, this._stateVersion, undefined);
+    let sd = new Diff(this._cid, this._stateVersion, this._stateVersion, undefined);
     if (next === undefined) {
       // there is nothing in the buffer, so return an empty diff
       // since we are hitting an empty buffer, allow some extra time for it
@@ -600,6 +611,7 @@ export class DiffBuffer {
       const targetComponent = this._decodeSnapshot(targetSnapshot);
       sd.upsertSnapshot(
         new ComponentSnapshot(
+          this._cid,
           targetSnapshot.eid,
           targetSnapshot.wireType,
           interpolate(source, targetComponent, alpha)
@@ -762,7 +774,7 @@ export function merge(
   if (superseded !== undefined) {
     // a's component removals of an entity b resets are moot.
     removed?.forEach((r) => {
-      if (superseded.has(cid_unpack(r)[0])) {
+      if (superseded.has(a.cid.unpack(r)[0])) {
         removed.delete(r);
       }
     });
@@ -771,14 +783,14 @@ export function merge(
     addToSet(removed, b.removed);
   }
 
-  const m = mutateAccumulator ? a : new Diff(a.from, b.to);
+  const m = mutateAccumulator ? a : new Diff(a.cid, a.from, b.to);
   if (!mutateAccumulator) {
     a.smap.forEach((s) => m.upsertSnapshot(s));
   }
   if (superseded !== undefined) {
     // a's snapshots of an entity b resets describe the removed entity.
     m.smap.forEach((_, cid) => {
-      if (superseded.has(cid_unpack(cid)[0])) {
+      if (superseded.has(a.cid.unpack(cid)[0])) {
         m.deleteSnapshot(cid);
       }
     });

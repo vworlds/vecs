@@ -3,6 +3,12 @@ import { performance } from "node:perf_hooks";
 import { Client2Server, Server2Client, type VecsSocket } from "@vworlds/vecs-protocol";
 import { Decoder, Encoder, wireType } from "@vworlds/vecs-wire";
 import { NetworkClient, Networked, ServerWorld, View } from "../src/index.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(2);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
 
 class Value {
   @wireType("i32")
@@ -57,7 +63,7 @@ function start(redundancyFrames: number, keepAliveFrames?: number) {
     now = atMs;
     socket.sent.length = 0;
     world.progress(now, 40);
-    return socket.sent.map((bytes) => new Decoder(bytes).read(Server2Client));
+    return socket.sent.map((bytes) => new Decoder(bytes).read(decodeServer2Client));
   };
   const ack = (frame: number, atMs: number) => {
     now = atMs;

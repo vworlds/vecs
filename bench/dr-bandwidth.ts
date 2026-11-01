@@ -28,6 +28,7 @@ import {
   EncodedSnapshot,
   Server2Client,
   type VecsSocket,
+  type CidLayout,
 } from "@vworlds/vecs-protocol";
 import { NetworkClient, Networked, ServerWorld, View } from "@vworlds/vecs-server";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
@@ -62,7 +63,7 @@ function measure(mode: (typeof modes)[number]): object {
     if (now > 1000) {
       bytes += data.length;
       hash.update(data);
-      const canonical = mapPacket(data, ids);
+      const canonical = mapPacket(data, ids, server.cid);
       // Preserve packet boundaries and order in the hash, not just concatenated payload bytes.
       const length = Buffer.alloc(4);
       length.writeUInt32LE(canonical.length);
@@ -164,7 +165,7 @@ function measure(mode: (typeof modes)[number]): object {
 }
 
 /** Re-encode only protocol entity ids; leave component payloads and list/packet order untouched. */
-function mapPacket(data: Uint8Array, ids: ReadonlyMap<number, number>): Uint8Array {
+function mapPacket(data: Uint8Array, ids: ReadonlyMap<number, number>, cid: CidLayout): Uint8Array {
   const mappedId = (eid: number): number => {
     const id = ids.get(eid);
     if (id === undefined) {
@@ -172,11 +173,11 @@ function mapPacket(data: Uint8Array, ids: ReadonlyMap<number, number>): Uint8Arr
     }
     return id;
   };
-  const message = new Decoder(data).read(Server2Client);
+  const message = Server2Client.decodeWith(cid, new Decoder(data));
   const diff = message.diff;
   if (diff) {
     diff.snapshots = diff.snapshots.map(({ bytes }) => {
-      const snapshot = new Decoder(bytes).read(ComponentSnapshot);
+      const snapshot = ComponentSnapshot.decodeWith(cid, new Decoder(bytes));
       snapshot.eid = mappedId(snapshot.eid);
       const encoder = new Encoder(new Uint8Array(bytes.length + 16));
       encoder.write(snapshot);

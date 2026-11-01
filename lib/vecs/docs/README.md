@@ -76,6 +76,8 @@ sessions, and the client world) lives in the `@vworlds/vecs-wire`, `@vworlds/vec
 - [Remote procedure calls](../../vecs-protocol/docs/rpc.md) — named RPCs, numeric id ranges, collisions, typed errors, injected clocks and absolute deadlines.
 - [State diffs](../../vecs-protocol/docs/state-diffs.md) — what a diff carries, the order a client
   applies it in, and how a reused entity id stays unambiguous.
+- [Per-world component ids](../../vecs-protocol/docs/frames.md#per-world-component-ids) — `CidLayout`,
+  independent schemas, and layout-aware protocol encoding and decoding.
 - [Sessions and caller context](../../vecs-server/docs/sessions.md) — per-connection RPC context,
   `closeSession`, and exactly-once teardown.
 - [Idle keepalive gates](../../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate) —

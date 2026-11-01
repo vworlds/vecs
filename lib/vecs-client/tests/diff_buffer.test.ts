@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { cid_pack } from "@vworlds/vecs-protocol";
+import { CidLayout } from "@vworlds/vecs-protocol";
 import type { EID } from "@vworlds/vecs";
 import { Encoder, Decoder } from "@vworlds/vecs-wire";
 import {
@@ -13,6 +13,7 @@ import {
 } from "../src/diff_buffer.js";
 
 const PositionWireType = 1;
+const testCid = new CidLayout(256);
 const ColorWireType = 6;
 
 class Position {
@@ -21,7 +22,7 @@ class Position {
 }
 
 function CID(eid: EID, wireType: number): number {
-  return cid_pack(eid, wireType);
+  return testCid.pack(eid, wireType);
 }
 
 function sortSnapshots(snapshots: readonly ComponentSnapshot[]): ComponentSnapshot[] {
@@ -42,11 +43,11 @@ function encodeColor(color: string): Uint8Array {
 }
 
 function makePosComponent(eid: EID, x: number, y: number): ComponentSnapshot {
-  return new ComponentSnapshot(eid, PositionWireType, encodePos(x, y));
+  return new ComponentSnapshot(testCid, eid, PositionWireType, encodePos(x, y));
 }
 
 function makeColorComponent(eid: EID, color: string): ComponentSnapshot {
-  return new ComponentSnapshot(eid, ColorWireType, encodeColor(color));
+  return new ComponentSnapshot(testCid, eid, ColorWireType, encodeColor(color));
 }
 
 // test snapshot generator: returns Position + Color components for one entity
@@ -62,7 +63,7 @@ function SD(p: {
   resets?: Array<[EID, number]>;
   snapshots: ComponentSnapshot[];
 }): Diff {
-  const d = new Diff(p.from, p.to, p.removed);
+  const d = new Diff(testCid, p.from, p.to, p.removed);
   p.snapshots.forEach((snapshot) => d.upsertSnapshot(snapshot));
   if (p.resets) {
     d.resets = new Map(p.resets);
@@ -107,7 +108,7 @@ function decodePosition(snapshot: ComponentSnapshot): Position {
 }
 
 function newDiffBuffer(maxLength: number, serverTickInterval: number): DiffBuffer {
-  return new DiffBuffer(maxLength, serverTickInterval, decodePosition, [
+  return new DiffBuffer(testCid, maxLength, serverTickInterval, decodePosition, [
     [PositionWireType, interpolatePosition],
   ]);
 }
@@ -460,7 +461,7 @@ test("in-place catch-up merge matches a pure merge of the consumed frames", () =
   ip.pull(100); // consume s1 and initialize server time
   const pulled = ip.pull(140); // consume s2 and s3 in one catch-up pass
 
-  const folded = merge(merge(new Diff(1, 1), s2, false), s3, false);
+  const folded = merge(merge(new Diff(testCid, 1, 1), s2, false), s3, false);
   expect(sortSnapshots(pulled.snapshots)).toEqual(sortSnapshots(folded.snapshots));
   expect(pulled.removed ?? []).toEqual(folded.removed ?? []);
   expect(pulled.from).toBe(1);
@@ -474,7 +475,7 @@ test("interpolates using a custom component interpolator supplied via config", (
     alphas.push(alpha);
     return target;
   };
-  const ip = new DiffBuffer(3, 10, decodePosition, [[PositionWireType, snapToTarget]]);
+  const ip = new DiffBuffer(testCid, 3, 10, decodePosition, [[PositionWireType, snapToTarget]]);
   const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
   const s2 = SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 10, 20)] });
 
@@ -490,7 +491,7 @@ test("interpolates using a custom component interpolator supplied via config", (
 });
 
 test("does not emit interpolated frames for types without a configured interpolator", () => {
-  const ip = new DiffBuffer(3, 10, decodePosition, []);
+  const ip = new DiffBuffer(testCid, 3, 10, decodePosition, []);
   const s1 = SD({ from: 0, to: 1, snapshots: [makePosComponent(A, 0, 0)] });
   const s2 = SD({ from: 1, to: 2, snapshots: [makePosComponent(A, 10, 20)] });
 
@@ -591,7 +592,7 @@ test("accepts a receipt frame sent behind a lagging ack", () => {
 // a straggler for an older frame must not roll it back: the server has seen the newer frame acked,
 // so its next delta starts there, and would then look as if it started past the client.
 test("discards a stale diff that arrives after the bucket drained, and takes the next real delta", () => {
-  const ip = new DiffBuffer(3, 10);
+  const ip = new DiffBuffer(testCid, 3, 10);
   ip.push(SD({ from: 0, to: 4, snapshots: [makePosComponent(A, 4, 4)] }));
   ip.pull(10);
   expect(ip.version).toBe(4);
@@ -635,7 +636,7 @@ test("still rejects a diff that starts past the acked frame after the bucket dra
 });
 
 test("takes any diff as the starting point after reset, whatever frame it names", () => {
-  const ip = new DiffBuffer(3, 10);
+  const ip = new DiffBuffer(testCid, 3, 10);
   ip.push(SD({ from: 0, to: 40, snapshots: [makePosComponent(A, 40, 40)] }));
   ip.pull(10);
   ip.reset();
@@ -692,7 +693,7 @@ test("renderFrame is the point the interpolators sample, never decreases and nev
     samples.push({ alpha, from: (source as Position).x / 10, to: (target as Position).x / 10 });
     return interpolatePosition(source, target, alpha);
   };
-  const ip = new DiffBuffer(3, interval, decodePosition, [
+  const ip = new DiffBuffer(testCid, 3, interval, decodePosition, [
     [PositionWireType, recordingInterpolator],
   ]);
 
@@ -754,7 +755,7 @@ function drain(ip: DiffBuffer): Diff {
 // lost the diff starts past the newest frame the client has. The buffer holds it until the missing
 // frames arrive, applies it then, and tells the client to report a gap meanwhile.
 test("holds an optimistic diff that starts past the newest frame instead of rejecting it", () => {
-  const ip = new DiffBuffer(3, 10);
+  const ip = new DiffBuffer(testCid, 3, 10);
   ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
 
   const optimistic = SD({ from: 14, to: 16, snapshots: [makePosComponent(B, 16, 16)] });
@@ -767,7 +768,7 @@ test("holds an optimistic diff that starts past the newest frame instead of reje
 });
 
 test("reports the gap once per detection", () => {
-  const ip = new DiffBuffer(3, 10);
+  const ip = new DiffBuffer(testCid, 3, 10);
   ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
   expect(ip.takeGap()).toBe(false);
 
@@ -782,7 +783,7 @@ test("reports the gap once per detection", () => {
 });
 
 test("applies a held diff as soon as the frames before it arrive", () => {
-  const ip = new DiffBuffer(3, 10);
+  const ip = new DiffBuffer(testCid, 3, 10);
   ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
   ip.push(SD({ from: 14, to: 16, snapshots: [makePosComponent(B, 16, 16)] }), true);
 
@@ -796,7 +797,7 @@ test("applies a held diff as soon as the frames before it arrive", () => {
 });
 
 test("has no gap to report once the frames before the held diff arrived, even if it was never asked", () => {
-  const ip = new DiffBuffer(3, 10);
+  const ip = new DiffBuffer(testCid, 3, 10);
   ip.push(SD({ from: 0, to: 12, snapshots: [] }));
   ip.push(SD({ from: 14, to: 16, snapshots: [] }), true);
 
@@ -806,7 +807,7 @@ test("has no gap to report once the frames before the held diff arrived, even if
 });
 
 test("applies held diffs in order, each one bringing the next within reach", () => {
-  const ip = new DiffBuffer(4, 10);
+  const ip = new DiffBuffer(testCid, 4, 10);
   ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
   // Two frames arrive ahead of the one they are built on, the later one first.
   ip.push(SD({ from: 16, to: 18, snapshots: [makePosComponent(C, 18, 18)] }), true);
@@ -823,7 +824,7 @@ test("applies held diffs in order, each one bringing the next within reach", () 
 });
 
 test("holds and releases a diff after the bucket drained", () => {
-  const ip = new DiffBuffer(3, 10);
+  const ip = new DiffBuffer(testCid, 3, 10);
   ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
   ip.pull(1000);
   expect(ip.bucket).toEqual([undefined, undefined, undefined]);
@@ -837,7 +838,7 @@ test("holds and releases a diff after the bucket drained", () => {
 });
 
 test("drops a held diff once a later frame has passed it, without applying it", () => {
-  const ip = new DiffBuffer(3, 10);
+  const ip = new DiffBuffer(testCid, 3, 10);
   ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
   ip.push(SD({ from: 14, to: 16, snapshots: [makePosComponent(B, 16, 16)] }), true);
 
@@ -852,7 +853,7 @@ test("drops a held diff once a later frame has passed it, without applying it", 
 });
 
 test("holds at most MAX_HELD_DIFFS diffs and drops the oldest to make room", () => {
-  const ip = new DiffBuffer(3, 10);
+  const ip = new DiffBuffer(testCid, 3, 10);
   ip.push(SD({ from: 0, to: 10, snapshots: [] }));
   // One more than fits: diff k starts where diff k - 1 ends, from frame 20 on.
   for (let k = 0; k <= MAX_HELD_DIFFS; k++) {
@@ -869,7 +870,7 @@ test("holds at most MAX_HELD_DIFFS diffs and drops the oldest to make room", () 
 });
 
 test("keeps rejecting a diff that starts past the newest frame and is not optimistic, even while it holds others", () => {
-  const ip = new DiffBuffer(3, 10);
+  const ip = new DiffBuffer(testCid, 3, 10);
   ip.push(SD({ from: 0, to: 12, snapshots: [] }));
   ip.push(SD({ from: 14, to: 16, snapshots: [] }), true);
 
@@ -883,7 +884,7 @@ test("keeps rejecting a diff that starts past the newest frame and is not optimi
 });
 
 test("an optimistic diff that starts within the newest frame is an ordinary diff", () => {
-  const ip = new DiffBuffer(3, 10);
+  const ip = new DiffBuffer(testCid, 3, 10);
   ip.push(SD({ from: 0, to: 12, snapshots: [makePosComponent(A, 12, 12)] }));
 
   ip.push(SD({ from: 11, to: 14, snapshots: [makePosComponent(A, 14, 14)] }), true);
@@ -894,7 +895,7 @@ test("an optimistic diff that starts within the newest frame is an ordinary diff
 });
 
 test("reset forgets the held diffs and the gap", () => {
-  const ip = new DiffBuffer(3, 10);
+  const ip = new DiffBuffer(testCid, 3, 10);
   ip.push(SD({ from: 0, to: 12, snapshots: [] }));
   ip.push(SD({ from: 14, to: 16, snapshots: [makePosComponent(B, 16, 16)] }), true);
 

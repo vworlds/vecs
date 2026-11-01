@@ -1,20 +1,22 @@
 /** Price interpolation plus the consumer's single snapshots read against built packages. */
 import { performance } from "node:perf_hooks";
 import { ComponentSnapshot, Diff, DiffBuffer, interpolatePosition } from "@vworlds/vecs-client";
+import { CidLayout } from "@vworlds/vecs-protocol";
 
 const interval = 1000 / 30;
 const warmup = 200;
 const pulls = 1000;
 
 function measure(count: number): number {
-  const buffer = new DiffBuffer(3, interval, undefined, [[1, interpolatePosition]]);
+  const cid = new CidLayout(256);
+  const buffer = new DiffBuffer(cid, 3, interval, undefined, [[1, interpolatePosition]]);
   let frame = 0;
   let checksum = 0;
   function push(): void {
-    const diff = new Diff(frame, frame + 1);
+    const diff = new Diff(cid, frame, frame + 1);
     frame++;
     for (let eid = 1; eid <= count; eid++) {
-      diff.upsertSnapshot(new ComponentSnapshot(eid, 1, { x: frame, y: eid }));
+      diff.upsertSnapshot(new ComponentSnapshot(cid, eid, 1, { x: frame, y: eid }));
     }
     buffer.push(diff);
   }

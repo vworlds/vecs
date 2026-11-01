@@ -44,6 +44,17 @@ import {
   PhaserServerModule,
   type DeadReckonedOptions,
 } from "../src/index.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(
+  2 ** Math.ceil(Math.log2(phaserNetworkComponents.length + phaserMotionComponents.length + 1))
+);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
+const decodeComponentSnapshot = {
+  wireDecode: (decoder: Decoder) => ComponentSnapshot.decodeWith(testCid, decoder),
+};
 
 /** Register the short scenes or their full-horizon counterparts. */
 export function deadReckoningReplicationCases(stress: boolean): void {
@@ -251,7 +262,7 @@ export function deadReckoningReplicationCases(stress: boolean): void {
     const harness = client.down.tap;
     client.down.tap = (data) => {
       harness?.(data);
-      observe(new Decoder(data).read(Server2Client), data.length);
+      observe(new Decoder(data).read(decodeServer2Client), data.length);
     };
   }
 
@@ -366,7 +377,7 @@ export function deadReckoningReplicationCases(stress: boolean): void {
             return;
           }
           const carriesMotion = diff.snapshots.some((encoded) => {
-            const snapshot = new Decoder(encoded.bytes).read(ComponentSnapshot);
+            const snapshot = new Decoder(encoded.bytes).read(decodeComponentSnapshot);
             return snapshot.eid === rock.eid && snapshot.wireType === MOTION;
           });
           if (carriesMotion) {
@@ -403,12 +414,12 @@ export function deadReckoningReplicationCases(stress: boolean): void {
         const payloads: Uint8Array[] = [];
         tapFrames(run.client, (message) => {
           for (const encoded of message.diff?.snapshots ?? []) {
-            const snapshot = new Decoder(encoded.bytes).read(ComponentSnapshot);
+            const snapshot = new Decoder(encoded.bytes).read(decodeComponentSnapshot);
             if (snapshot.eid === body.eid && snapshot.wireType === MOTION_PARAMS) {
               payloads.push(snapshot.payload);
               expect(
                 message.diff!.snapshots.some((entry) => {
-                  const carried = new Decoder(entry.bytes).read(ComponentSnapshot);
+                  const carried = new Decoder(entry.bytes).read(decodeComponentSnapshot);
                   return carried.eid === body.eid && carried.wireType === MOTION;
                 })
               ).toBe(true);
@@ -474,7 +485,7 @@ export function deadReckoningReplicationCases(stress: boolean): void {
             bulletParams: 0,
           };
           for (const encoded of diff.snapshots) {
-            const snapshot = new Decoder(encoded.bytes).read(ComponentSnapshot);
+            const snapshot = new Decoder(encoded.bytes).read(decodeComponentSnapshot);
             if (snapshot.wireType === MOTION && snapshot.eid === container.eid) {
               carried.motion.push(snapshot.payload);
             } else if (snapshot.wireType === MOTION_PARAMS && snapshot.eid === container.eid) {

@@ -18,6 +18,15 @@ import {
   View,
   type ServerWorldOptions,
 } from "../src/index.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(2);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
+const decodeComponentSnapshot = {
+  wireDecode: (decoder: Decoder) => ComponentSnapshot.decodeWith(testCid, decoder),
+};
 
 // How the server decides what a session is sent: a baseline for a client that holds nothing it can
 // build a delta on, a delta from the newest ack otherwise, and nothing while a baseline waits to be
@@ -129,7 +138,7 @@ function step(rig: Rig): Server2Client[] {
   const before = rig.socket.sent.length;
   rig.world.progress(nowMs, tickMs);
   nowMs += tickMs;
-  return rig.socket.sent.slice(before).map((bytes) => new Decoder(bytes).read(Server2Client));
+  return rig.socket.sent.slice(before).map((bytes) => new Decoder(bytes).read(decodeServer2Client));
 }
 
 /** Run `count` frames; every frame the server sent is returned, in order. */
@@ -192,7 +201,7 @@ function baselineFrames(frames: Server2Client[]): number[] {
 }
 
 function positionIn(frame: Server2Client): Position {
-  const snapshot = new Decoder(frame.diff!.snapshots[0].bytes).read(ComponentSnapshot);
+  const snapshot = new Decoder(frame.diff!.snapshots[0].bytes).read(decodeComponentSnapshot);
   return new Decoder(snapshot.payload).read(Position);
 }
 

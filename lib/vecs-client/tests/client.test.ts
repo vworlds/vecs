@@ -1,3 +1,4 @@
+import { CidLayout } from "@vworlds/vecs-protocol";
 import { describe, expect, it, vi } from "vitest";
 import {
   Client2Server,
@@ -11,6 +12,8 @@ import {
 import { Decoder, Encoder, type IEncodable, wireType } from "@vworlds/vecs-wire";
 import type { EID } from "@vworlds/vecs";
 import { ClientWorld, interpolatePosition, type ClientWorldOptions } from "../src/index.js";
+
+const testCid = new CidLayout(2);
 
 class Position {
   @wireType("i32")
@@ -97,7 +100,7 @@ function encodeMessage(message: IEncodable, size = 64 * 1024): Uint8Array {
 
 function makeSnapshot(eid: EID, wireType: number, payload: Uint8Array): EncodedSnapshot {
   return new EncodedSnapshot(
-    encodeMessage(new ComponentSnapshot({ eid, wireType, payload })),
+    encodeMessage(new ComponentSnapshot(testCid, { eid, wireType, payload })),
     eid,
     wireType
   );
@@ -186,7 +189,11 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(1000, 4, 8)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [posSnapshot(1000, 4, 8)],
+          }),
         })
       )
     );
@@ -204,7 +211,7 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 1,
             snapshots: [posSnapshot(1085, 4, 8), posSnapshot(1085, 5, 9)],
@@ -229,7 +236,7 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 2,
             removed: [[1000, 1]],
@@ -255,7 +262,7 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 2,
             resets: [[1000, 2]],
@@ -276,7 +283,7 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 0,
             snapshots: [posSnapshot(1012, 1, 2)],
@@ -287,7 +294,7 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 1,
             removed: [[1012, 1]],
@@ -298,7 +305,7 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 1,
             toFrame: 2,
           }),
@@ -321,7 +328,7 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 1,
             resets: [[1000, 1]],
@@ -335,7 +342,11 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 1, toFrame: 2, snapshots: [posSnapshot(1000, 9, 9)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 1,
+            toFrame: 2,
+            snapshots: [posSnapshot(1000, 9, 9)],
+          }),
         })
       )
     );
@@ -350,7 +361,9 @@ describe("ClientWorld", () => {
     client.attachSocket(socket);
 
     socket.receive(
-      encodeMessage(new Server2Client({ diff: new StateDiff({ fromFrame: 0, toFrame: 9 }) }))
+      encodeMessage(
+        new Server2Client({ diff: new StateDiff(testCid, { fromFrame: 0, toFrame: 9 }) })
+      )
     );
     client.send();
 
@@ -405,7 +418,7 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 1,
             snapshots: [posSnapshot(1000, 1, 1), posSnapshot(1001, 2, 2)],
@@ -419,7 +432,7 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 1,
             toFrame: 2,
             snapshots: [posSnapshot(1000, 3, 3)],
@@ -431,7 +444,7 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 3,
             snapshots: [posSnapshot(1000, 9, 9)],
@@ -464,7 +477,11 @@ describe("ClientWorld", () => {
     firstSocket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 9, snapshots: [posSnapshot(1000, 1, 1)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 0,
+            toFrame: 9,
+            snapshots: [posSnapshot(1000, 1, 1)],
+          }),
         })
       )
     );
@@ -476,7 +493,11 @@ describe("ClientWorld", () => {
     secondSocket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(1000, 2, 2)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [posSnapshot(1000, 2, 2)],
+          }),
         })
       )
     );
@@ -585,21 +606,33 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(7, 1, 1)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [posSnapshot(7, 1, 1)],
+          }),
         })
       )
     );
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 1, toFrame: 3, snapshots: [posSnapshot(7, 3, 3)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 1,
+            toFrame: 3,
+            snapshots: [posSnapshot(7, 3, 3)],
+          }),
         })
       )
     );
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 1, toFrame: 2, snapshots: [posSnapshot(7, 2, 2)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 1,
+            toFrame: 2,
+            snapshots: [posSnapshot(7, 2, 2)],
+          }),
         })
       )
     );
@@ -623,14 +656,22 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(7, 0, 0)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [posSnapshot(7, 0, 0)],
+          }),
         })
       )
     );
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 1, toFrame: 2, snapshots: [posSnapshot(7, 10, 20)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 1,
+            toFrame: 2,
+            snapshots: [posSnapshot(7, 10, 20)],
+          }),
         })
       )
     );
@@ -650,7 +691,11 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 5, snapshots: [posSnapshot(7, 50, 50)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 0,
+            toFrame: 5,
+            snapshots: [posSnapshot(7, 50, 50)],
+          }),
         })
       )
     );
@@ -658,7 +703,11 @@ describe("ClientWorld", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(7, 1, 1)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [posSnapshot(7, 1, 1)],
+          }),
         })
       )
     );
@@ -675,7 +724,11 @@ describe("ClientWorld", () => {
 
     const diffBytes = encodeMessage(
       new Server2Client({
-        diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(7, 7, 7)] }),
+        diff: new StateDiff(testCid, {
+          fromFrame: 0,
+          toFrame: 1,
+          snapshots: [posSnapshot(7, 7, 7)],
+        }),
       })
     );
 
@@ -702,7 +755,11 @@ describe("ClientWorld.dispose", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(1000, 4, 8)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [posSnapshot(1000, 4, 8)],
+          }),
         })
       )
     );
@@ -732,7 +789,11 @@ describe("ClientWorld.dispose", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(1000, 4, 8)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [posSnapshot(1000, 4, 8)],
+          }),
         })
       )
     );
@@ -769,7 +830,11 @@ describe("ClientWorld.dispose", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(1000, 4, 8)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [posSnapshot(1000, 4, 8)],
+          }),
         })
       )
     );
@@ -797,7 +862,7 @@ describe("ClientWorld.dispose", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({
+          diff: new StateDiff(testCid, {
             fromFrame: 0,
             toFrame: 1,
             snapshots: [makeSnapshot(1000, 1, new Uint8Array([255]))],
@@ -848,7 +913,11 @@ describe("ClientWorld.dispose", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 1, snapshots: [posSnapshot(1000, 4, 8)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 0,
+            toFrame: 1,
+            snapshots: [posSnapshot(1000, 4, 8)],
+          }),
         })
       )
     );
@@ -857,7 +926,11 @@ describe("ClientWorld.dispose", () => {
     socket.receive(
       encodeMessage(
         new Server2Client({
-          diff: new StateDiff({ fromFrame: 0, toFrame: 2, snapshots: [posSnapshot(1002, 1, 1)] }),
+          diff: new StateDiff(testCid, {
+            fromFrame: 0,
+            toFrame: 2,
+            snapshots: [posSnapshot(1002, 1, 1)],
+          }),
         })
       )
     );
@@ -922,7 +995,9 @@ describe("ClientWorld disconnect boundaries", () => {
           break;
         case "rejected diff":
           socket.receive(
-            encodeMessage(new Server2Client({ diff: new StateDiff({ fromFrame: 5, toFrame: 6 }) }))
+            encodeMessage(
+              new Server2Client({ diff: new StateDiff(testCid, { fromFrame: 5, toFrame: 6 }) })
+            )
           );
           break;
       }
@@ -1028,7 +1103,7 @@ describe("ClientWorld.renderFrame", () => {
   function frame(fromFrame: number, toFrame: number, x: number): Uint8Array {
     return encodeMessage(
       new Server2Client({
-        diff: new StateDiff({ fromFrame, toFrame, snapshots: [posSnapshot(1000, x, 0)] }),
+        diff: new StateDiff(testCid, { fromFrame, toFrame, snapshots: [posSnapshot(1000, x, 0)] }),
       })
     );
   }

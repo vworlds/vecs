@@ -85,6 +85,8 @@ For opt-in timings and cadence run counts, see [Measuring systems](./docs/system
 
 For Node clients that need replicated Phaser poses, see [Headless clients](../vecs-phaser-client/README.md#headless-clients).
 For server keepalive gates and the idle replicated-state clock, see [Replication](../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate).
+For independent schemas in one process and the `world.cid` packing API, see
+[Per-world component ids](../vecs-protocol/docs/frames.md#per-world-component-ids).
 
 For physics-driven change processing without extra pose watchers, see the
 [post-step pose-change view](../vecs-physics/docs/queries.md#pose-changes).

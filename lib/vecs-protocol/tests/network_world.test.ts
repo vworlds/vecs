@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ComponentDef, Module, Trait } from "@vworlds/vecs";
-import { cid_pack, NetworkWorld } from "../src/index.js";
+import { NetworkWorld } from "../src/index.js";
 
 class Position {}
 class Velocity {}
@@ -67,7 +67,7 @@ describe("NetworkWorld", () => {
     expect(world.networkComponents).toEqual([
       { Class: Position, wireType: 1, eid: world.entity(Position).eid },
     ]);
-    expect(cid_pack(42, 1)).toBeGreaterThan(0);
+    expect(world.cid.pack(42, 1)).toBe(85);
   });
 
   it("uses local component and local entity pools after the network ranges", () => {
@@ -146,10 +146,15 @@ describe("NetworkWorld", () => {
     });
   });
 
-  it("requires every NetworkWorld to use the same local component minimum", () => {
-    expect(() => new NetworkWorld({ networkComponents: [Position] })).not.toThrow();
-    expect(() => new NetworkWorld({ networkComponents: [Position, Velocity] })).toThrow(
-      /does not match existing value/
-    );
+  it("keeps different schemas independent in either construction order", () => {
+    const small = new NetworkWorld({ networkComponents: [Position] });
+    const large = new NetworkWorld({ networkComponents: [Position, Velocity] });
+    const another = new NetworkWorld({ networkComponents: [Position] });
+    expect([small.localComponentMin, large.localComponentMin, another.localComponentMin]).toEqual([
+      2, 4, 2,
+    ]);
+    expect(small.cid.unpack(small.cid.pack(42, 1))).toEqual([42, 1]);
+    expect(large.cid.unpack(large.cid.pack(42, 2))).toEqual([42, 2]);
+    expect(another.cid.pack(42, 1)).toBe(small.cid.pack(42, 1));
   });
 });

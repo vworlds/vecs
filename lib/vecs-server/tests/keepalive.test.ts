@@ -3,7 +3,6 @@ import { performance } from "node:perf_hooks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ALL_COMPONENTS,
-  cid_pack,
   Client2Server,
   RPC,
   Server2Client,
@@ -20,6 +19,12 @@ import {
   View,
   type ServerWorldOptions,
 } from "../src/index.js";
+import { CidLayout } from "@vworlds/vecs-protocol";
+
+const testCid = new CidLayout(2);
+const decodeServer2Client = {
+  wireDecode: (decoder: Decoder) => Server2Client.decodeWith(testCid, decoder),
+};
 
 // The keepalive (`ServerWorldOptions.keepAliveFrames`): a session that holds an acked baseline and
 // has not been sent a frame with a diff for K frames is sent one whose diff is empty, from the base
@@ -131,7 +136,7 @@ function step(rig: Rig): Server2Client[] {
   const before = rig.socket.sent.length;
   rig.world.progress(nowMs, TICK_MS);
   nowMs += TICK_MS;
-  return rig.socket.sent.slice(before).map((bytes) => new Decoder(bytes).read(Server2Client));
+  return rig.socket.sent.slice(before).map((bytes) => new Decoder(bytes).read(decodeServer2Client));
 }
 
 /** Run `count` frames; every frame the server sent is returned, in order. */
@@ -810,7 +815,7 @@ describe("an unset keepAliveFrames", () => {
         hash.update(bytes);
         return;
       }
-      const message = new Decoder(bytes).read(Server2Client);
+      const message = new Decoder(bytes).read(decodeServer2Client);
       const diff = message.diff!;
       // This script emits only diff fields and the optional optimistic marker. Reconstruct
       // the previous layout solely for the fingerprint assertion, never for client decoding.
@@ -824,8 +829,8 @@ describe("an unset keepAliveFrames", () => {
       encoder.write_u32(diff.snapshots.length);
       diff.snapshots.forEach((snapshot) => encoder.write_buffer(snapshot.bytes));
       encoder.write_u32(diff.removed.length + (diff.resets?.length ?? 0));
-      diff.removed.forEach(([eid, wireType]) => encoder.write_u32(cid_pack(eid, wireType)));
-      diff.resets?.forEach(([eid]) => encoder.write_u32(cid_pack(eid, ALL_COMPONENTS)));
+      diff.removed.forEach(([eid, wireType]) => encoder.write_u32(testCid.pack(eid, wireType)));
+      diff.resets?.forEach(([eid]) => encoder.write_u32(testCid.pack(eid, ALL_COMPONENTS)));
       if (message.optimistic) {
         encoder.write_u8(6);
       }
