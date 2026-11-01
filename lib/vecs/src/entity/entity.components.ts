@@ -65,8 +65,8 @@ export class Components extends Relationships {
   }
 
   /**
-   * @internal Apply a `Remove` command: clear the type bit, route exits,
-   * detach the component, and fire `onRemove`.
+   * @internal Apply a `Remove` command: clear the type bit and storage, route
+   * exits with injection access to the removed instance, then fire `onRemove`.
    */
   public _remove(this: Entity, meta: ComponentMeta): void {
     if (this._destroyed) {
@@ -92,14 +92,53 @@ export class Components extends Relationships {
       this._detachRelationship(meta, c as Relationship);
       return;
     }
+    this._detachSlot(meta, c);
+  }
+
+  /** @internal Shared slot teardown; destruction retains storage until all exits are routed. */
+  protected _detachSlot(
+    this: Entity,
+    meta: ComponentMeta,
+    instance: ComponentInstance,
+    keepStorage = false
+  ): void {
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this.componentBitmask.deleteBit(meta.bitPtr);
-    this.world._notifyComponentRemoved(meta.eid, this);
-    this._components.delete(meta.eid);
-    this.world._notifyComponentChanged(meta.eid, this);
+    if (keepStorage) {
+      this.world._notifyComponentRemoved(meta.eid, this);
+    } else {
+      this._components.delete(meta.eid);
+      this._notifySlotRemoved(meta, instance);
+    }
     meta._detachCarrier(this);
-    meta._onPolicyRemove?.(this, c);
-    meta._onRemove?.(this, c);
+    // Destroy deliberately skips policyRemove (e.g. SilenceSource); see RelationshipsModule.
+    if (!keepStorage) {
+      meta._onPolicyRemove?.(this, instance);
+    }
+    meta._onRemove?.(this, instance);
+  }
+
+  /** @internal Skip unobserved removals; otherwise scope injection to this notification. */
+  protected _notifySlotRemoved(
+    this: Entity,
+    meta: ComponentMeta,
+    instance: ComponentInstance
+  ): void {
+    const world = this.world;
+    const componentTerm = world._componentTerms.get(meta.eid);
+    if (componentTerm === undefined && world._worldTerm === undefined) {
+      return;
+    }
+    const previousEntity = world._removedEntity;
+    const previousCeid = world._removedCeid;
+    const previousInstance = world._removedInstance;
+    world._removedEntity = this;
+    world._removedCeid = meta.eid;
+    world._removedInstance = instance;
+    world._notifyComponentRemoved(meta.eid, this, componentTerm ?? null);
+    world._removedEntity = previousEntity;
+    world._removedCeid = previousCeid;
+    world._removedInstance = previousInstance;
   }
 
   /**
@@ -242,6 +281,9 @@ export class Components extends Relationships {
 
   /**
    * Look up a component on this entity as a readonly value.
+   * Component removal clears storage before synchronous `exit` callbacks, so
+   * this returns `undefined` there. Inject the removed component into `exit`
+   * to retain its instance. Destruction retains storage during synchronous teardown.
    *
    * @param typeOrClass - Component class or numeric type id.
    * @returns The component instance, or `undefined` when it is not attached.
@@ -467,7 +509,10 @@ export class Components extends Relationships {
    *
    * In deferred mode the removal is queued; `get(C)` continues to return the
    * component until the queue drains. When applied, queries fire `exit`
-   * callbacks first and the `onRemove` hook fires last.
+   * callbacks after storage is cleared and the `onRemove` hook fires last.
+   * Inject removed components into `exit`; `get(C)` there returns `undefined`.
+   * If a synchronous exit callback throws, the world is left partial; treat
+   * this as a programming error and do not continue using that world.
    *
    * Relationship components take an explicit `target` to remove one edge. The
    * target is resolved eagerly via {@link World.entity}: any
@@ -714,9 +759,8 @@ export class Components extends Relationships {
   ): void {
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this.componentBitmask.deleteBit(meta.bitPtr);
-    this.world._notifyComponentRemoved(meta.eid, this);
     this._components.delete(meta.eid);
-    this.world._notifyComponentChanged(meta.eid, this);
+    this._notifySlotRemoved(meta, relationship);
     meta._detachCarrier(this);
     const targets = relationship._takeTargets();
     for (const target of targets) {

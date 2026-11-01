@@ -275,7 +275,7 @@ function _resolveInjected(
   let outIndex = 0;
   for (const term of inject) {
     if (typeof term === "number") {
-      const c = e._get(term);
+      const c = e._get(term) ?? _removedInjected(e, term);
       if (requireDirectComponents && !c) {
         throw new Error("query does not contain component");
       }
@@ -294,15 +294,19 @@ function _resolveInjected(
       continue;
     }
     if ("targets" in term) {
-      const targets = e.targets(term.targets[0]);
-      out[outIndex] = _resolveTargetsProjection(targets, term.targets[1]);
+      const relationship = (e._get(term.targets[0]) ?? _removedInjected(e, term.targets[0])) as
+        Relationship | undefined;
+      const targetEntities = relationship?._targetArray() ?? [];
+      out[outIndex] = _resolveTargetsProjection(targetEntities, term.targets[1]);
       if (src !== undefined) {
-        src[outIndex] = targets;
+        src[outIndex] = targetEntities;
       }
       outIndex++;
       continue;
     }
-    const targetEntity = e.target(term.target[0]);
+    const relationship = (e._get(term.target[0]) ?? _removedInjected(e, term.target[0])) as
+      Relationship | undefined;
+    const targetEntity = relationship?._target();
     for (const projection of term.target[1]) {
       out[outIndex] = _resolveTargetProjection(targetEntity, projection);
       if (src !== undefined) {
@@ -784,25 +788,34 @@ function _snapshotInjectedRaw(
   let valueIndex = 0;
   for (const term of inject) {
     if (typeof term === "number") {
-      values[valueIndex] = e._get(term);
+      values[valueIndex] = e._get(term) ?? _removedInjected(e, term);
       src[valueIndex] = e;
       valueIndex++;
       continue;
     }
     if ("target" in term) {
-      const target = (e._get(term.target[0]) as Relationship | undefined)?._target();
+      const relationship = (e._get(term.target[0]) ?? _removedInjected(e, term.target[0])) as
+        Relationship | undefined;
+      const target = relationship?._target();
       for (const projection of term.target[1]) {
-        values[valueIndex] = projection === TARGET_ENTITY ? target : target?._get(projection);
+        values[valueIndex] =
+          projection === TARGET_ENTITY
+            ? target
+            : target && (target._get(projection) ?? _removedInjected(target, projection));
         src[valueIndex] = target;
         valueIndex++;
       }
       continue;
     }
     if ("targets" in term) {
-      const targets = (e._get(term.targets[0]) as Relationship | undefined)?._targetArray() ?? [];
+      const relationship = (e._get(term.targets[0]) ?? _removedInjected(e, term.targets[0])) as
+        Relationship | undefined;
+      const targets = relationship?._targetArray() ?? [];
       values[valueIndex] = targets.map((target) =>
         term.targets[1].map((projection) =>
-          projection === TARGET_ENTITY ? target : target._get(projection)
+          projection === TARGET_ENTITY
+            ? target
+            : (target._get(projection) ?? _removedInjected(target, projection))
         )
       );
       src[valueIndex] = targets;
@@ -811,4 +824,12 @@ function _snapshotInjectedRaw(
     }
     throw new Error("down injection is only supported in each/forEach");
   }
+}
+
+/** Resolve only a missing slot; ordinary entity reads never expose this register. */
+function _removedInjected(e: Entity, ceid: EID): ComponentInstance | undefined {
+  const world = e.world;
+  return world._removedEntity === e && world._removedCeid === ceid
+    ? world._removedInstance
+    : undefined;
 }

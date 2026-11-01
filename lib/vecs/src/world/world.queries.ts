@@ -127,9 +127,13 @@ export class Queries extends Storage {
     notifyComponentChanged(this as unknown as World, ceid, entity);
   }
 
-  /** @internal Drive the component leaf for a detached component. */
-  public _notifyComponentRemoved(ceid: EID, entity: Entity): void {
-    notifyComponentRemoved(this as unknown as World, ceid, entity);
+  /** @internal Drive detached-component leaves; `null` is an already-looked-up absent leaf. */
+  public _notifyComponentRemoved(
+    ceid: EID,
+    entity: Entity,
+    componentTerm: ComponentTerm | null = this._componentTerms.get(ceid) ?? null
+  ): void {
+    notifyComponentRemoved(this as unknown as World, ceid, entity, componentTerm);
   }
 
   /** @internal Drive the world leaf for a created entity. */
