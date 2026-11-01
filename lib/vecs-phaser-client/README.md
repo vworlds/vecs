@@ -52,6 +52,84 @@ const catalog = await loadAssets(scene, { host, port, worldName, signal: control
 The `Image` renderer creates textured entities from replicated `Image` components with no
 per-entity client code, like the primitive shape renderers.
 
+## Attaching your own Phaser objects
+
+The sync systems never look for a concrete Phaser class. They query the interface markers
+exported as `markers`, so any Phaser object you attach to an entity is driven by them once its
+class declares which markers it satisfies. Use this when a built-in renderer does not cover
+your object, for example a sprite drawn from a texture the scene paints at runtime, which has
+a string key the asset catalog cannot describe.
+
+`PhaserRenderModule` already declares `Phaser.GameObjects.Sprite`, so a game system only has to
+create the sprite and attach it. Create it in a phase before `ON_STORE` (here `PRE_STORE`): the
+sync systems run in `ON_STORE` and then apply the entity's current `Position`, `Rotation`,
+`Alpha`, `Depth` and `Tint` in the same tick.
+
+```ts
+import { PRE_STORE } from "@vworlds/vecs";
+import { PhaserRenderModule } from "@vworlds/vecs-phaser-client";
+import Phaser from "phaser";
+
+world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64 });
+world.component(Ship);
+
+function shipTexture(accent: number): string {
+  const key = `ship:${accent}`;
+  if (!scene.textures.exists(key)) {
+    const canvas = scene.textures.createCanvas(key, 64, 64)!;
+    paintShip(canvas.getContext(), accent);
+    canvas.refresh();
+  }
+  return key;
+}
+
+world
+  .system("ship.sprite")
+  .with(Ship)
+  .without(Phaser.GameObjects.Sprite)
+  .phase(PRE_STORE)
+  .enter([Ship], (entity, [ship]) => {
+    entity.attach(scene.add.sprite(0, 0, shipTexture(ship.accent)));
+  });
+```
+
+No wrapper component and no per-tick pose system is needed: `phaser.sync.position`,
+`phaser.sync.rotation`, `phaser.sync.alpha`, `phaser.sync.depth` and `phaser.sync.tint` drive the
+attached sprite. Teardown needs no system either: the `GameObject` remove hook destroys the
+sprite when the entity is destroyed or loses the sprite component.
+
+A class `PhaserRenderModule` does not declare, including your own subclass of a Phaser class,
+is a component type of its own and needs its own declaration before you attach it. List only
+the markers whose methods the class has:
+
+```ts
+import { Implements } from "@vworlds/vecs";
+import { markers } from "@vworlds/vecs-phaser-client";
+
+class ThrusterGlow extends Phaser.GameObjects.Sprite {}
+
+world.component(ThrusterGlow).set(Implements, {
+  interfaces: [markers.GameObject, markers.Transform, markers.Alpha, markers.Depth, markers.Tint],
+});
+```
+
+| Marker       | Methods the class needs                  | Driven by                                                                                 |
+| ------------ | ---------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `GameObject` | `destroy`                                | The remove hook that destroys the object                                                  |
+| `Transform`  | `setPosition`, `setRotation`, `setScale` | `phaser.sync.position`, `phaser.sync.rotation`, `phaser.sync.scale`, `phaser.sync.offset` |
+| `Alpha`      | `setAlpha`                               | `phaser.sync.alpha`                                                                       |
+| `Depth`      | `setDepth`                               | `phaser.sync.depth`                                                                       |
+| `Tint`       | `setTint`                                | `phaser.sync.tint`                                                                        |
+| `Size`       | `setSize`                                | `phaser.sync.size`                                                                        |
+| `Fill`       | `setFillStyle`                           | `phaser.sync.fill-style`                                                                  |
+| `Stroke`     | `setStrokeStyle`                         | `phaser.sync.stroke-style`                                                                |
+| `OpenPath`   | `setClosePath`                           | `phaser.sync.open-path`                                                                   |
+| `Texture`    | `setTexture`, `setDisplaySize`           | The `Image` texture and display-size systems (needs the `Image` component)                |
+
+The geometry markers (`Shape`, `Arc`, `Vertices`, `Star`, `Text`) serve the built-in shape and
+text renderers. Each marker's reference comment is in
+[`src/markers.ts`](./src/markers.ts).
+
 ## Display Relationships
 
 `DisplaySetupModule` configures `DrawIn` and `DrawBy` as `Exclusive` relationships, so each has at
