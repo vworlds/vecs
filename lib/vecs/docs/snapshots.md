@@ -151,6 +151,9 @@ failed restore leaves the destination as it was found.
 
 ## Move and rollback
 
+`MoveSubtreeError` is thrown when destination restoration fails after source destruction; it carries
+the original cause and reports whether rollback succeeded.
+
 `moveSubtree` captures and preflights **before** it destroys anything, so a snapshot that cannot be
 restored leaves the source world untouched.
 

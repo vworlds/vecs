@@ -37,6 +37,8 @@ without members or component changes.
 
 ## Measuring systems
 
+`WorldStats` is the exported class that provides `world.stats` system and extension-operation timing.
+
 Enable opt-in synchronous timing for benchmarks, cadence guards, or live diagnostics:
 
 ```ts
