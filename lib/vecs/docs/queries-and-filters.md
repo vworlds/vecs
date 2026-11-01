@@ -108,6 +108,11 @@ projectiles.forEach([Position], (e, [pos]) => { ... });
 projectiles.forEach({ inject: [Position] }, (e, [pos]) => { ... });
 ```
 
+Injected `forEach` reuses its resolved tuple across entities and across calls that pass the same
+callback and the same component elements; read it inside the callback, don't retain it. Passing a
+different callback, or a tuple whose elements differ, builds a fresh one. This applies to queries,
+groups and filters.
+
 The crucial difference from systems: **standalone query callbacks fire synchronously** while the
 world routes a command, not in a phase slot. Mutations made inside one callback are themselves
 observed immediately by other queries. Systems instead queue events into an inbox replayed on
