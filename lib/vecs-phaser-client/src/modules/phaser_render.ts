@@ -77,7 +77,10 @@ export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
     world.component(Phaser.GameObjects.Image).set(Implements, {
       interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Texture, m.Tint],
     });
-    // TODO: when renderers are added for Sprite, TileSprite, Video, Extern,
+    world.component(Phaser.GameObjects.Sprite).set(Implements, {
+      interfaces: [m.GameObject, m.Transform, m.Alpha, m.Depth, m.Texture, m.Tint],
+    });
+    // TODO: when renderers are added for TileSprite, Video, Extern,
     // BitmapText, or Stamp, declare m.Tint on each — Phaser mixes the Tint
     // component into all of them. Primitive shapes (Arc, Ellipse, Rectangle,
     // Triangle, Polygon, Star, Line) do not have setTint and must NOT declare

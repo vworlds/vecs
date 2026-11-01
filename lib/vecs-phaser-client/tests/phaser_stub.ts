@@ -219,6 +219,7 @@ const Image = makeShapeClass("image");
 const Line = makeShapeClass("line");
 const Polygon = makeShapeClass("polygon");
 const Rectangle = makeShapeClass("rectangle");
+const Sprite = makeShapeClass("sprite");
 const Star = makeShapeClass("star");
 const Text = makeShapeClass("text");
 const Triangle = makeShapeClass("triangle");
@@ -232,6 +233,7 @@ export default {
     Line,
     Polygon,
     Rectangle,
+    Sprite,
     Star,
     Text,
     Triangle,

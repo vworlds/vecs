@@ -1,5 +1,6 @@
 export { CoordSpace } from "./coord_space.js";
 export { Catalog, loadAssets } from "./load_assets.js";
+export * as markers from "./markers.js";
 export { DeadReckonedModule, phaserInterpolators, rotationInterpolator } from "./headless.js";
 export { PhaserRenderModule } from "./modules/phaser_render.js";
 export type { DeadReckonedModuleConfig } from "./headless.js";
