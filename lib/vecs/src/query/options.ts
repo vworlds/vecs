@@ -28,6 +28,17 @@ type OnEnterUpdateOption = {
   onEnter?: boolean;
 };
 
+/** `optional` keeps the watch out of the predicate; `onRemove` needs it. */
+type OptionalWatchOption =
+  | {
+      optional?: false;
+      onRemove?: never;
+    }
+  | {
+      optional: true;
+      onRemove?: boolean;
+    };
+
 type RelationshipOption<R extends ComponentRef = ComponentRef> = {
   relationship: R;
 };
@@ -39,6 +50,7 @@ export type FanInjectCallbackOptions<J extends FanInjectTuple> = CursorOption & 
 export type UpdateCallbackOptions<C extends ComponentType, J extends InjectTuple> = CursorOption &
   WatchOption<C> &
   OnEnterUpdateOption &
+  OptionalWatchOption &
   Partial<InjectOption<J>>;
 
 export type OrderByOptions<J extends InjectTuple> = CursorOption & InjectOption<J>;

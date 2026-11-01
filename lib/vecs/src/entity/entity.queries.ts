@@ -1,5 +1,6 @@
 import type { ComponentInstance } from "../component_meta.js";
 import type { Query } from "../query/index.js";
+import type { UpdateWatchers } from "../world/world.queries.js";
 import { Base } from "./entity.base.js";
 import type { EID, Entity } from "./entity.js";
 
@@ -70,5 +71,54 @@ export class Queries extends Base {
       return;
     }
     queries.forEach((q) => q._notifyModified(this, ceid, component));
+  }
+
+  /**
+   * @internal Route the arrival of component `ceid` to member queries that
+   * watch it optionally with `onEnter`. Called before the component leaf
+   * updates membership, so a query this arrival makes the entity enter is
+   * served by its own entry-time dispatch instead.
+   */
+  public _routeArrived(this: Entity, ceid: EID, component: ComponentInstance): void {
+    const watchers = this.world._updateWatchers[ceid];
+    if (watchers === undefined || watchers.arrivals === 0) {
+      return;
+    }
+    this._routePresence(watchers, ceid, component, false);
+  }
+
+  /**
+   * @internal Route the removal of component `ceid` to queries that still hold
+   * this entity and watch it optionally with `onRemove`. Called after the
+   * component is gone, so callbacks observe `has(C) === false`.
+   */
+  public _routeRemoved(this: Entity, ceid: EID, component: ComponentInstance): void {
+    const watchers = this.world._updateWatchers[ceid];
+    if (watchers === undefined || watchers.removals === 0) {
+      return;
+    }
+    this._routePresence(watchers, ceid, component, true);
+  }
+
+  /** Walk the shorter of the watcher list and the membership set, as {@link _routeModified} does. */
+  private _routePresence(
+    this: Entity,
+    watchers: UpdateWatchers,
+    ceid: EID,
+    component: ComponentInstance,
+    removed: boolean
+  ): void {
+    const queries = this._queries;
+    const list = watchers.queries;
+    if (watchers.synchronous === 0 && list.length < queries.size) {
+      for (let i = 0; i < list.length; i++) {
+        const q = list[i];
+        if (queries.has(q)) {
+          q._notifyPresence(this, ceid, component, removed);
+        }
+      }
+      return;
+    }
+    queries.forEach((q) => q._notifyPresence(this, ceid, component, removed));
   }
 }
