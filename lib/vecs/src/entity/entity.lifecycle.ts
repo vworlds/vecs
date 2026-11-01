@@ -55,11 +55,7 @@ export class Lifecycle extends Components {
       let selfCarry = 0;
       if (entityMeta) {
         selfCarry = this._components.has(entityMeta.eid) ? 1 : 0;
-        if (
-          entityMeta.usageCount > selfCarry &&
-          entityMeta.onDelete === CleanupPolicy.Throw &&
-          !this.world._tearingDownInfrastructure
-        ) {
+        if (entityMeta.usageCount > selfCarry && entityMeta.onDelete === CleanupPolicy.Throw) {
           throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
         }
       }
@@ -125,8 +121,7 @@ export class Lifecycle extends Components {
     if (
       entityMeta &&
       entityMeta.onDelete === CleanupPolicy.Throw &&
-      entityMeta.usageCount > (this._components.has(entityMeta.eid) ? 1 : 0) &&
-      !this.world._tearingDownInfrastructure
+      entityMeta.usageCount > (this._components.has(entityMeta.eid) ? 1 : 0)
     ) {
       throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
     }
@@ -142,8 +137,7 @@ export class Lifecycle extends Components {
     if (!carriers || carriers.size <= selfCarry) {
       return;
     }
-    const shouldDelete =
-      entityMeta.onDelete === CleanupPolicy.Delete && !this.world._tearingDownInfrastructure;
+    const shouldDelete = entityMeta.onDelete === CleanupPolicy.Delete;
     // forEachSafe tolerates deletion of the current carrier mid-loop: each
     // `_destroy`/`_remove` below detaches only its own carrier from this meta
     // (via `_detachCarrier`), and any further cascade is buffered onto the
@@ -190,7 +184,7 @@ export class Lifecycle extends Components {
         // `sources` is iterated read-only here; re-entrant _removeIncoming
         // mutates it during the scope flush (after this scan completes), not
         // during this forEach, so no snapshot is needed.
-        if (policy === CleanupPolicy.Delete && !this.world._tearingDownInfrastructure) {
+        if (policy === CleanupPolicy.Delete) {
           scope.push([DeletionOpKind.Destroy, source]);
         } else {
           scope.push([DeletionOpKind.Remove, source, relEntity.meta, this]);

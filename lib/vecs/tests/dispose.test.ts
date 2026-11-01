@@ -46,29 +46,19 @@ function entityIds(world: World): EID[] {
 }
 
 describe("World.dispose", () => {
-  it("does not read teardown state for mutations without cleanup policies", () => {
-    class PlainRelationship extends Relationship {}
+  it("keeps application remove hooks during the infrastructure pass without cascading Delete policies", () => {
+    class Tag {}
     const world = new World();
-    world.component(Handle);
-    world.component(PlainRelationship);
-    const descriptor = Object.getOwnPropertyDescriptor(world, "_tearingDownInfrastructure")!;
-    const read = vi.fn(() => false);
-    Object.defineProperty(world, "_tearingDownInfrastructure", { configurable: true, get: read });
-    try {
-      const source = world.entity().add(Handle);
-      const target = world.entity();
-      source.remove(Handle);
-      source.add(PlainRelationship, target);
-      source.remove(PlainRelationship, target);
-      target.meta.onDelete = CleanupPolicy.Remove;
-      source.add(target);
-      target.destroy(); // Remove, not Delete: strips the carrier without consulting teardown state
-      world.component(Handle).destroy(); // unused Throw-policy key
-      source.destroy();
-      expect(read).not.toHaveBeenCalled();
-    } finally {
-      Object.defineProperty(world, "_tearingDownInfrastructure", descriptor);
-    }
+    world.component(Tag).meta.onDelete = CleanupPolicy.Delete;
+    const removed: EID[] = [];
+    world.component(Tag).on("remove", (entity) => removed.push(entity.eid));
+    const survivor = world.entity().add(Tag);
+    const key = world.component(Tag);
+    // The key's own destruction would cascade-delete its carriers under `Delete`; only the
+    // carrier's own removal may fire the hook, exactly once.
+    world.dispose();
+    expect(removed).toEqual([survivor.eid]);
+    expect(key.meta.onDelete).toBe(CleanupPolicy.Remove);
   });
 
   describe("application entities", () => {
@@ -204,7 +194,6 @@ describe("World.dispose", () => {
         expect(() => world.dispose()).toThrow(
           `Internal invariant: infrastructure teardown made no progress; registered entities: ${broken.eid} (Handle, destroyed=true)`
         );
-        expect(world._tearingDownInfrastructure).toBe(false);
       } finally {
         corrupt.mockRestore();
       }
@@ -218,7 +207,6 @@ describe("World.dispose", () => {
         expect(() => world.dispose()).toThrow(
           `Internal invariant: infrastructure teardown made no progress; registered entities: ${broken.eid} (Handle, destroyed=false)`
         );
-        expect(world._tearingDownInfrastructure).toBe(false);
       } finally {
         noOp.mockRestore();
       }

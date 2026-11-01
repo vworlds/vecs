@@ -98,9 +98,7 @@ export class Components extends Relationships {
     this._components.delete(meta.eid);
     this.world._notifyComponentChanged(meta.eid, this);
     meta._detachCarrier(this);
-    if (meta._onPolicyRemove !== undefined && !this.world._tearingDownInfrastructure) {
-      meta._onPolicyRemove?.(this, c);
-    }
+    meta._onPolicyRemove?.(this, c);
     meta._onRemove?.(this, c);
   }
 
@@ -872,7 +870,7 @@ export class Components extends Relationships {
     target: Entity,
     isCurrent: () => boolean
   ): boolean {
-    if (meta._onTargetPolicyRemove !== undefined && !this.world._tearingDownInfrastructure) {
+    if (meta._onTargetPolicyRemove !== undefined) {
       for (const h of _slotHandlers(meta._onTargetPolicyRemove)) {
         h(this, relationship, target);
         if (!isCurrent()) {
