@@ -1,5 +1,5 @@
 import { CommandKind } from "../command.js";
-import { CleanupPolicy } from "../component_meta.js";
+import { CleanupPolicy, type HookEventMap } from "../component_meta.js";
 import { Component } from "../component.js";
 import { type Entity } from "../entity/index.js";
 import { Phase } from "../modules/pipeline.js";
@@ -131,16 +131,20 @@ export class Disposal extends Transfers {
   }
 
   /**
-   * Strip every entity's key-side trait policy handlers and set its cleanup policies to `Remove`, so
-   * the infrastructure pass neither cascades nor throws. Covers every registered entity, not just class-registered components: named entities can be
-   * component keys too. Public hooks stay. The world is being
-   * destroyed, so the metas are not restored.
+   * Detach every entity's key-side relationship-trait `remove` / `targetRemove` handlers and set
+   * its cleanup policies to `Remove`, so the infrastructure pass neither cascades nor throws.
+   * Covers every registered entity, not just class-registered components: named entities can be
+   * component keys too. Application hooks stay. The world is being destroyed, so the metas are
+   * not restored.
    */
   private _neutraliseCleanup(this: World): void {
     for (const entity of this._entities.values()) {
       const meta = entity.meta;
-      meta._onPolicyRemove = undefined;
-      meta._onTargetPolicyRemove = undefined;
+      for (const [event, handler] of meta._traitHooks ?? []) {
+        if (event === "remove" || event === "targetRemove") {
+          meta.off(event, handler as HookEventMap[typeof event]);
+        }
+      }
       meta.onDelete = CleanupPolicy.Remove;
       meta.onDeleteTarget = CleanupPolicy.Remove;
     }

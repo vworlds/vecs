@@ -228,8 +228,8 @@ world.entity().add(Alignment, weather); // throws: weather is not a child of Ali
 ```
 
 `OneOf` checks `target.parent === parentEntity`, so only a **direct** `ChildOf` edge satisfies
-the constraint — transitive descendants are rejected. The check runs in the relationship's
-`targetPolicyAdd` hook, so in deferred mode an invalid target surfaces from `flush()` /
+the constraint — transitive descendants are rejected. The check runs in a `targetAdd` handler
+the trait registers on the relationship, so in deferred mode an invalid target surfaces from `flush()` /
 `progress()` rather than from the `add` call site. A thrown edge leaves the world partially
 mutated; treat it as a programming error and discard the world (same contract as other
 trait-invariant violations).
@@ -289,8 +289,9 @@ edge is destroyed before the public hook runs on every path. A dying end takes n
 
 Register handlers with `on("targetAdd", handler)` and `on("targetRemove", handler)`; remove them
 with `off(event, handler)`. Multiple handlers may be registered for the same event and fire in
-registration order. Framework traits install separate internal `targetPolicyAdd` /
-`targetPolicyRemove` policies, so adding or removing a trait does not replace these public hooks.
+registration order, after the handlers the built-in traits register. Adding a trait adds its
+handlers ahead of yours rather than replacing them. When a handler removes or replaces the edge it
+was called for, the remaining handlers for that edge are skipped.
 
 ## Owned targets
 

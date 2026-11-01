@@ -193,9 +193,15 @@ world.component(Shield).on("remove", (entity) => {
 ```
 
 Multiple handlers may be registered for the same event: they fire in registration
-order. Call `on(event, handler)` to append, `on(event, handler, true)` to
-prepend, and `off(event, handler)` to remove a handler by reference. All three
-return the component entity for chaining.
+order. Call `on(event, handler)` to append and `off(event, handler)` to remove a handler by
+reference; both return the component entity for chaining. The built-in relationship traits
+(`Exclusive`, `Traversable`, `OwnedTarget`, `With`, `OneOf`) register their handlers in the same
+lists, ahead of yours, so your handlers see the state they establish: a `ChildOf` `targetAdd`
+handler already finds the source's `Traversable` depth updated.
+
+`entity.attach(instance)` that replaces a different stored instance fires only `set` for your
+handlers. The built-in traits' own `remove` and `add` handlers run for the old and new instance
+first, so a trait such as `Traversable` refuses being swapped out.
 
 ## Component traits: policy on component entities
 
@@ -463,12 +469,12 @@ interface markers for polymorphic dispatch — is in the
 A `Component<T>` is an `Entity` subclass, so the full [entity API](./entities.md#reference)
 applies. On top of it:
 
-| Member                        | Description                                                                                                                                                                                                                                                                                                                                 |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `member(name, type)`          | Declare a member for [reflection](./reflection.md) and return the component; `.range` / `.description` / `.unit` / `.values` then apply to it.                                                                                                                                                                                              |
-| `on(event, handler, insert?)` | Register a handler for `add` / `remove` / `set` / `targetAdd` / `targetRemove` / `validate` / `normalize` (plus the internal `policyAdd` / `policyRemove` / `targetPolicyAdd` / `targetPolicyRemove` events). `insert` defaults to `false` (append); `true` prepends. Rejects `target*` events on non-relationships. Returns the component. |
-| `off(event, handler)`         | Remove a previously-registered handler by reference. Idempotent. Returns the component.                                                                                                                                                                                                                                                     |
-| `meta`                        | The `ComponentMeta` bookkeeping record.                                                                                                                                                                                                                                                                                                     |
+| Member                | Description                                                                                                                                                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `member(name, type)`  | Declare a member for [reflection](./reflection.md) and return the component; `.range` / `.description` / `.unit` / `.values` then apply to it.                                                                                   |
+| `on(event, handler)`  | Register a handler for `add` / `remove` / `set` / `targetAdd` / `targetRemove` / `validate` / `normalize`, appended after the handlers already registered. Rejects `target*` events on non-relationships. Returns the component. |
+| `off(event, handler)` | Remove a previously-registered handler by reference. Idempotent. Returns the component.                                                                                                                                          |
+| `meta`                | The `ComponentMeta` bookkeeping record.                                                                                                                                                                                          |
 
 ### `ComponentMeta` (`lib/vecs/src/component_meta.ts`)
 

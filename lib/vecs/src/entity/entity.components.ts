@@ -1,13 +1,15 @@
 import { CommandKind } from "../command.js";
 import {
   ComponentMeta,
-  _slotHandlers,
   type ComponentClass,
   type ComponentInstance,
   type ComponentRef,
   type ComponentType,
   type HookEvent,
   type HookEventMap,
+  type HookHandler,
+  type HookSlot,
+  type TargetHandler,
 } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
 import { Relationships } from "./entity.relationships.js";
@@ -17,7 +19,9 @@ export class Components extends Relationships {
   /**
    * @internal Apply an `Attach` command: store the provided component instance,
    * replacing any previous instance for this type. Events are fired as if the
-   * caller had performed a `set` operation.
+   * caller had performed a `set` operation. Replacing a different instance
+   * first runs the relationship traits' `remove` handlers for the old one and
+   * their `add` handlers for the new one; application handlers see only `set`.
    */
   public _attach(this: Entity, meta: ComponentMeta, component: ComponentInstance): void {
     if (meta._pendingEnsures?.get(this) === component) {
@@ -30,12 +34,13 @@ export class Components extends Relationships {
       throw new Error("Entity.attach cannot attach Relationship components; add explicit targets");
     }
     const existing = this._components.get(meta.eid);
-    if (existing !== undefined && existing !== component) {
-      meta._onPolicyRemove?.(this, existing);
+    const replaces = existing !== undefined && existing !== component;
+    if (replaces) {
+      this._runTraitHooks(meta, "remove", existing);
     }
     this._storeComponent(meta, component, existing === undefined);
-    if (existing !== undefined && existing !== component) {
-      meta._onPolicyAdd?.(this, component);
+    if (replaces) {
+      this._runTraitHooks(meta, "add", component);
     }
     this._notifyComponentSet(meta, component, existing !== undefined);
   }
@@ -98,7 +103,6 @@ export class Components extends Relationships {
     this._components.delete(meta.eid);
     this.world._notifyComponentChanged(meta.eid, this);
     meta._detachCarrier(this);
-    meta._onPolicyRemove?.(this, c);
     meta._onRemove?.(this, c);
   }
 
@@ -574,7 +578,7 @@ export class Components extends Relationships {
    * instance of `meta`'s class, assign `data` onto it, and store it on this
    * entity. Every metadata semantic is applied exactly once, in this order:
    * exclusivity eviction of conflicting components, interface-alias eviction
-   * and storage, the framework `policyAdd` hook, the public `add` hook, and
+   * and storage, the `add` hooks (relationship traits' first), and
    * query-entry notification.
    *
    * This is the single constructor-and-copy implementation in vecs. Ordinary
@@ -819,11 +823,32 @@ export class Components extends Relationships {
       meta._attachCarrier(this);
     }
     if (isAdd && !existing) {
-      meta._onPolicyAdd?.(this, instance);
       meta._onAdd?.(this, instance);
     }
     if (!existing) {
       this.world._notifyComponentAdded(meta.eid, this);
+    }
+  }
+
+  /**
+   * Run the relationship-trait handlers recorded for `event` on `meta`, in the
+   * order the hook list holds them (each trait prepends, so the latest first).
+   */
+  private _runTraitHooks(
+    this: Entity,
+    meta: ComponentMeta,
+    event: "add" | "remove",
+    component: ComponentInstance
+  ): void {
+    const traitHooks = meta._traitHooks;
+    if (traitHooks === undefined) {
+      return;
+    }
+    for (let i = traitHooks.length - 1; i >= 0; i--) {
+      const [e, handler] = traitHooks[i];
+      if (e === event) {
+        (handler as HookHandler)(this, component);
+      }
     }
   }
 
@@ -848,19 +873,7 @@ export class Components extends Relationships {
     target: Entity,
     isCurrent: () => boolean
   ): boolean {
-    // Policy handlers run first; each may mutate the relationship (e.g. an
-    // OwnedTarget policy parents the target). If one makes the edge no longer
-    // current, abort remaining policies and the public hook.
-    if (meta._onTargetPolicyAdd !== undefined) {
-      for (const h of _slotHandlers(meta._onTargetPolicyAdd)) {
-        h(this, relationship, target);
-        if (!isCurrent()) {
-          return false;
-        }
-      }
-    }
-    meta._onTargetAdd?.(this, relationship, target);
-    return isCurrent();
+    return this._runTargetHandlers(meta._onTargetAdd, relationship, target, isCurrent);
   }
 
   private _emitTargetRemove(
@@ -870,16 +883,35 @@ export class Components extends Relationships {
     target: Entity,
     isCurrent: () => boolean
   ): boolean {
-    if (meta._onTargetPolicyRemove !== undefined) {
-      for (const h of _slotHandlers(meta._onTargetPolicyRemove)) {
-        h(this, relationship, target);
-        if (!isCurrent()) {
-          return false;
-        }
+    return this._runTargetHandlers(meta._onTargetRemove, relationship, target, isCurrent);
+  }
+
+  /**
+   * Run a `targetAdd` / `targetRemove` slot handler by handler. Each may mutate
+   * the relationship (e.g. an `OwnedTarget` handler parents the target); once
+   * one makes the edge no longer current, the remaining handlers are skipped.
+   */
+  private _runTargetHandlers(
+    this: Entity,
+    slot: HookSlot<TargetHandler>,
+    relationship: Relationship,
+    target: Entity,
+    isCurrent: () => boolean
+  ): boolean {
+    if (slot === undefined) {
+      return isCurrent();
+    }
+    if (!("handlers" in slot)) {
+      slot(this, relationship, target);
+      return isCurrent();
+    }
+    for (const h of slot.handlers as TargetHandler[]) {
+      h(this, relationship, target);
+      if (!isCurrent()) {
+        return false;
       }
     }
-    meta._onTargetRemove?.(this, relationship, target);
-    return isCurrent();
+    return true;
   }
 
   /**
@@ -887,8 +919,8 @@ export class Components extends Relationships {
    * See {@link ComponentMeta.on} for the event list and semantics. Returns this
    * entity for chaining.
    */
-  public on<E extends HookEvent>(event: E, handler: HookEventMap[E], insert = false): this {
-    this.meta.on(event, handler, insert);
+  public on<E extends HookEvent>(event: E, handler: HookEventMap[E]): this {
+    this.meta.on(event, handler);
     return this;
   }
 

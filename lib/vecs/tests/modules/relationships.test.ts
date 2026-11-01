@@ -70,7 +70,7 @@ describe("RelationshipsModule", () => {
       "Traversable can only be added to a Relationship component"
     );
     // Invariant violations are programming errors: the trait component is stored
-    // before _onPolicyAdd throws, leaving the world partially mutated. Do not
+    // before its trait `add` handler throws, leaving the world partially mutated. Do not
     // assert post-throw state — discard the world instead.
   });
 
@@ -82,7 +82,7 @@ describe("RelationshipsModule", () => {
     const second = new World();
     const traversable = second.component(ParentOf).add(Exclusive).add(Traversable);
     expect(() => traversable.remove(Exclusive)).toThrow(/dependent relationship trait/);
-    // The removal runs before _onPolicyRemove throws, leaving the world without
+    // The removal runs before the trait `remove` handler throws, leaving the world without
     // Exclusive but still carrying the dependent trait. Discard the world.
   });
 
@@ -102,7 +102,7 @@ describe("RelationshipsModule", () => {
     const child = w.entity().add(ParentOf, parent);
 
     // attach-swapping the unique framework trait data instance is irrevocable:
-    // _attach fires _onPolicyRemove on the existing instance before storing
+    // _attach fires `remove` on the existing instance before storing
     // the replacement, so the irrevocability guard throws. The world is left
     // partially mutated and must be discarded — same contract as any other
     // trait-invariant violation.
@@ -128,8 +128,8 @@ describe("RelationshipsModule", () => {
     w.component(Inventory);
     // Trait-invariant violations must surface at flush time, not be silently
     // swallowed by the deferred queue. Previously _validateAdd ran pre-mutation
-    // and never fired for enqueued ops; the checks now live in _onPolicyAdd,
-    // which executes inside the command queue drain.
+    // and never fired for enqueued ops; the checks now live in the trait `add`
+    // handler, which executes inside the command queue drain.
     w.beginDefer();
     expect(() => w.component(Inventory).add(OwnedTarget)).not.toThrow();
     expect(w.component(Inventory).has(OwnedTarget)).toBe(false);
@@ -191,7 +191,7 @@ describe("RelationshipsModule", () => {
       "OwnedTarget cannot be removed once added"
     );
     // The trait component is already detached from the entity map before
-    // _onPolicyRemove throws, leaving the world partially mutated. Discard it.
+    // the trait `remove` handler throws, leaving the world partially mutated. Discard it.
     void relationship;
   });
 
@@ -202,7 +202,7 @@ describe("RelationshipsModule", () => {
     expect(() => relationship.attach(new OwnedTarget())).toThrow(
       "OwnedTarget cannot be removed once added"
     );
-    // _attach fires _onPolicyRemove on the existing instance; same irrevocability
+    // _attach fires `remove` on the existing instance; same irrevocability
     // guard applies. World is unusable; discard it.
     void relationship;
   });
@@ -225,6 +225,37 @@ describe("RelationshipsModule", () => {
     parent.remove(ParentOf);
     expect(depthOf(w, parent)).toBeUndefined();
     expect(depthOf(w, child)).toBe(1);
+  });
+
+  it("runs application targetAdd handlers after the Traversable depth handler", () => {
+    const w = new World();
+    const root = w.entity();
+    const parent = w.entity().add(ChildOf, root);
+    const depths = w.entity(ChildOf).get(Traversable)!.depths;
+    const seen: (number | undefined)[] = [];
+    w.component(ChildOf).on("targetAdd", (source) => {
+      seen.push(depths.get(source));
+    });
+
+    w.entity().add(ChildOf, parent);
+
+    expect(seen).toEqual([2]);
+  });
+
+  it("runs trait handlers before application handlers registered earlier", () => {
+    const w = new World();
+    const seen: (number | undefined)[] = [];
+    const relationship = w
+      .component(ParentOf)
+      .on("targetAdd", (source) => seen.push(depthOf(w, source)))
+      .add(Exclusive)
+      .add(Traversable);
+    const root = w.entity();
+
+    w.entity().add(ParentOf, root);
+
+    expect(seen).toEqual([1]);
+    void relationship;
   });
 
   it("backfills traversable relationships configured after edges exist", () => {
@@ -267,10 +298,9 @@ describe("RelationshipsModule", () => {
     expect(owned.parent).toBe(player);
     expect(depthOf(w, child)).toBe(1);
 
-    // Teardown bypasses _onPolicyRemove (Entity._destroy routes non-relationship
-    // components through the else branch at entity.lifecycle.ts and relationships
-    // through _detachRelationship, neither of which calls _onPolicyRemove), so the
-    // irrevocability guards never fire during world destruction.
+    // Entity._destroy marks the entity destroyed before firing its `remove`
+    // hooks, and the irrevocability guards skip a destroyed carrier, so they
+    // never fire during world destruction.
     expect(() => w.clearAllEntities()).not.toThrow();
 
     // Everything is gone, including the trait-carrying component entities.
@@ -326,8 +356,8 @@ describe("RelationshipsModule", () => {
       const e = w.entity();
 
       e.add(Helmet);
-      // Re-adding a plain component is a set-op: it does not re-fire _onPolicyAdd
-      // (existing=true branch at entity.components.ts:772), so Y is not re-added.
+      // Re-adding a plain component is a set-op: it does not re-fire `add`, so Y
+      // is not re-added.
       expect(() => e.add(Helmet)).not.toThrow();
       expect(e.has(Armor)).toBe(true);
     });
@@ -396,7 +426,7 @@ describe("RelationshipsModule", () => {
       const e = w.entity().add(WornBy, target);
       expect(e.hasTarget(OwnedBy, target)).toBe(true);
 
-      // _detachRelationship fires _onTargetPolicyRemove during teardown, but
+      // _detachRelationship fires `targetRemove` during teardown, but
       // the source is already marked destroyed by then, so the With
       // irrevocability guard skips the throw (matching the teardown contract
       // documented at relationships.ts:40-44).

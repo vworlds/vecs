@@ -154,14 +154,6 @@ export interface HookEventMap {
   validate: ValidateHandler;
   /** Fixes a component in place; run by {@link World.normalize}, never on `set`. */
   normalize: NormalizeHandler;
-  /** @internal Framework policy applied when this component is attached. */
-  policyAdd: HookHandler;
-  /** @internal Framework policy applied when this component is removed. */
-  policyRemove: HookHandler;
-  /** @internal Framework policy applied after a relationship edge is added. Relationship metas only. */
-  targetPolicyAdd: TargetHandler;
-  /** @internal Framework policy applied after a relationship edge is removed. Relationship metas only. */
-  targetPolicyRemove: TargetHandler;
 }
 
 /** Event names accepted by {@link ComponentMeta.on} / {@link ComponentMeta.off}. */
@@ -314,7 +306,7 @@ export class Implements {
  * ```
  *
  * Multiple handlers may be registered for the same event: they fire in
- * registration order (or in reverse registration order when `insert` is `true`).
+ * registration order, after the built-in relationship traits' handlers.
  * Remove a handler with {@link ComponentMeta.off} by the same reference used
  * to register it. Callers rarely need to remove handlers.
  *
@@ -355,11 +347,6 @@ export class ComponentMeta {
   /** @internal Whether this component meta is an abstract/interface alias. */
   public _isInterface = false;
 
-  /** @internal Framework policy applied when this component is attached. */
-  public _onPolicyAdd: HookSlot<HookHandler> = undefined;
-  /** @internal Framework policy applied when this component is removed. */
-  public _onPolicyRemove: HookSlot<HookHandler> = undefined;
-
   /** @internal Component instances created by ensure operations but not yet attached. */
   public _pendingEnsures: WeakMap<Entity, ComponentInstance> | undefined = undefined;
 
@@ -371,10 +358,6 @@ export class ComponentMeta {
   public _onTargetAdd: HookSlot<TargetHandler> = undefined;
   /** @internal Handlers fired after a relationship edge is removed. */
   public _onTargetRemove: HookSlot<TargetHandler> = undefined;
-  /** @internal Framework policy handlers fired after a relationship edge is added. */
-  public _onTargetPolicyAdd: HookSlot<TargetHandler> = undefined;
-  /** @internal Framework policy handlers fired after a relationship edge is removed. */
-  public _onTargetPolicyRemove: HookSlot<TargetHandler> = undefined;
   /** @internal Handlers fired when a component's data is set or modified. */
   public _onSet: HookSlot<HookHandler> = undefined;
   /** @internal `validate` hooks, run in order by `World.validate`. */
@@ -385,6 +368,11 @@ export class ComponentMeta {
   public _validateIsDefault = false;
   /** @internal Whether `_onNormalize` holds only the metadata-derived default. */
   public _normalizeIsDefault = false;
+  /**
+   * @internal Handlers the relationship traits registered with {@link _onTrait},
+   * so `World.dispose` can detach them before tearing down infrastructure.
+   */
+  public _traitHooks: [HookEvent, Function][] | undefined = undefined;
 
   /**
    * @internal Reverse index of entities currently carrying this component eid.
@@ -421,26 +409,35 @@ export class ComponentMeta {
    * Register a handler for a hook event.
    *
    * Multiple handlers may be registered for the same event; they fire in
-   * registration order. Pass `insert: true` to prepend the handler ahead of
-   * any already-registered handlers. Removing a handler is via {@link off} with
-   * the same reference.
+   * registration order, after the handlers of the built-in relationship traits
+   * (`Exclusive`, `Traversable`, `OwnedTarget`, `With`, `OneOf`). Removing a
+   * handler is via {@link off} with the same reference. When a `targetAdd` or
+   * `targetRemove` handler changes the edge it was called for (removes or
+   * replaces it, or removes the relationship), the remaining handlers for that
+   * edge are skipped.
    *
-   * The `targetAdd`, `targetRemove`, `targetPolicyAdd`, and `targetPolicyRemove`
-   * events require this meta to be a relationship; registering one on a
-   * non-relationship meta throws at registration time.
+   * The `targetAdd` and `targetRemove` events require this meta to be a
+   * relationship; registering one on a non-relationship meta throws at
+   * registration time.
    *
    * `validate` and `normalize` hooks run only through {@link World.validate},
    * {@link World.isValid} and {@link World.normalize}, never on `set`. The first
    * one registered replaces the default hook derived from member metadata.
    *
    * @param event - One of `add`, `remove`, `set`, `targetAdd`, `targetRemove`,
-   *   `validate`, `normalize`, `policyAdd`, `policyRemove`, `targetPolicyAdd`,
-   *   `targetPolicyRemove`.
+   *   `validate`, `normalize`.
    * @param handler - Handler whose signature is constrained by `event`.
-   * @param insert - When `true`, prepend the handler; when `false` (default), append.
    * @returns This meta, for chaining.
    */
-  public on<E extends HookEvent>(event: E, handler: HookEventMap[E], insert = false): this {
+  public on<E extends HookEvent>(event: E, handler: HookEventMap[E]): this {
+    return this._on(event, handler, false);
+  }
+
+  /**
+   * @internal {@link on} with a choice of position: `insert` `true` prepends the
+   * handler instead of appending it. {@link _onTrait} uses it.
+   */
+  public _on<E extends HookEvent>(event: E, handler: HookEventMap[E], insert: boolean): this {
     switch (event) {
       case "add":
         this._onAdd = _installHook(this._onAdd, handler as HookHandler, insert);
@@ -472,28 +469,6 @@ export class ComponentMeta {
           this._normalizeIsDefault = false;
         }
         this._onNormalize = _installHook(this._onNormalize, handler as NormalizeHandler, insert);
-        break;
-      case "policyAdd":
-        this._onPolicyAdd = _installHook(this._onPolicyAdd, handler as HookHandler, insert);
-        break;
-      case "policyRemove":
-        this._onPolicyRemove = _installHook(this._onPolicyRemove, handler as HookHandler, insert);
-        break;
-      case "targetPolicyAdd":
-        this._requireRelationship(event);
-        this._onTargetPolicyAdd = _installHook(
-          this._onTargetPolicyAdd,
-          handler as TargetHandler,
-          insert
-        );
-        break;
-      case "targetPolicyRemove":
-        this._requireRelationship(event);
-        this._onTargetPolicyRemove = _installHook(
-          this._onTargetPolicyRemove,
-          handler as TargetHandler,
-          insert
-        );
         break;
       default: {
         const _exhaustive: never = event;
@@ -536,28 +511,21 @@ export class ComponentMeta {
       case "normalize":
         this._onNormalize = _removeHook(this._onNormalize, handler as NormalizeHandler);
         break;
-      case "policyAdd":
-        this._onPolicyAdd = _removeHook(this._onPolicyAdd, handler as HookHandler);
-        break;
-      case "policyRemove":
-        this._onPolicyRemove = _removeHook(this._onPolicyRemove, handler as HookHandler);
-        break;
-      case "targetPolicyAdd":
-        this._requireRelationship(event);
-        this._onTargetPolicyAdd = _removeHook(this._onTargetPolicyAdd, handler as TargetHandler);
-        break;
-      case "targetPolicyRemove":
-        this._requireRelationship(event);
-        this._onTargetPolicyRemove = _removeHook(
-          this._onTargetPolicyRemove,
-          handler as TargetHandler
-        );
-        break;
       default: {
         const _exhaustive: never = event;
         throw new Error(`Unknown hook event: ${String(_exhaustive)}`);
       }
     }
+    return this;
+  }
+
+  /**
+   * @internal Register a relationship-trait handler ahead of the application's
+   * handlers and record it in {@link _traitHooks}.
+   */
+  public _onTrait<E extends HookEvent>(event: E, handler: HookEventMap[E]): this {
+    this._on(event, handler, true);
+    (this._traitHooks ??= []).push([event, handler]);
     return this;
   }
 

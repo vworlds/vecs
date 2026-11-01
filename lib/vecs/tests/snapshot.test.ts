@@ -982,7 +982,7 @@ describe("restoreSubtree", () => {
     const root = w.entity();
     const child = w.entity().add(ChildOf, root).add(PartOf, root);
     const order: string[] = [];
-    other.component(PartOf).on("targetPolicyAdd", (entity, _rel, target) => {
+    other.component(PartOf).on("targetAdd", (entity, _rel, target) => {
       expect(targets(entity, ChildOf)).toHaveLength(1);
       order.push("part");
     });
@@ -1066,7 +1066,7 @@ describe("restoreSubtree", () => {
     const other = makeWorld();
     const root = w.entity().add(Position);
     w.entity().add(ChildOf, root);
-    other.component(ChildOf).on("targetPolicyAdd", () => {
+    other.component(ChildOf).on("targetAdd", () => {
       throw new Error("nope");
     });
 
