@@ -70,6 +70,20 @@ npm run test
 npm run build
 ```
 
+`npm run test` starts Vitest once, with one project per library plus the server app,
+and a shared pool capped at two workers. Set `VITEST_MAX_WORKERS=4` (or another count)
+to override the cap.
+Each project keeps its own source aliases and setup files. Narrow a run with
+`npm run test -w @vworlds/vecs-physics`; direct workspace runs retain Vitest's default
+worker count unless you set `VITEST_MAX_WORKERS`. The empty client app is not a root
+test project; add it when it has tests.
+
+Run `npm run test:tooling` for offline tooling, package consumer/publish checks, and
+process-isolated physics disposal checks. Those child-process checks retain their
+original assertions and timeouts, but are excluded from unit runs. In-process disposal
+checks remain in the unit tier. `npm run test:stress` still runs the separate long-horizon
+correctness cases. `npm run typecheck` includes library tests and the Vitest configs.
+
 Workspace-wide formatting uses Prettier (`npm run format` / `npm run format:check`). Both commands
 exclude `.worktrees/` and `.tmp/` during traversal, so unreadable worker files cannot block checks
 or releases. Run the offline regression with `node --test scripts/tests/format-worktrees.test.mjs`

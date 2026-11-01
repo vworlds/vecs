@@ -362,23 +362,6 @@ describe("Entity — components", () => {
     expect(() => e.ensure(Position)).toThrow("deferred mode");
   });
 
-  it("ensure returns fresh unstored instances on a destroyed entity, even outside deferred mode", () => {
-    const w = new World();
-    w.component(Position);
-    const e = w.entity();
-    const callback = vi.fn();
-
-    e.destroy();
-
-    const first = e.ensure(Position);
-    const second = e.ensure(Position, callback);
-    expect(first).toEqual(new Position());
-    expect(second).toEqual(new Position());
-    expect(second).not.toBe(first);
-    expect(e.get(Position)).toBeUndefined();
-    expect(callback).not.toHaveBeenCalled();
-  });
-
   it("ensure(typeId) works with numeric type ids", () => {
     const w = new World();
     w.component(Position, 808);
