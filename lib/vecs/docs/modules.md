@@ -58,6 +58,39 @@ world.module(RenderModule, { scene });
 For `Module<undefined>` (the default), the config argument is omitted. Keep configs minimal;
 prefer zero-config when a sensible default exists.
 
+## Releasing resources with `dispose`
+
+Override the optional `dispose()` to release what the module holds outside the world, such as a
+DOM or scene listener its `init` registered. `world.dispose()` calls it once for every live module,
+last installed first, after application entities are destroyed and before the infrastructure pass
+destroys component, module, query, system and phase entities
+([Disposing a world](./entities.md#disposing-a-world)). The world, the module's components and its
+singleton data are still usable inside it.
+
+```ts
+export class ResizeModule extends Module<{ target: EventTarget }> {
+  private _release?: () => void;
+
+  public init(cfg: { target: EventTarget }): void {
+    const onResize = (): void => {
+      // ...
+    };
+    cfg.target.addEventListener("resize", onResize);
+    this._release = () => cfg.target.removeEventListener("resize", onResize);
+  }
+
+  public override dispose(): void {
+    this._release?.();
+  }
+}
+```
+
+A resource bound to a component instance still belongs in that component's `remove` hook, which
+also runs when the entity is destroyed before the world is. Use `dispose` for what no entity
+carries, rather than a throwaway entity whose `remove` hook does the release. A module destroyed
+before `world.dispose()` is not called, and an error thrown from `dispose` propagates out of
+`world.dispose()`.
+
 ## Composition and umbrella modules
 
 A module's `init` can register sub-modules with `this.world.module(Sub, subConfig)`. A big feature
@@ -167,6 +200,7 @@ All are exported, so a custom world setup can reuse them.
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
 | `class M extends Module<Config>`                                               | Declare a module; `Config` defaults to `undefined`.                                                 |
 | `init(config)`                                                                 | One-time setup hook; called by the world on first registration.                                     |
+| `dispose()`                                                                    | Optional teardown hook; `world.dispose()` calls it in reverse install order before infrastructure.  |
 | `world.module(M)` / `world.module(M, config)` / `world.module(M, config, eid)` | Register (first call) or retrieve (later calls) the module. Config after first registration throws. |
 | `this.world`                                                                   | Inside `init`: the owning world (a module is an entity).                                            |
 | `world.scope(parent, fn)`                                                      | Parent all synchronous creations in `fn`; existing lookups are unchanged.                           |

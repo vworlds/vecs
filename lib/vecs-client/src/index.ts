@@ -1,6 +1,8 @@
 export { ComponentSnapshot, Diff, DiffBuffer, interpolatePosition } from "./diff_buffer.js";
 export type { ComponentInterpolator } from "./diff_buffer.js";
 export { ClientWorld } from "./client_world.js";
+export { createDgramSocket } from "./dgram_socket.js";
+export type { DgramSocket, DgramSocketOptions } from "./dgram_socket.js";
 export type {
   ClientWorldDisconnectEvent,
   ClientWorldOptions,

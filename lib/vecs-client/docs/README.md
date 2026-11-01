@@ -11,9 +11,9 @@ JSDoc on the source in `lib/vecs-client/src/` — read it in your IDE.
 
 ## Map
 
-| Guide                                | Covers                                                                                                                                            |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [client-world.md](./client-world.md) | `ClientWorld`, `connectDgram`, baselines and `reset`, optimistic frames and the gap report, `renderFrame`, `invoke`/`listen`, `close`, `dispose`. |
+| Guide                                | Covers                                                                                                                                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [client-world.md](./client-world.md) | `ClientWorld`, `connectDgram`, `createDgramSocket`, reusing a world across a switch, baselines and `reset`, optimistic frames and the gap report, `renderFrame`, `invoke`/`listen`, `close`, `dispose`. |
 
 ## See also
 
