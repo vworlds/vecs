@@ -4,7 +4,8 @@ import { type Group, World } from "../../src/index.js";
 describe("ungrouped accessors", () => {
   it.each(["query", "system"] as const)("rejects every group accessor on a plain %s", (kind) => {
     const world = new World();
-    const query = kind === "query" ? world.query("plain") : world.system("plain");
+    const system = kind === "system" ? world.system("plain") : undefined;
+    const query = system ?? world.query("plain");
     const accessors = [
       () => query.group(0),
       () => query.groups(),
@@ -16,8 +17,8 @@ describe("ungrouped accessors", () => {
     for (const access of accessors) {
       expect(access).toThrow("query 'plain' is not grouped");
     }
-    if (kind === "system") {
-      expect(() => query.groupBy([], () => 0)).toThrow(
+    if (system) {
+      expect(() => system.groupBy([], () => 0)).toThrow(
         "System does not support groupBy; use world.query(...).groupBy(...)"
       );
     }
