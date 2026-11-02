@@ -744,17 +744,15 @@ export class Components extends Relationships {
     meta._attachCarrier(this);
   }
 
-  /** Assign relationship data while ignoring all target-storage spellings. */
+  /** Assign relationship data; target storage is symbol-keyed and never among `props`' entries. */
   private _assignRelationshipProps(
     relationship: Relationship,
     props: Partial<ComponentInstance>
   ): boolean {
     let assigned = false;
     for (const [key, value] of Object.entries(props)) {
-      if (key !== "target" && key !== "targets" && key !== "_targets") {
-        (relationship as unknown as Record<string, unknown>)[key] = value;
-        assigned = true;
-      }
+      (relationship as unknown as Record<string, unknown>)[key] = value;
+      assigned = true;
     }
     return assigned;
   }

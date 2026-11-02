@@ -9,53 +9,71 @@ export enum CleanupPolicy {
   Delete = "delete",
 }
 
-/** Base class for relationship components that point at another entity. */
+/**
+ * Slot holding a relationship's targets. A symbol key keeps edge storage out of
+ * `Object.keys`, `Object.entries`, JSON and `structuredClone`, so every reader
+ * that treats the instance as data sees only user fields.
+ */
+const TARGETS = Symbol("targets");
+
+/**
+ * Base class for relationship components that point at another entity.
+ *
+ * Targets are read through `entity.target(Rel)` / `entity.targets(Rel)`; the
+ * instance itself carries only data, so avoid naming a data field `target` or
+ * `targets`.
+ */
 export abstract class Relationship {
-  private _targets: Entity | Entity[] | undefined;
+  /** One target, several, or `null`; assigned in the constructor so every instance has one shape. */
+  private [TARGETS]: Entity | Entity[] | null;
+
+  constructor() {
+    this[TARGETS] = null;
+  }
 
   /** @internal Add an edge without exposing mutable target storage. */
   public _addTarget(target: Entity): void {
-    if (this._targets === undefined) {
-      this._targets = target;
-    } else if (Array.isArray(this._targets)) {
-      this._targets.push(target);
+    if (this[TARGETS] === null) {
+      this[TARGETS] = target;
+    } else if (Array.isArray(this[TARGETS])) {
+      this[TARGETS].push(target);
     } else {
-      this._targets = [this._targets, target];
+      this[TARGETS] = [this[TARGETS], target];
     }
   }
 
   /** @internal Remove an edge and restore the single-target representation when possible. */
   public _removeTarget(target: Entity): boolean {
-    if (this._targets === target) {
-      this._targets = undefined;
+    if (this[TARGETS] === target) {
+      this[TARGETS] = null;
       return true;
     }
-    if (!Array.isArray(this._targets)) {
+    if (!Array.isArray(this[TARGETS])) {
       return false;
     }
-    const index = this._targets.indexOf(target);
+    const index = this[TARGETS].indexOf(target);
     if (index === -1) {
       return false;
     }
-    this._targets.splice(index, 1);
-    if (this._targets.length === 1) {
-      this._targets = this._targets[0];
+    this[TARGETS].splice(index, 1);
+    if (this[TARGETS].length === 1) {
+      this[TARGETS] = this[TARGETS][0];
     }
     return true;
   }
 
   /** @internal Replace the sole target of an exclusive relationship. */
   public _replaceTarget(target: Entity): Entity {
-    const previous = this._targets as Entity;
-    this._targets = target;
+    const previous = this[TARGETS] as Entity;
+    this[TARGETS] = target;
     return previous;
   }
 
   /** @internal Remove and return every target. */
   public _takeTargets(): Entity[] {
-    const targets = this._targets;
-    this._targets = undefined;
-    if (targets === undefined) {
+    const targets = this[TARGETS];
+    this[TARGETS] = null;
+    if (targets === null) {
       return [];
     }
     return Array.isArray(targets) ? targets : [targets];
@@ -63,39 +81,39 @@ export abstract class Relationship {
 
   /** @internal Return the first current target. */
   public _target(): Entity | undefined {
-    return Array.isArray(this._targets) ? this._targets[0] : this._targets;
+    return Array.isArray(this[TARGETS]) ? this[TARGETS][0] : (this[TARGETS] ?? undefined);
   }
 
   /** @internal Return the number of current targets without allocating. */
   public _targetCount(): number {
-    if (this._targets === undefined) {
+    if (this[TARGETS] === null) {
       return 0;
     }
-    return Array.isArray(this._targets) ? this._targets.length : 1;
+    return Array.isArray(this[TARGETS]) ? this[TARGETS].length : 1;
   }
 
   /** @internal Test targets without materializing a public snapshot. */
   public _someTarget(predicate: (target: Entity) => boolean): boolean {
-    if (this._targets === undefined) {
+    if (this[TARGETS] === null) {
       return false;
     }
-    if (!Array.isArray(this._targets)) {
-      return predicate(this._targets);
+    if (!Array.isArray(this[TARGETS])) {
+      return predicate(this[TARGETS]);
     }
-    return this._targets.some(predicate);
+    return this[TARGETS].some(predicate);
   }
 
   /** @internal Test an edge without allocating. */
   public _hasTarget(target: Entity): boolean {
-    return Array.isArray(this._targets) ? this._targets.includes(target) : this._targets === target;
+    return Array.isArray(this[TARGETS]) ? this[TARGETS].includes(target) : this[TARGETS] === target;
   }
 
   /** @internal Return a safe target snapshot. */
   public _targetArray(): Entity[] {
-    if (this._targets === undefined) {
+    if (this[TARGETS] === null) {
       return [];
     }
-    return Array.isArray(this._targets) ? [...this._targets] : [this._targets];
+    return Array.isArray(this[TARGETS]) ? [...this[TARGETS]] : [this[TARGETS]];
   }
 }
 

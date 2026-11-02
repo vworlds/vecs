@@ -147,12 +147,15 @@ source.set(WeightedLink, { weight: 10 });
 ```
 
 For relationships, `set` is **existing-only and data-only**. It updates ordinary fields on an
-attached relationship, but does nothing when the relationship is absent and ignores target-storage
-spellings. Edge changes must use `add` and `remove`; they never fire `onSet`.
+attached relationship, but does nothing when the relationship is absent. Edge changes must use `add`
+and `remove`; they never fire `onSet`. Targets live in a symbol-keyed slot that `Object.keys`, JSON
+and `structuredClone` skip, so `set` props, snapshots and the MCP printout see only data fields. Any
+field name is data, but naming one `target` or `targets` is discouraged because `entity.target(Rel)`
+and `entity.targets(Rel)` already use that vocabulary for edges.
 
 `attach`, `ensure`, and `getMut` reject relationship components because replacing or mutating an
 instance could bypass edge uniqueness, reverse indexes, and cleanup policies. Target storage is
-private: there is no public `target` or `targets` field to assign. The former `ensureTarget` and
+private: there is no target field on the instance to assign. The former `ensureTarget` and
 `onRetarget` APIs have been removed.
 
 `entity.childOf(parent)` is shorthand for `entity.add(ChildOf, parent)`. The `parent` property reads
