@@ -132,23 +132,18 @@ export interface UpdateRegistration {
   callback: ComponentCallback;
   onEnter: boolean;
   onRemove: boolean;
-  optional: boolean;
 }
 
 export function makeUpdateRegistration<C extends ComponentType>(
   world: World,
-  arg0: C | UpdateCallbackOptions<C, InjectTuple>,
+  arg0: UpdateCallbackOptions<C, InjectTuple>,
   arg1: (...args: any[]) => void,
   clock?: InjectClock
 ): UpdateRegistration {
   const normalized = normalizeUpdateCallbackArgs(arg0);
-  const { ComponentClass, components, useIter } = normalized;
-  const { onEnter, onRemove, optional } = normalized;
+  const { ComponentClass, components, onEnter, onRemove, useIter } = normalized;
   const componentEid = world.entity(ComponentClass).eid;
-  if (onRemove && !optional) {
-    throw new Error(`update watch of ${ComponentClass.name}: onRemove requires optional: true`);
-  }
-  const flags = { onEnter, onRemove, optional };
+  const flags = { onEnter, onRemove };
   if (components === undefined) {
     const fn = arg1 as (eOrIt: CursorCallbackArg, c: InstanceType<C>) => void;
     if (useIter) {
@@ -202,31 +197,24 @@ function normalizeInjectCallbackArgs(
 }
 
 function normalizeUpdateCallbackArgs<C extends ComponentType>(
-  arg0: C | UpdateCallbackOptions<C, InjectTuple>
+  arg0: UpdateCallbackOptions<C, InjectTuple>
 ): {
   ComponentClass: C;
   components: readonly InjectElement[] | undefined;
   onEnter: boolean;
   onRemove: boolean;
-  optional: boolean;
   useIter: boolean;
 } {
-  if (isOptionsObject(arg0) && "watch" in arg0) {
-    return {
-      ComponentClass: arg0.watch as C,
-      components: arg0.inject as readonly InjectElement[] | undefined,
-      onEnter: arg0.onEnter === true,
-      onRemove: arg0.onRemove === true,
-      optional: arg0.optional === true,
-      useIter: wantsIter(arg0.cursor),
-    };
+  if (!isOptionsObject(arg0) || !("watch" in arg0)) {
+    throw new Error(
+      "update requires the options form update({ watch: C }, callback); require C with with(C)"
+    );
   }
   return {
-    ComponentClass: arg0 as C,
-    components: undefined,
-    onEnter: false,
-    onRemove: false,
-    optional: false,
-    useIter: false,
+    ComponentClass: arg0.watch as C,
+    components: arg0.inject as readonly InjectElement[] | undefined,
+    onEnter: arg0.onEnter === true,
+    onRemove: arg0.onRemove === true,
+    useIter: wantsIter(arg0.cursor),
   };
 }

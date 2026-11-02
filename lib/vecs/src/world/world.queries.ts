@@ -22,9 +22,9 @@ export interface UpdateWatchers {
   readonly queries: Query[];
   /** How many of {@link queries} run callbacks synchronously, i.e. are not systems. */
   synchronous: number;
-  /** How many of {@link queries} watch the eid optionally with `onEnter`. */
+  /** How many of {@link queries} watch the eid with `onEnter`. */
   arrivals: number;
-  /** How many of {@link queries} watch the eid optionally with `onRemove`. */
+  /** How many of {@link queries} watch the eid with `onRemove`. */
   removals: number;
 }
 
@@ -178,7 +178,7 @@ export class Queries extends Storage {
       if (!q._queuesUpdates) {
         watchers.synchronous++;
       }
-      if (q._onArriveUpdateEids.includes(ceid)) {
+      if (q._onEnterUpdateEids.includes(ceid)) {
         watchers.arrivals++;
       }
       if (q._onRemoveUpdateEids.includes(ceid)) {
@@ -199,7 +199,7 @@ export class Queries extends Storage {
       if (!q._queuesUpdates) {
         watchers!.synchronous--;
       }
-      if (q._onArriveUpdateEids.includes(ceid)) {
+      if (q._onEnterUpdateEids.includes(ceid)) {
         watchers!.arrivals--;
       }
       if (q._onRemoveUpdateEids.includes(ceid)) {

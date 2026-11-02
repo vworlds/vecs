@@ -42,17 +42,23 @@ describe("System introspection", () => {
       .system("reactive")
       .enter(() => {})
       .exit(() => {});
-    const oneWatch = world.system("one watch").update(A, () => {});
+    const oneWatch = world
+      .system("one watch")
+      .with(A)
+      .update({ watch: A }, () => {});
     const twoWatches = world
       .system("two watches")
-      .update(A, () => {})
-      .update(B, () => {});
+      .with(A)
+      .update({ watch: A }, () => {})
+      .with(B)
+      .update({ watch: B }, () => {});
     const mixed = world
       .system("mixed")
       .each([], () => {})
       .run(() => {})
       .enter(() => {})
-      .update(B, () => {})
+      .with(B)
+      .update({ watch: B }, () => {})
       .exit(() => {});
 
     expect(each.callbacks).toEqual(["each"]);

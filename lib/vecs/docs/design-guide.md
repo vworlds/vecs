@@ -290,7 +290,7 @@ world
   .without(/* exclusion spec */)
   .phase(ON_UPDATE)
   .enter(/* … */)
-  .update(C /* … */)
+  .update({ watch: C } /* … */)
   .exit(/* … */);
 ```
 
@@ -299,8 +299,8 @@ world
 `.with(...)` defines who's in the query; `.without(...)` excludes. Specs can be component
 classes or DSL objects (`{ all: [...] }`, `{ any: [...] }`, `{ parent: X }`, `{ target: [Rel, Tag] }`).
 
-> `.with(...)`, `.without(...)`, and `.update(C)` own membership. `.update(C)` watches change events
-> and also requires `C`, so `.with(A).update(C)` matches entities carrying both `A` and `C`.
+> `.with(...)` and `.without(...)` alone own membership; `update` only watches (see
+> [`with` builds membership, `update` watches](#with-builds-membership-update-watches)).
 
 **`.without` is not free.** `.without(X)` is `.with({ not: X })`: a `not` term holds every live
 entity that lacks `X`, a world-sized set, and the query intersects it with its positive terms. The
@@ -324,11 +324,11 @@ Details: [Queries and filters](./queries-and-filters.md#the-cost-of-not-and-with
 - **`enter`** — fires once when an entity _becomes_ a member. Use it for one-time setup
   (create the resource). It fires only when the entity remains a member when the system drains;
   vecs drops a transient entry and its paired exit, so setup code does not need a `destroyed` guard.
-- **`update(C, …)`** — adds `C` to the predicate and fires when watched component `C` is modified.
-  Pass `{ onEnter: true }` when it should also fire on entry for an already-present watched
-  component. Use that to initialize on entry _and_ react to changes; leave it off when a separate
-  `.enter` owns initialization. Pass `{ optional: true }` to watch `C` without requiring it (see
-  [Watching optional components](#watching-optional-components)).
+- **`update({ watch: C }, …)`** — fires when watched component `C` is set or modified on a member.
+  It never changes membership. Pass `{ onEnter: true }` when it should also fire when `C` first
+  becomes visible (entry with `C` present, or `C` added to a member). Use that to initialize on
+  entry _and_ react to changes; leave it off when a separate `.enter` owns initialization. Pass
+  `{ onRemove: true }` to also react when `C` is removed from an entity that stays a member.
 - **`exit`** — fires when an entity stops matching (a component removed, or the entity destroyed).
   Its injected components are read from a **snapshot captured at exit time**, so they're still
   resolvable even though they're being removed. `entity.destroyed` tells you why it exited: `true`
@@ -349,7 +349,7 @@ Choose `onEnter: true` by asking who owns the initial value:
   another component space, a network snapshot, a physics body, or an index/cache. If an entity
   enters with `Position { x: 1, y: 2 }`, a renderer should not stay at its default `(0, 0)` until
   the next position write.
-- Use **plain `update(C, cb)`** for mutation-only callbacks that should react only after the entity
+- Use **plain `update({ watch: C }, cb)`** for mutation-only callbacks that should react only after the entity
   is already live: expensive rebuilds, destructive recreate paths, validation/repair passes, or
   post-construction setters where an `enter` callback already consumed the same component state.
 - Do not duplicate an `.enter(...)` body and an `.update({ onEnter: true })` body that perform the
@@ -365,29 +365,30 @@ Choose `onEnter: true` by asking who owns the initial value:
 .update({ watch: Rotation, onEnter: true, inject: [Transform] }, (_e, r, [obj]) => obj.setRotation(coords.rot(r.angle)));
 ```
 
-### Watching optional components
+### `with` builds membership, `update` watches
 
-§3 tells you to keep components small and optional. Since `update(C)` requires `C`, reacting to
-several optional components used to need one system per component: each was another pipeline
-slot, inbox, membership set on every matched entity and watcher-index entry. Watch them optionally
-instead: `{ watch: C, optional: true }` keeps `C` out of the predicate, so one system holds the
-entities its `.with` describes and reacts to every watched component they carry.
+`.with(...)` decides which entities a system holds; `update({ watch: C })` reacts to `C` on those
+entities and never changes membership. Write `C` in `with` when the system should hold only entities
+that carry it, and leave it out when the system should hold its `with` entities either way and react
+when they happen to carry `C`. A system or query that registers an `update` but has no `with` terms
+throws at build time.
 
-Add `onEnter: true` to react when `C` appears (on entry or later), and `onRemove: true` to react
-when it leaves. The entity stays a member when `C` is removed, and the callback sees
-`entity.has(C) === false`. The full event table is in
-[Systems](./systems.md#optional-watches).
+That split is what lets one system watch several components that are optional, as §3 recommends.
+Add `onEnter: true` to react when `C` appears (on entry or later) and `onRemove: true` to react when
+it leaves. The entity stays a member when `C` is removed, and the callback sees
+`entity.has(C) === false`. When `C` is also in `with`, removing it is an exit instead, and only
+`exit` fires. The full event table is in [Systems](./systems.md#updateoptions-callback).
 
 A game server recomputes a client's interest view when its control, identity or sector transfer
-changes. Each of those components is optional, so the server used one system per component, each
-with `update({ watch, onEnter: true })` and an `exit`:
+changes. Each of those components is optional. While `update(C)` also required `C`, the server
+needed one system per component, each with an `exit` to see the component leave:
 
 ```ts
 // ❌ five systems, five inboxes, five exit callbacks around one function
 for (const watch of [Controls, AuthenticatedPlayer, SectorTransfer, SlotWarned, VisibleTo]) {
   world
     .system(`UpdatePlayerViewsOn${watch.name}`)
-    .with(NetworkClient, View)
+    .with(NetworkClient, View, watch)
     .update({ watch, onEnter: true, inject: [View] }, (e, _c, [view]) => updateClientView(e, view))
     .exit((e) => {
       const view = e.get(View);
@@ -398,12 +399,14 @@ for (const watch of [Controls, AuthenticatedPlayer, SectorTransfer, SlotWarned, 
 // ✅ one system: arrival, change and removal of any watched component
 const views = world.system("UpdatePlayerViews").with(NetworkClient, View);
 for (const watch of [Controls, AuthenticatedPlayer, SectorTransfer, SlotWarned, VisibleTo]) {
-  views.update(
-    { watch, optional: true, onEnter: true, onRemove: true, inject: [View] },
-    (e, _c, [view]) => updateClientView(e, view)
+  views.update({ watch, onEnter: true, onRemove: true, inject: [View] }, (e, _c, [view]) =>
+    updateClientView(e, view)
   );
 }
 ```
+
+Each extra system cost a pipeline slot, an inbox, a membership set on every matched entity and a
+watcher-index entry; the single system pays them once.
 
 ### Injection
 
@@ -492,14 +495,14 @@ For processing-time semantics, cadence accumulation, and callback support, see
   genuinely need a per-frame sweep over all members. An `.each` must justify running every tick: a
   body that returns early for most members is a reactive system or a narrower query in disguise.
 - **Reactive `enter`/`update`/`exit`** fire only on change. For "copy A→B when A changes,"
-  reactive `.update(A)` touches _nothing_ on idle entities, where `.each` would scan them all.
+  reactive `.update({ watch: A })` touches _nothing_ on idle entities, where `.each` would scan them all.
 
 ```ts
 // ❌ scans every body every tick, even if it didn't move
 .with(PhysicsPosition, RenderPosition).each([...], (e, [...]) => { if (changed) e.set(...) });
 
 // ✅ fires only when physics actually moved the body (compare before writing a networked B: see §7)
-.with(PhysicsPosition, RenderPosition).update(PhysicsPosition, (e, p) => e.set(RenderPosition, { x: p.x, y: p.y }));
+.with(PhysicsPosition, RenderPosition).update({ watch: PhysicsPosition }, (e, p) => e.set(RenderPosition, { x: p.x, y: p.y }));
 ```
 
 When the work really is per-tick (a held input, a cooldown, a charge), narrow the query with a tag
@@ -511,7 +514,7 @@ returning early. A reactive `update` on the intent adds and removes the marker:
 .with(Weapon).each([Weapon], (e, [w]) => { if (!e.has(TriggerHeld)) return; /* fire */ });
 
 // ✅ the cadence system matches only entities that are firing right now
-world.system("TriggerIntent").with(Weapon).update(FireIntent, (e, intent) =>
+world.system("TriggerIntent").with(Weapon, FireIntent).update({ watch: FireIntent }, (e, intent) =>
   intent.held ? e.add(Firing) : e.remove(Firing));
 world.system("Fire").with(Weapon, Firing).interval(0.1).each([Weapon], (e, [w]) => { /* fire */ });
 ```
@@ -936,7 +939,7 @@ system after whatever produces the entity/companion.
 | Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, onEnter: true })` when update owns initialization.                                                                           |
 | One system trying to act in two phases                                 | Split into two systems, one per phase.                                                                                                               |
 | Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                        |
-| `.each` scanning every entity to detect change                         | Reactive `.update(C)` — fires only on change.                                                                                                        |
+| `.each` scanning every entity to detect change                         | Reactive `.update({ watch: C })` — fires only on change.                                                                                             |
 | `entity.get(C)` for a component the callback always uses               | Inject it (`inject: [C]`); keep `get` for a component that is conditionally needed and rarely required.                                              |
 | `has`/`set` on first use of state a system maintains                   | Create it with its neutral value (or via `With`); require it in `.with` and inject it ([§4](#maintained-state-exists-from-creation)).                |
 | Treating target storage as component data                              | Use `add(Rel, target)` / `remove(Rel, target)` and read with `target` / `targets` / `hasTarget`; target storage is private.                          |
@@ -949,7 +952,7 @@ system after whatever produces the entity/companion.
 - **A system is in exactly one phase.** Plan splits accordingly.
 - **Structural changes are deferred and flushed _after_ each system** — visible to later systems
   this tick, not to the current system mid-iteration.
-- **`update(C)` is change-only by default.** Add `{ onEnter: true }` for projection/sync callbacks
+- **`update({ watch: C })` is change-only by default.** Add `{ onEnter: true }` for projection/sync callbacks
   that must apply the current watched value on entry; leave it off for mutation-only callbacks or
   when `.enter(...)` already owns initialization.
 - **A write marks the component modified, even with an equal value.** `set`, and an in-place
@@ -963,8 +966,9 @@ system after whatever produces the entity/companion.
   [`getMut` and `ensure`](./entities.md#getmut-and-ensure-mutating-in-place)).
 - **A callback that always uses a component should inject it, not `get` it.** `entity.get(C)` is for
   a component that is conditionally needed and rarely required (see §4).
-- **Membership is fixed by `.with(...)` / `.without(...)` / `.update(C)`;** `update(C)` watches `C`
-  and requires it.
+- **Membership is fixed by `.with(...)` / `.without(...)` alone;** `update({ watch: C })` watches
+  `C` and never requires it. Add `C` to `with` when the system should hold only entities that carry
+  it.
 - **A system's `enter` reaches only entities still in its query when the system drains.** One that
   left or died first gets neither `enter` nor the paired `exit`, and one that leaves and re-enters
   within a drain gets `enter`, `exit`, `enter`, so keep `enter` setup and `exit` teardown symmetric

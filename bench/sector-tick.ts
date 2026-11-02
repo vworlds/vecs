@@ -773,7 +773,7 @@ function installGameplay(sector: Sector): void {
     .system("game:PlayerInput")
     .with(NetworkClient, NetworkInput)
     .phase(PRE_UPDATE)
-    .update(NetworkInput, (entity, networkInput) => {
+    .update({ watch: NetworkInput }, (entity, networkInput) => {
       trace(CB.playerInput, entity.eid);
       const ship = entity.target(Controls);
       const bits = networkInput.input as number;
@@ -890,7 +890,7 @@ function installGameplay(sector: Sector): void {
     .system("game:HealthBars")
     .with(Health)
     .phase(POST_UPDATE)
-    .update(Health, (entity, health) => {
+    .update({ watch: Health }, (entity, health) => {
       trace(CB.healthBar, entity.eid);
       for (const child of entity.children(DrawBy)) {
         child.set(ProgressBar, { value: health.hp / 100 });
@@ -920,7 +920,7 @@ function installInterestGrid(sector: Sector): void {
         assignCell(entity, position);
       }
     })
-    .update(Position, (entity, position) => {
+    .update({ watch: Position }, (entity, position) => {
       trace(CB.cellUpdate, entity.eid);
       assignCell(entity, position);
     });
@@ -945,7 +945,7 @@ function installInterestGrid(sector: Sector): void {
 
   world
     .system("grid:AssignDisplayChildCells")
-    .with(Networked)
+    .with(Networked, DrawBy)
     .phase(PRE_STORE)
     .update({ watch: DrawBy, onEnter: true }, (entity) => {
       trace(CB.displayChildCell, entity.eid);

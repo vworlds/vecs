@@ -75,7 +75,7 @@ export class Queries extends Base {
 
   /**
    * @internal Route the arrival of component `ceid` to member queries that
-   * watch it optionally with `onEnter`. Called before the component leaf
+   * watch it with `onEnter`. Called before the component leaf
    * updates membership, so a query this arrival makes the entity enter is
    * served by its own entry-time dispatch instead.
    */
@@ -89,7 +89,7 @@ export class Queries extends Base {
 
   /**
    * @internal Route the removal of component `ceid` to queries that still hold
-   * this entity and watch it optionally with `onRemove`. Called after the
+   * this entity and watch it with `onRemove`. Called after the
    * component is gone, so callbacks observe `has(C) === false`.
    */
   public _routeRemoved(this: Entity, ceid: EID, component: ComponentInstance): void {

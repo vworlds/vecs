@@ -40,7 +40,7 @@ function recorder() {
   return { calls, record };
 }
 
-describe("update({ watch, optional }) — System", () => {
+describe("update({ watch }) without with(watch) — System", () => {
   it("does not require the watched component for membership", () => {
     const { w, tick } = setup();
     const enter = vi.fn();
@@ -48,7 +48,7 @@ describe("update({ watch, optional }) — System", () => {
     const sys = w
       .system("views")
       .with(Client)
-      .update({ watch: Controls, optional: true }, () => {})
+      .update({ watch: Controls }, () => {})
       .enter(enter)
       .exit(exit);
 
@@ -66,7 +66,7 @@ describe("update({ watch, optional }) — System", () => {
   it("routes changes of the watched component on a member", () => {
     const { w, tick } = setup();
     const { calls, record } = recorder();
-    w.system("views").with(Client).update({ watch: Controls, optional: true }, record);
+    w.system("views").with(Client).update({ watch: Controls }, record);
 
     const e = w.entity().add(Client).set(Controls, { ship: 1 });
     tick();
@@ -81,10 +81,8 @@ describe("update({ watch, optional }) — System", () => {
     const { w, tick } = setup();
     const withEnter = recorder();
     const without = recorder();
-    w.system("enter")
-      .with(Client)
-      .update({ watch: Controls, optional: true, onEnter: true }, withEnter.record);
-    w.system("plain").with(Client).update({ watch: Controls, optional: true }, without.record);
+    w.system("enter").with(Client).update({ watch: Controls, onEnter: true }, withEnter.record);
+    w.system("plain").with(Client).update({ watch: Controls }, without.record);
 
     const e = w.entity().add(Client);
     tick();
@@ -107,9 +105,7 @@ describe("update({ watch, optional }) — System", () => {
   it("fires onEnter at entry only when the watched component is present", () => {
     const { w, tick } = setup();
     const { calls, record } = recorder();
-    w.system("views")
-      .with(Client)
-      .update({ watch: Controls, optional: true, onEnter: true }, record);
+    w.system("views").with(Client).update({ watch: Controls, onEnter: true }, record);
 
     w.entity().add(Client);
     w.entity().add(Client).set(Controls, { ship: 5 });
@@ -120,9 +116,7 @@ describe("update({ watch, optional }) — System", () => {
   it("dispatches once when the entity and its watched component arrive together", () => {
     const { w, tick } = setup();
     const { calls, record } = recorder();
-    w.system("views")
-      .with(Client)
-      .update({ watch: Controls, optional: true, onEnter: true }, record);
+    w.system("views").with(Client).update({ watch: Controls, onEnter: true }, record);
 
     w.entity().set(Controls, { ship: 6 }).add(Client);
     w.entity().add(Client).set(Controls, { ship: 7 });
@@ -140,7 +134,7 @@ describe("update({ watch, optional }) — System", () => {
     const sys = w
       .system("views")
       .with(Client)
-      .update({ watch: Controls, optional: true, onRemove: true }, record)
+      .update({ watch: Controls, onRemove: true }, record)
       .exit(exit);
 
     const e = w.entity().add(Client).set(Controls, { ship: 8 });
@@ -159,7 +153,7 @@ describe("update({ watch, optional }) — System", () => {
     const sys = w
       .system("views")
       .with(Client)
-      .update({ watch: Controls, optional: true, onEnter: true }, record)
+      .update({ watch: Controls, onEnter: true }, record)
       .exit(exit);
 
     const e = w.entity().add(Client).set(Controls, { ship: 9 });
@@ -176,10 +170,7 @@ describe("update({ watch, optional }) — System", () => {
     const { w, tick } = setup();
     const { calls, record } = recorder();
     const exit = vi.fn();
-    w.system("views")
-      .with(Client)
-      .update({ watch: Controls, optional: true, onRemove: true }, record)
-      .exit(exit);
+    w.system("views").with(Client).update({ watch: Controls, onRemove: true }, record).exit(exit);
 
     const e = w.entity().add(Client).set(Controls, { ship: 10 });
     tick();
@@ -196,8 +187,8 @@ describe("update({ watch, optional }) — System", () => {
       views.push(`${label}:${e.has(Controls)}:${e.has(Transfer)}`);
     w.system("UpdatePlayerViews")
       .with(Client, View)
-      .update({ watch: Controls, optional: true, onEnter: true, onRemove: true }, recompute("c"))
-      .update({ watch: Transfer, optional: true, onEnter: true, onRemove: true }, recompute("t"));
+      .update({ watch: Controls, onEnter: true, onRemove: true }, recompute("c"))
+      .update({ watch: Transfer, onEnter: true, onRemove: true }, recompute("t"));
 
     const e = w.entity().add(Client).add(View);
     tick();
@@ -218,7 +209,7 @@ describe("update({ watch, optional }) — System", () => {
     w.system("views")
       .with(Client)
       .ignoreSource([Physics])
-      .update({ watch: Controls, optional: true, onEnter: true, onRemove: true }, record);
+      .update({ watch: Controls, onEnter: true, onRemove: true }, record);
     const e = w.entity().add(Client);
     let step = 0;
     const writer = w.system("writer").run(() => {
@@ -245,12 +236,12 @@ describe("update({ watch, optional }) — System", () => {
     expect(calls).toEqual([["controls", true, 3]]);
   });
 
-  it("reports the optional watch in watched without changing the predicate", () => {
+  it("reports a watch outside the predicate in watched without changing membership", () => {
     const { w, tick } = setup();
     const sys = w
       .system("views")
       .with(Client)
-      .update({ watch: Controls, optional: true }, () => {});
+      .update({ watch: Controls }, () => {});
     expect(sys.watched).toEqual([Controls]);
     const e = w.entity().add(Client);
     tick();
@@ -258,14 +249,14 @@ describe("update({ watch, optional }) — System", () => {
   });
 });
 
-describe("update({ watch, optional }) — Query", () => {
+describe("update({ watch }) without with(watch) — Query", () => {
   it("routes arrival, change and removal synchronously on a standalone query", () => {
     const { w } = setup();
     const { calls, record } = recorder();
     const q = w
       .query("views")
       .with(Client)
-      .update({ watch: Controls, optional: true, onEnter: true, onRemove: true }, record)
+      .update({ watch: Controls, onEnter: true, onRemove: true }, record)
       .build();
 
     const e = w.entity().add(Client);
@@ -290,7 +281,7 @@ describe("update({ watch, optional }) — Query", () => {
   it("without flags, routes only changes and keeps membership", () => {
     const { w } = setup();
     const { calls, record } = recorder();
-    const q = w.query("views").with(Client).update({ watch: Controls, optional: true }, record);
+    const q = w.query("views").with(Client).update({ watch: Controls }, record);
     q.build();
 
     const e = w.entity().add(Client);
@@ -305,20 +296,12 @@ describe("update({ watch, optional }) — Query", () => {
     expect(q.has(e)).toBe(true);
   });
 
-  it("rejects onRemove without optional", () => {
-    const { w } = setup();
-    // @ts-expect-error onRemove is only accepted on an optional watch.
-    expect(() => w.query("views").update({ watch: Controls, onRemove: true }, () => {})).toThrow(
-      "update watch of Controls: onRemove requires optional: true"
-    );
-  });
-
   it("keeps the query type and the callback's component non-optional", () => {
     const { w } = setup();
     const q = w
       .query("views")
       .with(Client)
-      .update({ watch: Controls, optional: true, inject: [Client] }, (_e, c, [client]) => {
+      .update({ watch: Controls, inject: [Client] }, (_e, c, [client]) => {
         assertType<IsEqual<typeof c, Controls>>();
         assertType<IsEqual<typeof client, Client>>();
       });
@@ -327,10 +310,72 @@ describe("update({ watch, optional }) — Query", () => {
     const sys = w
       .system("views")
       .with(Client)
-      .update({ watch: Controls, optional: true, onRemove: true }, (_e, c) => {
+      .update({ watch: Controls, onRemove: true }, (_e, c) => {
         assertType<IsEqual<typeof c, Controls>>();
       });
     assertType<IsEqual<typeof sys, System<[typeof Client]>>>();
     expect(sys.watched).toEqual([Controls]);
+  });
+});
+
+describe("update({ watch }) — membership comes from with", () => {
+  it("throws at build when a system or query registers update without with terms", () => {
+    const { w } = setup();
+    const sys = w.system("watch-only").update({ watch: Controls }, () => {});
+    expect(() => sys.build()).toThrow(
+      "query 'watch-only' registers update callbacks but has no with(...) terms; " +
+        "update only watches, so add with(...) to say which entities it matches"
+    );
+    const q = w.query("watch-only-query").update({ watch: Controls }, () => {});
+    expect(() => q.build()).toThrow("query 'watch-only-query' registers update callbacks");
+  });
+
+  it("rejects the removed update(C, cb) shorthand at runtime", () => {
+    const { w } = setup();
+    const query = w.query("views").with(Client);
+    // @ts-expect-error update only accepts the options form.
+    expect(() => query.update(Controls, () => {})).toThrow(
+      "update requires the options form update({ watch: C }, callback); require C with with(C)"
+    );
+  });
+
+  it("onRemove on a watch that is also in with: removal exits, only exit fires", () => {
+    const { w, tick } = setup();
+    const { calls, record } = recorder();
+    const exit = vi.fn();
+    const sys = w
+      .system("views")
+      .with(Client, Controls)
+      .update({ watch: Controls, onRemove: true }, record)
+      .exit(exit);
+    const queryCalls = recorder();
+    const queryExit = vi.fn();
+    w.query("views-query")
+      .with(Client, Controls)
+      .update({ watch: Controls, onRemove: true }, queryCalls.record)
+      .exit(queryExit)
+      .build();
+
+    const e = w.entity().add(Client).set(Controls, { ship: 1 });
+    tick();
+    e.remove(Controls);
+    tick();
+    expect(sys.belongs(e)).toBe(false);
+    expect(exit).toHaveBeenCalledWith(e);
+    expect(calls).toEqual([]);
+    expect(queryExit).toHaveBeenCalledWith(e);
+    expect(queryCalls.calls).toEqual([]);
+  });
+
+  it("onEnter on a watch that is also in with fires once when the add makes the entity enter", () => {
+    const { w, tick } = setup();
+    const { calls, record } = recorder();
+    w.system("views").with(Client, Controls).update({ watch: Controls, onEnter: true }, record);
+
+    const e = w.entity().add(Client);
+    tick();
+    e.set(Controls, { ship: 2 });
+    tick();
+    expect(calls).toEqual([["controls", true, 2]]);
   });
 });

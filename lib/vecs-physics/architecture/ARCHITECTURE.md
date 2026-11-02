@@ -411,7 +411,7 @@ Query: `Body`.
 
 - `.enter` — read `Body`, `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity`, optional tunables. Fill a `b2DefaultBodyDef()`. Call `b2CreateBody(worldId, def)`. Store the `b2BodyId` on `Body._bodyId`, register `engine.entityByBodyIndex.set(bodyId.index1, entity.eid)`, and store the entity in `engine.bodyEntities[bodyId.index1]`. Clear both reverse slots in cleanup before Box2D can reuse the index.
 - `PhysicsBodyTeardown` query `.exit` — immediately queue the injected body's handle and clear `Body._bodyId`. The reaper destroys it after shapes and chains and clears its reverse-index slot before Box2D can reuse it.
-- `.update(Body, …)` — `type` change → `b2Body_SetType`; `enabled` → `b2Body_Enable` / `Disable`; `bullet` → `b2Body_SetBullet`. `allowFastRotation` remains create-time only in vecs-physics.
+- `.update({ watch: Body }, …)` — `type` change → `b2Body_SetType`; `enabled` → `b2Body_Enable` / `Disable`; `bullet` → `b2Body_SetBullet`. `allowFastRotation` remains create-time only in vecs-physics.
 
 ### `PhysicsShapeLifecycle` (`physics-pre`)
 
@@ -419,8 +419,8 @@ Query: `{ all: [SingleShape, { parent: Body }] }`. `Box`, `Circle`, `Capsule`, `
 
 - `.enter` — resolve parent body from the injected parent `Body._bodyId`. Build a `b2ShapeDef` from `Material` / `CollisionFilter` / `Sensor` / event opt-in flags / `ShapePosition` / `ShapeRotation`. Dispatch by geometry type (table below). Store the `b2ShapeId` on `SingleShape._shapeId` and register `engine.entityByShapeIndex.set(shapeId.index1, entity.eid)`.
 - `PhysicsShapeTeardown` query `.exit` — immediately injects `[SingleShape, { target: [ChildOf, Entity] }]`, queues the shape handle, and marks parent mass dirty. The reaper clears the reverse-index slot and destroys the shape in cleanup.
-- `.update(SingleShape, …)` — destroy + recreate the shape, except `Capsule`/`Segment` updates with degenerate (near-zero-length) endpoints are ignored, preserving the existing valid shape (Box2D parity).
-- `.update(ChildOf, …)` — reparenting between bodies = destroy under old parent, recreate under new.
+- `.update({ watch: SingleShape }, …)` — destroy + recreate the shape, except `Capsule`/`Segment` updates with degenerate (near-zero-length) endpoints are ignored, preserving the existing valid shape (Box2D parity).
+- `.update({ watch: ChildOf }, …)` — reparenting between bodies = destroy under old parent, recreate under new.
 
 | Geometry      | Call                                                                                  |
 | ------------- | ------------------------------------------------------------------------------------- |
@@ -436,15 +436,15 @@ Query: `{ all: [Chain, { parent: Body }] }`. Chain lifecycle is split from singl
 
 - `.enter` — resolve parent body, build a `b2ChainDef` from filter/material/sensor-event opt-in, transform each `Chain.points` entry by `ShapePosition` and `ShapeRotation`, call `b2CreateChain`, store `Chain._chainId`, then call `b2Chain_GetSegments` and register each returned segment `index1` in `engine.entityByShapeIndex` pointing to the chain entity.
 - `PhysicsChainTeardown` query `.exit` — immediately injects `[Chain, { target: [ChildOf, Entity] }]`, clears every registered segment index, queues the chain for cleanup, and clears `_chainId` on the live component if present.
-- `.update(Chain, …)` and `.update(ChildOf, …)` — destroy + recreate the chain.
+- `.update({ watch: Chain }, …)` and `.update({ watch: ChildOf }, …)` — destroy + recreate the chain.
 
 Chains participate in sensor events only. `b2ChainDef` exposes `enableSensorEvents` but not contact or hit event flags, so `ContactEvents`/`HitEvents` runtime toggles intentionally ignore chains. Sensor opt-in changes recreate the chain because Box2D has no per-chain runtime sensor-event setter.
 
 ### `PhysicsMaterialFilterSync` (`physics-pre`)
 
-- Single-shape `.update(Material, …)` → `b2Shape_SetDensity(id, d, true)`, `b2Shape_SetFriction`, `b2Shape_SetRestitution`. Changes to `rollingResistance`, `tangentSpeed`, or `userMaterialId` retain the shape-recreation path.
-- Single-shape `.update(CollisionFilter, …)` → build a `b2Filter` (32-bit fields widen to Box2D's 64-bit by zero-padding upper bits) and call `b2Shape_SetFilter`.
-- Single-shape `.update(Sensor, …)` — destroy + recreate the shape with `def.isSensor = true/false`. (Runtime solid↔sensor toggle has no in-place Box2D setter; recreate is the v1 path.)
+- Single-shape `.update({ watch: Material }, …)` → `b2Shape_SetDensity(id, d, true)`, `b2Shape_SetFriction`, `b2Shape_SetRestitution`. Changes to `rollingResistance`, `tangentSpeed`, or `userMaterialId` retain the shape-recreation path.
+- Single-shape `.update({ watch: CollisionFilter }, …)` → build a `b2Filter` (32-bit fields widen to Box2D's 64-bit by zero-padding upper bits) and call `b2Shape_SetFilter`.
+- Single-shape `.update({ watch: Sensor }, …)` — destroy + recreate the shape with `def.isSensor = true/false`. (Runtime solid↔sensor toggle has no in-place Box2D setter; recreate is the v1 path.)
 - Chain `Material`, `CollisionFilter`, and `Sensor` updates recreate the chain because Box2D does not expose in-place setters for chain material/filter/sensor state.
 
 ### `PhysicsEventOptInSync` (`physics-pre`)
@@ -455,16 +455,16 @@ Chains are excluded from those b2Shape setters. When `SensorEvents` or `Detectab
 
 ### `PhysicsShapePoseSync` (`physics-pre`)
 
-`.update(ShapePosition / ShapeRotation, …)` — destroy + recreate the single shape or chain under the body with the new local pose. Chains transform every point by the local pose before `b2CreateChain`. box2d3-wasm shapes do not expose a runtime local-pose setter; recreate is the cheap path.
+`.update({ watch: ShapePosition / ShapeRotation }, …)` — destroy + recreate the single shape or chain under the body with the new local pose. Chains transform every point by the local pose before `b2CreateChain`. box2d3-wasm shapes do not expose a runtime local-pose setter; recreate is the cheap path.
 
 ### `PhysicsPoseSyncIn` (`physics-pre`)
 
 Treats user pose/velocity writes as teleports. Engine write-backs (from `PhysicsPoseSyncOut`, a tagged physics system) are filtered out by `ignoreSource([PhysicsSystemTag])`.
 
-- `.update(Position, …)` → `_b2x_Body_SetPosition(index1, rev, x, y)` (preserves current rotation)
-- `.update(Rotation, …)` → `_b2x_Body_SetAngle(index1, rev, angle)` (preserves current position, uses `b2MakeRot`)
-- `.update(LinearVelocity, …)` → `_b2x_Body_SetLinearVelocity(index1, rev, x, y)`
-- `.update(AngularVelocity, …)` → `_b2x_Body_SetAngularVelocity(index1, rev, value)`
+- `.update({ watch: Position }, …)` → `_b2x_Body_SetPosition(index1, rev, x, y)` (preserves current rotation)
+- `.update({ watch: Rotation }, …)` → `_b2x_Body_SetAngle(index1, rev, angle)` (preserves current position, uses `b2MakeRot`)
+- `.update({ watch: LinearVelocity }, …)` → `_b2x_Body_SetLinearVelocity(index1, rev, x, y)`
+- `.update({ watch: AngularVelocity }, …)` → `_b2x_Body_SetAngularVelocity(index1, rev, value)`
 
 Entry-time initialization is **not** silenced, so a body still initializes through a tagged source. Confirmed in `tests/lifecycle/ignore_source.test.ts`.
 
@@ -572,7 +572,7 @@ For every entity in `engine.impulseEntitiesThisStep`, directly zero `Impulse.x/y
 
 - **Add geometry under a `Body`-parent**: `world.entity().add(ChildOf, body).set(Box, {…})` → `.enter` → `b2CreateXxxShape`. If the parent lacks `Body`, the query does not match and nothing is created; debug reports `shape-without-parent-body`.
 - **Change geometry component**: same component with props changed → in-place setter where box2d3-wasm exposes one (filter, density, friction, restitution), otherwise destroy + recreate (dimensions, local pose). Geometry type swap (Box → Circle) → exclusivity removes the old (`.exit` destroys), adds the new (`.enter` creates).
-- **Remove / reparent**: `.exit` destroys; `.update(ChildOf, …)` reparents by destroy + recreate under the new body.
+- **Remove / reparent**: `.exit` destroys; `.update({ watch: ChildOf }, …)` reparents by destroy + recreate under the new body.
 - **Chains**: `Chain` produces a `b2ChainId` representing N internal segments. The chain handle lives on `Chain._chainId`, and each segment `index1` is stored in `Chain._segmentIndices` and registered in `engine.entityByShapeIndex` for sensor-event resolution.
 
 ## Force, torque, impulse handling
