@@ -45,12 +45,9 @@ export class JointFeaturesModule extends Module {
       .with(JointMotor, jointWithBothBodies)
       .phase(phase);
     motor.entity.add(PhysicsSystemTag);
-    motor.update(
-      { watch: JointMotor, optional: false, onEnter: true, inject: [Joint] },
-      (_e, value, [joint]) => {
-        withLiveJoint(engine, joint, (id) => applyMotor(engine.box2d, joint, id, value));
-      }
-    );
+    motor.update({ watch: JointMotor, onEnter: true, inject: [Joint] }, (_e, value, [joint]) => {
+      withLiveJoint(engine, joint, (id) => applyMotor(engine.box2d, joint, id, value));
+    });
     motor.exit([JointMotor, Joint], (_e, [, joint]) => {
       withLiveJoint(engine, joint, (id) => disableMotor(engine.box2d, joint, id));
     });
@@ -60,12 +57,9 @@ export class JointFeaturesModule extends Module {
       .with(JointLimit, jointWithBothBodies)
       .phase(phase);
     limit.entity.add(PhysicsSystemTag);
-    limit.update(
-      { watch: JointLimit, optional: false, onEnter: true, inject: [Joint] },
-      (_e, value, [joint]) => {
-        withLiveJoint(engine, joint, (id) => applyLimit(engine.box2d, joint, id, value));
-      }
-    );
+    limit.update({ watch: JointLimit, onEnter: true, inject: [Joint] }, (_e, value, [joint]) => {
+      withLiveJoint(engine, joint, (id) => applyLimit(engine.box2d, joint, id, value));
+    });
     limit.exit([JointLimit, Joint], (_e, [, joint]) => {
       withLiveJoint(engine, joint, (id) => disableLimit(engine.box2d, joint, id));
     });
@@ -76,7 +70,7 @@ export class JointFeaturesModule extends Module {
       .phase(phase);
     linear.entity.add(PhysicsSystemTag);
     linear.update(
-      { watch: JointLinearSpring, optional: false, onEnter: true, inject: [Joint] },
+      { watch: JointLinearSpring, onEnter: true, inject: [Joint] },
       (_e, value, [joint]) => {
         withLiveJoint(engine, joint, (id) => applyLinearSpring(engine.box2d, joint, id, value));
       }
@@ -91,7 +85,7 @@ export class JointFeaturesModule extends Module {
       .phase(phase);
     angular.entity.add(PhysicsSystemTag);
     angular.update(
-      { watch: JointAngularSpring, optional: false, onEnter: true, inject: [Joint] },
+      { watch: JointAngularSpring, onEnter: true, inject: [Joint] },
       (_e, value, [joint]) => {
         withLiveJoint(engine, joint, (id) => applyAngularSpring(engine.box2d, joint, id, value));
       }

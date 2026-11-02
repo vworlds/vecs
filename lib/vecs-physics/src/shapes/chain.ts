@@ -36,7 +36,7 @@ export class ChainLifecycleModule extends Module {
         }
       )
       .update(
-        { watch: Chain, optional: false, cursor: Iter, inject: [{ target: [ChildOf, [Body]] }] },
+        { watch: Chain, cursor: Iter, inject: [{ target: [ChildOf, [Body]] }] },
         (it, chain, [body]) => {
           recreateChainForEntity(engine, it.entity, it.entity.target(ChildOf), body, chain);
         }
@@ -57,7 +57,6 @@ export class ChainLifecycleModule extends Module {
       .update(
         {
           watch: ChildOf,
-          optional: false,
           cursor: Iter,
           inject: [Chain, { target: [ChildOf, [Body]] }],
         },

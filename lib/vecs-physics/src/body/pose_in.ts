@@ -24,24 +24,21 @@ export class BodyPoseInModule extends Module {
       .with(Body, Position)
       .phase(phase)
       .ignoreSource([PhysicsSystemTag])
-      .update(
-        { watch: Position, optional: false, onEnter: true, inject: [Body] },
-        (entity, position, [body]) => {
-          const bodyId = body._bodyId;
-          if (bodyId === undefined) {
-            return;
-          }
-
-          // SetTransform with the body's existing rotation, in one crossing.
-          engine.fast.module._b2x_Body_SetPosition(
-            bodyId.index1,
-            rev(bodyId),
-            position.x,
-            position.y
-          );
-          engine.pendingPoseChanges.push(entity);
+      .update({ watch: Position, onEnter: true, inject: [Body] }, (entity, position, [body]) => {
+        const bodyId = body._bodyId;
+        if (bodyId === undefined) {
+          return;
         }
-      )
+
+        // SetTransform with the body's existing rotation, in one crossing.
+        engine.fast.module._b2x_Body_SetPosition(
+          bodyId.index1,
+          rev(bodyId),
+          position.x,
+          position.y
+        );
+        engine.pendingPoseChanges.push(entity);
+      })
       .entity.add(PhysicsSystemTag);
 
     world
@@ -49,19 +46,16 @@ export class BodyPoseInModule extends Module {
       .with(Body, Rotation)
       .phase(phase)
       .ignoreSource([PhysicsSystemTag])
-      .update(
-        { watch: Rotation, optional: false, onEnter: true, inject: [Body] },
-        (entity, rotation, [body]) => {
-          const bodyId = body._bodyId;
-          if (bodyId === undefined) {
-            return;
-          }
-
-          // SetTransform with the body's existing position and b2MakeRot(angle).
-          engine.fast.module._b2x_Body_SetAngle(bodyId.index1, rev(bodyId), rotation.angle);
-          engine.pendingPoseChanges.push(entity);
+      .update({ watch: Rotation, onEnter: true, inject: [Body] }, (entity, rotation, [body]) => {
+        const bodyId = body._bodyId;
+        if (bodyId === undefined) {
+          return;
         }
-      )
+
+        // SetTransform with the body's existing position and b2MakeRot(angle).
+        engine.fast.module._b2x_Body_SetAngle(bodyId.index1, rev(bodyId), rotation.angle);
+        engine.pendingPoseChanges.push(entity);
+      })
       .entity.add(PhysicsSystemTag);
 
     world
@@ -70,7 +64,7 @@ export class BodyPoseInModule extends Module {
       .phase(phase)
       .ignoreSource([PhysicsSystemTag])
       .update(
-        { watch: LinearVelocity, optional: false, onEnter: true, inject: [Body] },
+        { watch: LinearVelocity, onEnter: true, inject: [Body] },
         (entity, velocity, [body]) => {
           const bodyId = body._bodyId;
           if (bodyId === undefined) {
@@ -93,7 +87,7 @@ export class BodyPoseInModule extends Module {
       .phase(phase)
       .ignoreSource([PhysicsSystemTag])
       .update(
-        { watch: AngularVelocity, optional: false, onEnter: true, inject: [Body] },
+        { watch: AngularVelocity, onEnter: true, inject: [Body] },
         (entity, velocity, [body]) => {
           const bodyId = body._bodyId;
           if (bodyId === undefined) {

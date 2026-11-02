@@ -305,30 +305,12 @@ describe("update({ watch, optional }) — Query", () => {
     expect(q.has(e)).toBe(true);
   });
 
-  it("rejects onRemove without optional: true", () => {
+  it("rejects onRemove without optional", () => {
     const { w } = setup();
-    expect(() =>
-      // @ts-expect-error onRemove is only accepted on an optional watch.
-      w.query("views").update({ watch: Controls, optional: false, onRemove: true }, () => {})
-    ).toThrow("update watch of Controls: onRemove requires optional: true");
-  });
-
-  it("requires optional in the options form and keeps the shorthand", () => {
-    const { w, tick } = setup();
-    const query = w.query("views");
-    // @ts-expect-error the options form must state optional: true or optional: false.
-    expect(() => query.update({ watch: Controls, onEnter: true }, () => {})).toThrow(
-      "update watch of Controls: options must set optional: true or optional: false"
+    // @ts-expect-error onRemove is only accepted on an optional watch.
+    expect(() => w.query("views").update({ watch: Controls, onRemove: true }, () => {})).toThrow(
+      "update watch of Controls: onRemove requires optional: true"
     );
-
-    const shorthand = vi.fn();
-    const sys = w.system("shorthand").update(Controls, shorthand);
-    const e = w.entity().add(Client);
-    tick();
-    expect(sys.belongs(e)).toBe(false);
-    e.set(Controls, { ship: 1 });
-    tick();
-    expect(sys.belongs(e)).toBe(true);
   });
 
   it("keeps the query type and the callback's component non-optional", () => {

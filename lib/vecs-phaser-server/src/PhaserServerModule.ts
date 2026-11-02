@@ -106,7 +106,7 @@ export class PhaserServerModule extends Module<undefined> {
       .with(PhysicsPosition, RenderPosition)
       .phase(POST_UPDATE)
       .update(
-        { watch: PhysicsPosition, optional: false, onEnter: true, inject: [RenderPosition] },
+        { watch: PhysicsPosition, onEnter: true, inject: [RenderPosition] },
         (e, p, [render]) => {
           if (render.x !== p.x || render.y !== p.y) {
             render.x = p.x;
@@ -121,7 +121,7 @@ export class PhaserServerModule extends Module<undefined> {
       .with(PhysicsRotation, RenderRotation)
       .phase(POST_UPDATE)
       .update(
-        { watch: PhysicsRotation, optional: false, onEnter: true, inject: [RenderRotation] },
+        { watch: PhysicsRotation, onEnter: true, inject: [RenderRotation] },
         (e, r, [render]) => {
           if (render.angle !== r.angle) {
             render.angle = r.angle;

@@ -112,7 +112,7 @@ describe("System — enter / exit / update", () => {
   it("enter delivers an initial update for components already on the entity", () => {
     const { w } = setup();
     const cb = vi.fn();
-    w.system("test").with(Position).update({ watch: Position, optional: false, onEnter: true }, cb);
+    w.system("test").with(Position).update({ watch: Position, onEnter: true }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // tick 1 enters the entity & queues pos
@@ -125,7 +125,7 @@ describe("System — enter / exit / update", () => {
     const cb = vi.fn();
     w.system("test")
       .with(Position, Velocity)
-      .update({ watch: Velocity, optional: false, inject: [Position] }, cb);
+      .update({ watch: Velocity, inject: [Position] }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     const vel = e.add(Velocity).get(Velocity)!;
@@ -139,7 +139,7 @@ describe("System — enter / exit / update", () => {
   it("update without an explicit query requires its component", () => {
     const { w } = setup();
     const cb = vi.fn();
-    w.system("test").update({ watch: Position, optional: false, onEnter: true }, cb);
+    w.system("test").update({ watch: Position, onEnter: true }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // enter
@@ -662,7 +662,7 @@ describe("System — each", () => {
     w.system("test")
       .with(Position)
       .each([Position], eachCb)
-      .update({ watch: Position, optional: false, onEnter: true }, updateCb);
+      .update({ watch: Position, onEnter: true }, updateCb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // entry queues pos for update
@@ -1028,7 +1028,7 @@ describe("System — stale inbox update after same-frame exit", () => {
   // Regression for the phaser.sync.position crash:
   //   world.system("phaser.sync.position")
   //     .with(Position, Transform)
-  //     .update({ watch: Position, optional: false, inject: [Transform] }, (_e, p, [obj]) => obj.setPosition(...))
+  //     .update({ watch: Position, inject: [Transform] }, (_e, p, [obj]) => obj.setPosition(...))
   // A Position update queued in the inbox must not dispatch once the entity has
   // left the query before the inbox drains. The `.with` read (here `Sprite`,
   // standing in for the live Phaser GameObject) is resolved lazily at dispatch
@@ -1039,9 +1039,7 @@ describe("System — stale inbox update after same-frame exit", () => {
     const seen: Array<Sprite | undefined> = [];
     w.system("test")
       .with(Position, Sprite)
-      .update({ watch: Position, optional: false, inject: [Sprite] }, (_e, _p, [obj]) =>
-        seen.push(obj)
-      );
+      .update({ watch: Position, inject: [Sprite] }, (_e, _p, [obj]) => seen.push(obj));
 
     const e = w.entity().add(Position).add(Sprite);
     w.progress(0, 0); // entity enters the system
@@ -1061,9 +1059,7 @@ describe("System — stale inbox update after same-frame exit", () => {
     const seen: Array<Sprite | undefined> = [];
     w.system("test")
       .with(Position, Sprite)
-      .update({ watch: Position, optional: false, inject: [Sprite] }, (_e, _p, [obj]) =>
-        seen.push(obj)
-      );
+      .update({ watch: Position, inject: [Sprite] }, (_e, _p, [obj]) => seen.push(obj));
 
     const e = w.entity().add(Position).add(Sprite);
     w.progress(0, 0);
@@ -1081,9 +1077,7 @@ describe("System — stale inbox update after same-frame exit", () => {
     const seen: Array<Sprite | undefined> = [];
     w.system("test")
       .with(Position, Sprite)
-      .update({ watch: Position, optional: false, inject: [Sprite] }, (_e, _p, [obj]) =>
-        seen.push(obj)
-      );
+      .update({ watch: Position, inject: [Sprite] }, (_e, _p, [obj]) => seen.push(obj));
 
     const e = w.entity().add(Position).add(Sprite);
     w.progress(0, 0);
@@ -1175,9 +1169,7 @@ describe("System — stale inbox enter after same-frame exit", () => {
   it("does not dispatch an onEnter update after the entity is destroyed before the drain", () => {
     const { w } = setup();
     const update = vi.fn();
-    w.system("test")
-      .with(Position)
-      .update({ watch: Position, optional: false, onEnter: true }, update);
+    w.system("test").with(Position).update({ watch: Position, onEnter: true }, update);
     w.progress(0, 0);
 
     w.entity().add(Position).destroy();
@@ -1189,9 +1181,7 @@ describe("System — stale inbox enter after same-frame exit", () => {
   it("does not dispatch an onEnter update after the entity loses a .with component before the drain", () => {
     const { w } = setup();
     const update = vi.fn();
-    w.system("test")
-      .with(Position, Sprite)
-      .update({ watch: Position, optional: false, onEnter: true }, update);
+    w.system("test").with(Position, Sprite).update({ watch: Position, onEnter: true }, update);
     w.progress(0, 0);
 
     w.entity().add(Position).add(Sprite).remove(Sprite);

@@ -26,12 +26,9 @@ export class TextModule extends Module<{ scene: Phaser.Scene }> {
       .system("phaser.render.text.geometry")
       .with(TextComponent, m.Text)
       .phase(ON_STORE)
-      .update(
-        { watch: TextComponent, optional: false, inject: [m.Text] },
-        (_entity, text, [obj]) => {
-          obj.setText(text.value);
-          obj.setStyle(textStyle(text));
-        }
-      );
+      .update({ watch: TextComponent, inject: [m.Text] }, (_entity, text, [obj]) => {
+        obj.setText(text.value);
+        obj.setStyle(textStyle(text));
+      });
   }
 }

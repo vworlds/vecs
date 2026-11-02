@@ -57,7 +57,7 @@ These were confirmed by reading the code; implementers can rely on them.
 | A network relationship payload is `u32 target count`, that many target EIDs, then the relationship's ordinary encoded fields; clients ghost and reconcile every target                                                | `lib/vecs-protocol/src/relationship_snapshot.ts`, `lib/vecs-client/src/client_world.ts`                          |
 | vecs-physics pose: `Position {x,y}` (meters), `Rotation {angle}` (radians)                                                                                                                                            | `lib/vecs-physics/src/components/body.ts`                                                                        |
 | System/query API: `.with().enter().update().exit().each().run().phase()`                                                                                                                                              | `lib/vecs/src/system.ts`, `lib/vecs/src/query/query.ts`                                                          |
-| `update({ watch, optional: false })` auto-adds the watched component to the query predicate                                                                                                                           | `lib/vecs/src/query/query.ts:428`                                                                                |
+| `update({ watch })` auto-adds the watched component to the query predicate                                                                                                                                            | `lib/vecs/src/query/query.ts:428`                                                                                |
 | `connectDgram` performs an HTTP handshake against `worldPath(apiBasePath, worldName)` before the channel opens                                                                                                        | `lib/vecs-client/src/client_world.ts:105`                                                                        |
 | The dgram transport is WebRTC datachannel with HTTP signaling mounted on the app's Express instance                                                                                                                   | `node_modules/@vworlds/dgram-server/.../socket-listener.js`                                                      |
 | Phaser: `scene.load.spritesheet(key, url, { frameWidth, frameHeight, margin, spacing })`; frames are row-major numeric                                                                                                | Phaser `SpriteSheetFile`                                                                                         |
@@ -555,7 +555,7 @@ everything down for free.
   `.enter` calls `scene.add.<kind>(…)` (origin set to `0.5`, or `0,0` for vertex shapes) and
   `entity.attach(obj)`.
 - `phaser.render.<kind>.geometry` — `.with(<Shape>, m.<marker>).phase(ON_STORE)`; on
-  `update({ watch: <Shape>, optional: false, inject: [m.<marker>] })` mutates the geometry. Only shapes with mutable
+  `update({ watch: <Shape>, inject: [m.<marker>] })` mutates the geometry. Only shapes with mutable
   geometry have one: **Arc, Line, Polygon, Triangle, Star, Text**. `Rectangle`/`Ellipse` have no
   geometry system — their only dimension is `Size`, resized through the shared `Size` sync.
 
@@ -565,7 +565,7 @@ matching the data component **plus the interface marker** and calling the inject
 `m.Size`, `FillStyle` → `m.Fill`, `StrokeStyle` → `m.Stroke`, `Tint` → `m.Tint` (only on
 GameObjects that mix in Phaser's Tint component: `Image` and `Text`; primitive shapes do
 not have `setTint`). Each uses
-`update({ watch: <Data>, optional: false, onEnter: true, inject: [m.<marker>] })`.
+`update({ watch: <Data>, onEnter: true, inject: [m.<marker>] })`.
 
 `OpenPath` → `m.OpenPath` is the exception. The tag carries no data, so its system uses `enter` and
 `exit`: entering calls `setClosePath(false)`, and leaving calls `setClosePath(true)` only while the
@@ -644,9 +644,9 @@ m.Depth, m.Texture`; and the shape-data remove hook
 - `phaser.new.image`: `.with(Image).without(Phaser.GameObjects.Image).phase(ON_STORE)`; on
   `.enter`, `entity.attach(scene.add.image(0, 0, String(texture), frame).setOrigin(0.5))`.
 - `phaser.render.image.texture`: `.with(Image, m.Texture).phase(ON_STORE)`; on
-  `update({ watch: Image, optional: false, inject: [m.Texture] })`, call `setTexture(String(texture), frame)`.
+  `update({ watch: Image, inject: [m.Texture] })`, call `setTexture(String(texture), frame)`.
 - `phaser.render.image.size`: `.with(Image, m.Texture).phase(ON_STORE)`; on
-  `update({ watch: Size, optional: false, onEnter: true, inject: [m.Texture] })`, apply `setDisplaySize` from
+  `update({ watch: Size, onEnter: true, inject: [m.Texture] })`, apply `setDisplaySize` from
   `Size`. When `Size` is absent the system does not match (the watched component auto-joins the
   query predicate), so native size is left untouched.
 - **No per-renderer `.exit`:** teardown flows through the shape-data remove hook → the shared
@@ -829,7 +829,7 @@ The `PhaserServerModule` (zero-config) handles everything in one call:
   parenting component types mutually exclusive locally.
 - Installs two reactive pose-sync systems in `POST_UPDATE` that copy
   `vecs-physics` `Position`/`Rotation` → render `Position`/`Rotation` only
-  when physics actually changed the body pose (`update({ watch, optional: false, onEnter: true })`).
+  when physics actually changed the body pose (`update({ watch, onEnter: true })`).
   Entities must already have a render pose (set by the user at creation); the
   module never creates render components.
 - Installs a pose guard, `phaser.guard.pose`, in a phase inserted right after

@@ -18,9 +18,8 @@ world
   .system("Render")
   .with(Sprite, Position)
   .enter([Sprite, Position], (e, [sprite, pos]) => sprite.show(pos))
-  .update(
-    { watch: Position, optional: false, onEnter: true, inject: [Sprite] },
-    (e, pos, [sprite]) => sprite.moveTo(pos.x, pos.y)
+  .update({ watch: Position, onEnter: true, inject: [Sprite] }, (e, pos, [sprite]) =>
+    sprite.moveTo(pos.x, pos.y)
   )
   .exit([Sprite], (e, [sprite]) => sprite.hide());
 ```
@@ -158,17 +157,13 @@ snapshot when the system next drains its inbox.
 
 Fires when the watched component is set or marked modified on a tracked entity.
 `update(ComponentClass, ...)` also adds `ComponentClass` to the membership predicate, so the system
-only matches entities that carry the watched component. The options form must set `optional`:
-`optional: false` means the same as the shorthand, and `optional: true` watches without requiring
-the component (see [Optional watches](#optional-watches)). Requiring the key makes every
-options-form call say whether the watch is part of membership; omitting it is a type error, and
-JavaScript callers get a runtime error that names the component. Pass `{ onEnter: true }` when the
-callback should also run as an entity enters with the watched component already present. The
-callback receives the entity first because component instances carry no owner reference:
+only matches entities that carry the watched component. Pass `{ onEnter: true }` in the options form
+when the callback should also run as an entity enters with the watched component already present.
+The callback receives the entity first because component instances carry no owner reference:
 
 ```ts
 .update(Position, (entity, pos) => renderer.setPosition(entity.eid, pos.x, pos.y))
-.update({ watch: Position, optional: false, onEnter: true, inject: [Sprite] }, (entity, pos, [sprite]) =>
+.update({ watch: Position, onEnter: true, inject: [Sprite] }, (entity, pos, [sprite]) =>
   sprite.setPosition(pos.x, pos.y)
 )
 ```
@@ -177,7 +172,7 @@ Use `onEnter: true` for "apply current value when the entity appears, and again 
 it, `update` is change-only and a separate `enter` callback can own initialization.
 
 Because `update` adds `watch` to the membership predicate, `add(C)` can be the operation that makes
-an entity enter. Choose one update callback for `C`: `update({ watch: C, optional: false, onEnter: true }, cb)` fires
+an entity enter. Choose one update callback for `C`: `update({ watch: C, onEnter: true }, cb)` fires
 `cb` with the freshly added component, while `update(C, cb)` tracks the new member but waits for a
 later `set` or `modified`.
 
@@ -201,7 +196,7 @@ The callback's component argument stays non-optional: every event carries an ins
 | `C` set / modified | `update`             | `update`                      | `update`                      |
 | `C` removed        | — (no exit)          | — (no exit)                   | `update` with the removed `C` |
 
-`onRemove` is accepted only with `optional: true`; on an `optional: false` watch, removal is already an
+`onRemove` is accepted only with `optional: true`; on a required watch, removal is already an
 `exit`. The removal event carries the removed instance and the entity no longer has `C` when the
 callback runs, so test `entity.has(C)` to tell a removal from a change. Destroying the entity routes
 `exit`, not removal events. `ignoreSource` silences all three events alike. A `C` that arrives in
@@ -326,13 +321,7 @@ world
   .system("Stamp")
   .with(Position)
   .update(
-    {
-      watch: Position,
-      optional: false,
-      onEnter: true,
-      cursor: Iter,
-      inject: [Now, Position, Delta],
-    },
+    { watch: Position, onEnter: true, cursor: Iter, inject: [Now, Position, Delta] },
     (it, position, [now, injectedPosition, delta]) => {
       console.log(it.entity.eid, position === injectedPosition, now, delta);
     }

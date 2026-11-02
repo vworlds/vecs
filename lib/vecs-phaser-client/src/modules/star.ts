@@ -32,7 +32,7 @@ export class StarModule extends Module<{ scene: Phaser.Scene; coords: CoordSpace
       .system("phaser.render.star.geometry")
       .with(Star, m.Star)
       .phase(ON_STORE)
-      .update({ watch: Star, optional: false, inject: [m.Star] }, (_entity, star, [obj]) => {
+      .update({ watch: Star, inject: [m.Star] }, (_entity, star, [obj]) => {
         obj.setPoints(star.points);
         obj.setInnerRadius(coords.len(star.innerRadius));
         obj.setOuterRadius(coords.len(star.outerRadius));

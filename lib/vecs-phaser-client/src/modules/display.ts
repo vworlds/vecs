@@ -60,7 +60,6 @@ export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
       .update(
         {
           watch: DrawIn,
-          optional: false,
           onEnter: true,
           inject: [m.GameObject, { target: [DrawIn, [containerClass]] }],
         },
@@ -92,7 +91,7 @@ export class DisplayModule extends Module<{ scene: Phaser.Scene }> {
       .with(m.GameObject, { target: [DrawBy, Position] })
       .phase(ON_STORE)
       .update(
-        { watch: DrawBy, optional: false, onEnter: true, inject: [m.GameObject] },
+        { watch: DrawBy, onEnter: true, inject: [m.GameObject] },
         (entity, _drawBy, [obj]) => {
           const phaserObj = obj as Phaser.GameObjects.GameObject;
           if (phaserObj.displayList === null) {

@@ -67,17 +67,14 @@ export class BodyLifecycleModule extends Module {
       .system("PhysicsBodyLifecycle:Damping")
       .with(Body, Damping)
       .phase(phase)
-      .update(
-        { watch: Damping, optional: false, onEnter: true, inject: [Body] },
-        (entity, damping, [body]) => {
-          const bodyId = body._bodyId;
-          if (bodyId === undefined) {
-            return;
-          }
-          engine.box2d.b2Body_SetLinearDamping(bodyId, damping.linear);
-          engine.box2d.b2Body_SetAngularDamping(bodyId, damping.angular);
+      .update({ watch: Damping, onEnter: true, inject: [Body] }, (entity, damping, [body]) => {
+        const bodyId = body._bodyId;
+        if (bodyId === undefined) {
+          return;
         }
-      )
+        engine.box2d.b2Body_SetLinearDamping(bodyId, damping.linear);
+        engine.box2d.b2Body_SetAngularDamping(bodyId, damping.angular);
+      })
       .entity.add(PhysicsSystemTag);
 
     world
@@ -85,7 +82,7 @@ export class BodyLifecycleModule extends Module {
       .with(Body, GravityScale)
       .phase(phase)
       .update(
-        { watch: GravityScale, optional: false, onEnter: true, inject: [Body] },
+        { watch: GravityScale, onEnter: true, inject: [Body] },
         (entity, gravityScale, [body]) => {
           const bodyId = body._bodyId;
           if (bodyId === undefined) {
@@ -100,42 +97,36 @@ export class BodyLifecycleModule extends Module {
       .system("PhysicsBodyLifecycle:MotionLocks")
       .with(Body, MotionLocks)
       .phase(phase)
-      .update(
-        { watch: MotionLocks, optional: false, onEnter: true, inject: [Body] },
-        (entity, locks, [body]) => {
-          const bodyId = body._bodyId;
-          if (bodyId === undefined) {
-            return;
-          }
-          withAllocated(
-            () => new engine.box2d.b2MotionLocks(),
-            (motionLocks) => {
-              motionLocks.linearX = locks.x;
-              motionLocks.linearY = locks.y;
-              motionLocks.angularZ = locks.rotation;
-              engine.box2d.b2Body_SetMotionLocks(bodyId, motionLocks);
-            }
-          );
+      .update({ watch: MotionLocks, onEnter: true, inject: [Body] }, (entity, locks, [body]) => {
+        const bodyId = body._bodyId;
+        if (bodyId === undefined) {
+          return;
         }
-      )
+        withAllocated(
+          () => new engine.box2d.b2MotionLocks(),
+          (motionLocks) => {
+            motionLocks.linearX = locks.x;
+            motionLocks.linearY = locks.y;
+            motionLocks.angularZ = locks.rotation;
+            engine.box2d.b2Body_SetMotionLocks(bodyId, motionLocks);
+          }
+        );
+      })
       .entity.add(PhysicsSystemTag);
 
     world
       .system("PhysicsBodyLifecycle:Sleep")
       .with(Body, Sleep)
       .phase(phase)
-      .update(
-        { watch: Sleep, optional: false, onEnter: true, inject: [Body] },
-        (entity, sleep, [body]) => {
-          const bodyId = body._bodyId;
-          if (bodyId === undefined) {
-            return;
-          }
-          engine.box2d.b2Body_EnableSleeping(bodyId, sleep.enabled);
-          engine.box2d.b2Body_SetAwake(bodyId, sleep.awake);
-          engine.box2d.b2Body_SetSleepThreshold(bodyId, sleep.threshold);
+      .update({ watch: Sleep, onEnter: true, inject: [Body] }, (entity, sleep, [body]) => {
+        const bodyId = body._bodyId;
+        if (bodyId === undefined) {
+          return;
         }
-      )
+        engine.box2d.b2Body_EnableSleeping(bodyId, sleep.enabled);
+        engine.box2d.b2Body_SetAwake(bodyId, sleep.awake);
+        engine.box2d.b2Body_SetSleepThreshold(bodyId, sleep.threshold);
+      })
       .entity.add(PhysicsSystemTag);
   }
 }

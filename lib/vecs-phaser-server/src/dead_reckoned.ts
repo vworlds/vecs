@@ -344,7 +344,7 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
       .system("phaser.motion.body")
       .with(PhysicsPosition, PhysicsRotation, DeadReckoned, Motion, MotionPrediction)
       .phase(POST_UPDATE)
-      .update({ watch: Body, optional: false, onEnter: true }, (entity, body) => {
+      .update({ watch: Body, onEnter: true }, (entity, body) => {
         if (body.type !== BodyType.Dynamic || !body.enabled) {
           entity.add(ApplicationBaseline);
         } else {

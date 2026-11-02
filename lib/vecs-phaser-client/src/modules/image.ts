@@ -31,7 +31,7 @@ export class ImageModule extends Module<{ scene: Phaser.Scene; coords: CoordSpac
       .system("phaser.render.image.texture")
       .with(Image, m.Texture)
       .phase(ON_STORE)
-      .update({ watch: Image, optional: false, inject: [m.Texture] }, (_entity, image, [obj]) =>
+      .update({ watch: Image, inject: [m.Texture] }, (_entity, image, [obj]) =>
         obj.setTexture(String(image.texture), image.frame)
       );
 
@@ -39,10 +39,8 @@ export class ImageModule extends Module<{ scene: Phaser.Scene; coords: CoordSpac
       .system("phaser.render.image.size")
       .with(Image, m.Texture)
       .phase(ON_STORE)
-      .update(
-        { watch: Size, optional: false, onEnter: true, inject: [m.Texture] },
-        (_entity, size, [obj]) =>
-          obj.setDisplaySize(coords.len(size.width), coords.len(size.height))
+      .update({ watch: Size, onEnter: true, inject: [m.Texture] }, (_entity, size, [obj]) =>
+        obj.setDisplaySize(coords.len(size.width), coords.len(size.height))
       );
   }
 }

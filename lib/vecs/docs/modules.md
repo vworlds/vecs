@@ -21,7 +21,7 @@ export class PoseSyncModule extends Module {
       .system("sync.position")
       .with(PhysicsPosition, RenderPosition)
       .phase(POST_UPDATE)
-      .update({ watch: PhysicsPosition, optional: false, onEnter: true }, (e, p) =>
+      .update({ watch: PhysicsPosition, onEnter: true }, (e, p) =>
         e.set(RenderPosition, { x: p.x, y: p.y })
       );
   }

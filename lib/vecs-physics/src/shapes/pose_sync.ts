@@ -23,7 +23,6 @@ export class ShapePoseModule extends Module {
       .update(
         {
           watch: ShapePosition,
-          optional: false,
           onEnter: true,
           cursor: Iter,
           inject: [SingleShape, { target: [ChildOf, [Body]] }],
@@ -41,7 +40,6 @@ export class ShapePoseModule extends Module {
       .update(
         {
           watch: ShapePosition,
-          optional: false,
           onEnter: true,
           cursor: Iter,
           inject: [Chain, { target: [ChildOf, [Body]] }],
@@ -59,7 +57,6 @@ export class ShapePoseModule extends Module {
       .update(
         {
           watch: ShapeRotation,
-          optional: false,
           onEnter: true,
           cursor: Iter,
           inject: [SingleShape, { target: [ChildOf, [Body]] }],
@@ -77,7 +74,6 @@ export class ShapePoseModule extends Module {
       .update(
         {
           watch: ShapeRotation,
-          optional: false,
           onEnter: true,
           cursor: Iter,
           inject: [Chain, { target: [ChildOf, [Body]] }],

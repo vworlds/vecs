@@ -531,7 +531,7 @@ export class ServerWorld extends NetworkWorld {
       .with(View, ServerClientSession)
       .phase(storePhase)
       .update(
-        { watch: View, optional: false, onEnter: true, inject: [ServerClientSession] },
+        { watch: View, onEnter: true, inject: [ServerClientSession] },
         (_entity, view, [_session]) => {
           view._refreshTracker(this._trackerCache, this._keepAliveGate);
         }
@@ -544,13 +544,10 @@ export class ServerWorld extends NetworkWorld {
       this.system(`ServerWorld:${this.name}:${registered.Class.name}`)
         .with(Networked, registered.Class)
         .phase(storePhase)
-        .update(
-          { watch: registered.Class, optional: false, onEnter: true },
-          (entity, component) => {
-            this._snapshotCache.delete(this.cid.pack(entity.eid, registered.wireType));
-            this._record(entity, registered.wireType, component);
-          }
-        )
+        .update({ watch: registered.Class, onEnter: true }, (entity, component) => {
+          this._snapshotCache.delete(this.cid.pack(entity.eid, registered.wireType));
+          this._record(entity, registered.wireType, component);
+        })
         .exit((entity) => {
           this._snapshotCache.delete(this.cid.pack(entity.eid, registered.wireType));
           this._record(entity, registered.wireType, undefined);
