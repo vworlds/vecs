@@ -27,7 +27,8 @@ const rule = {
 
     function checkMember(node) {
       const nameNode = node.key;
-      if (!nameNode || nameNode.type !== "Identifier") return;
+      // A computed key such as `[TARGETS]` names a variable, not the member.
+      if (node.computed || !nameNode || nameNode.type !== "Identifier") return;
       // The constructor is exempt — it is never renamed.
       if (nameNode.name === "constructor") return;
 

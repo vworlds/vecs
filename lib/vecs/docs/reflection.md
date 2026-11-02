@@ -245,7 +245,8 @@ Registering one on any other class throws. Like any explicit hook, `vecs_validat
 | A component class                      | A nested instance of that class                      |
 | `[type]`                               | An array of the element type                         |
 
-The names match the `@wireType` vocabulary of `@vworlds/vecs-wire`.
+These names are declared once, as `MemberScalarType`; `@vworlds/vecs-wire` reuses that type as its
+`@wireType` vocabulary (`WireScalarType`).
 
 ### Declarations
 

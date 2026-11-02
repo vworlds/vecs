@@ -1,9 +1,10 @@
 import {
-  CleanupPolicy,
   Exclusive,
   Implements,
   Module,
   ON_STORE,
+  OnDeleteTarget,
+  Remove,
   Traversable,
   With,
 } from "@vworlds/vecs";
@@ -32,15 +33,13 @@ export class DisplaySetupModule extends Module<{ scene: Phaser.Scene }> {
     // remove hook detaches them before Phaser teardown. No Traversable: native
     // children are added to the Phaser Container directly, no ECS cascade.
     const drawIn = world.component(DrawIn);
-    drawIn.add(Exclusive);
-    drawIn.meta.onDeleteTarget = CleanupPolicy.Remove;
+    drawIn.add(Exclusive).add(OnDeleteTarget, Remove);
 
     // DrawBy: computed parenting — child of a renderable, world Position
     // derived each frame. Same Remove policy. Traversable so cascade queries
     // (phaser.resolve.offset, InCell cascade) can reach DrawBy children.
     const drawBy = world.component(DrawBy);
-    drawBy.add(Exclusive);
-    drawBy.meta.onDeleteTarget = CleanupPolicy.Remove;
+    drawBy.add(Exclusive).add(OnDeleteTarget, Remove);
     drawBy.add(Traversable);
 
     // DrawIn and DrawBy are exclusive: adding one removes the other.
