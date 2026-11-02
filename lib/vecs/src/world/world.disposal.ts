@@ -145,8 +145,8 @@ export class Disposal extends Transfers {
           meta.off(event, handler as HookEventMap[typeof event]);
         }
       }
-      meta.onDelete = CleanupPolicy.Remove;
-      meta.onDeleteTarget = CleanupPolicy.Remove;
+      meta._onDelete = CleanupPolicy.Remove;
+      meta._onDeleteTarget = CleanupPolicy.Remove;
     }
   }
 

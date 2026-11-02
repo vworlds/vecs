@@ -4,22 +4,32 @@ import { type EID, type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
 import {
   ChildOf,
+  Delete,
   DependsOn,
   Exclusive,
+  OnDelete,
+  OnDeleteTarget,
   OneOf,
   OwnedTarget,
+  Remove,
   SilenceSource,
+  Throw,
   Traversable,
   With,
 } from "./relationship_types.js";
 
 export {
   ChildOf,
+  Delete,
   DependsOn,
   Exclusive,
+  OnDelete,
+  OnDeleteTarget,
   OneOf,
   OwnedTarget,
+  Remove,
   SilenceSource,
+  Throw,
   Traversable,
   With,
 } from "./relationship_types.js";
@@ -27,13 +37,20 @@ export {
 /**
  * Built-in world module that registers the `ChildOf` relationship and
  * maintains ownership and depth tracking policies for relationship traits.
- * Declares `Exclusive`, `Traversable`, `OwnedTarget`, `With`, and `OneOf`
- * with the {@link Trait} marker.
+ * Declares `Exclusive`, `Traversable`, `OwnedTarget`, `With`, `OneOf`,
+ * `OnDelete`, and `OnDeleteTarget` with the {@link Trait} marker.
  *
- * Registered automatically by every {@link World}. It sets `ChildOf`'s
- * `onDeleteTarget` cleanup policy to {@link CleanupPolicy.Delete}, so
- * destroying a parent recursively destroys the children that target it through
- * `ChildOf` (custom relationships default to `Remove`).
+ * Registered automatically by every {@link World}. It gives `ChildOf` the
+ * `(OnDeleteTarget, Delete)` cleanup policy, so destroying a parent
+ * recursively destroys the children that target it through `ChildOf` (custom
+ * relationships default to `Remove`).
+ *
+ * `OnDelete` and `OnDeleteTarget` are exclusive cleanup-policy traits
+ * restricted with `OneOf` to the policy values `Throw`, `Remove`, and
+ * `Delete`, which are `ChildOf` children of `OnDelete`; `OnDeleteTarget`
+ * rejects `Throw`. Adding a policy edge stores it on the component entity's
+ * meta, where `Entity.destroy` reads it, and removing the edge restores the
+ * default.
  *
  * `Traversable` requires `Exclusive`. The module wraps target-edge hooks on a
  * traversable relationship so every entity's depth is updated when its edge is
@@ -75,7 +92,6 @@ export class RelationshipsModule extends Module {
     const withTrait = world.component(With).add(Trait);
     const oneOfTrait = world.component(OneOf).add(Trait);
 
-    childOf.meta.onDeleteTarget = CleanupPolicy.Delete;
     exclusive.meta._onTrait("add", (relationship): void => {
       if (!relationship.meta.isRelationship) {
         throw new Error("Exclusive can only be added to a Relationship component");
@@ -189,6 +205,49 @@ export class RelationshipsModule extends Module {
     childOf.add(Exclusive).add(Traversable);
     dependsOn.add(Exclusive).add(Traversable);
     silenceSource.add(Exclusive);
+
+    this._registerCleanupPolicies();
+    childOf.add(OnDeleteTarget, Delete);
+  }
+
+  /**
+   * Declare the `OnDelete` and `OnDeleteTarget` traits and their policy
+   * values, and install the handlers that copy each edge's policy onto the
+   * carrier's meta. The meta field keeps `Entity.destroy`'s cleanup read a
+   * plain field read.
+   */
+  private _registerCleanupPolicies(): void {
+    const world = this.world;
+    const onDeleteTrait = world.component(OnDelete).add(Trait);
+    const onDeleteTargetTrait = world.component(OnDeleteTarget).add(Trait);
+    const policies = new Map<Entity, CleanupPolicy>([
+      [world.component(Throw).childOf(onDeleteTrait), CleanupPolicy.Throw],
+      [world.component(Remove).childOf(onDeleteTrait), CleanupPolicy.Remove],
+      [world.component(Delete).childOf(onDeleteTrait), CleanupPolicy.Delete],
+    ]);
+    const throwPolicy = world.component(Throw);
+
+    onDeleteTrait.add(Exclusive).add(OneOf, onDeleteTrait);
+    onDeleteTargetTrait.add(Exclusive).add(OneOf, onDeleteTrait);
+
+    onDeleteTrait.meta._onTrait("targetAdd", (component, _onDelete, policy): void => {
+      component.meta._onDelete = policies.get(policy)!;
+    });
+    onDeleteTrait.meta._onTrait("targetRemove", (component): void => {
+      component.meta._onDelete = CleanupPolicy.Throw;
+    });
+    onDeleteTargetTrait.meta._onTrait("targetAdd", (rel, _onDeleteTarget, policy): void => {
+      if (!rel.meta.isRelationship) {
+        throw new Error("OnDeleteTarget can only be added to a Relationship component");
+      }
+      if (policy === throwPolicy) {
+        throw new Error("OnDeleteTarget accepts Remove or Delete, not Throw");
+      }
+      rel.meta._onDeleteTarget = policies.get(policy)!;
+    });
+    onDeleteTargetTrait.meta._onTrait("targetRemove", (rel): void => {
+      rel.meta._onDeleteTarget = CleanupPolicy.Remove;
+    });
   }
 
   private _cascadeUpdate(

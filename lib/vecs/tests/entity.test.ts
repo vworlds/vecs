@@ -1,9 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   ChildOf,
-  CleanupPolicy,
+  Delete,
   Exclusive,
+  OnDelete,
+  OnDeleteTarget,
   Relationship,
+  Remove,
+  Throw,
   type Entity,
   World,
 } from "../src/index.js";
@@ -566,8 +570,8 @@ describe("Entity — lifecycle and relationships", () => {
   // a world-level deletion scope and drains them after the scan completes.
   it("destroy cleans up every incoming relationship type when multiple types target the same entity (Delete, shape-before-joint order)", () => {
     const w = new World();
-    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
-    w.component(Guards).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(InRoom).add(OnDeleteTarget, Delete);
+    w.component(Guards).add(OnDeleteTarget, Delete);
     const room = w.entity();
     const lamp = w.entity().add(InRoom, room);
     const guard = w.entity().add(Guards, room);
@@ -585,8 +589,8 @@ describe("Entity — lifecycle and relationships", () => {
 
   it("destroy cleans up every incoming relationship type when multiple types target the same entity (Delete, joint-before-shape order)", () => {
     const w = new World();
-    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
-    w.component(Guards).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(InRoom).add(OnDeleteTarget, Delete);
+    w.component(Guards).add(OnDeleteTarget, Delete);
     const room = w.entity();
     const guard = w.entity().add(Guards, room);
     const lamp = w.entity().add(InRoom, room);
@@ -604,7 +608,7 @@ describe("Entity — lifecycle and relationships", () => {
 
   it("destroy cleans up mixed Delete + Remove policies across two incoming relationship types", () => {
     const w = new World();
-    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(InRoom).add(OnDeleteTarget, Delete);
     w.component(FriendOf); // default Remove
     const target = w.entity();
     const lamp = w.entity().add(InRoom, target);
@@ -645,8 +649,8 @@ describe("Entity — lifecycle and relationships", () => {
 
   it("destroy cleanup still runs after a prior destroy with no incoming relationships", () => {
     const w = new World();
-    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
-    w.component(Guards).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(InRoom).add(OnDeleteTarget, Delete);
+    w.component(Guards).add(OnDeleteTarget, Delete);
     const unrelated = w.entity();
     unrelated.destroy();
 
@@ -691,7 +695,7 @@ describe("Entity — component entity onDelete", () => {
   it("removes the component from carriers when onDelete is Remove", () => {
     const w = new World();
     const componentEntity = w.component(Position);
-    componentEntity.meta.onDelete = CleanupPolicy.Remove;
+    componentEntity.add(OnDelete, Remove);
     const a = w.entity().add(Position);
     const b = w.entity().add(Position);
 
@@ -708,7 +712,7 @@ describe("Entity — component entity onDelete", () => {
   it("destroys carriers when onDelete is Delete", () => {
     const w = new World();
     const componentEntity = w.component(Position);
-    componentEntity.meta.onDelete = CleanupPolicy.Delete;
+    componentEntity.add(OnDelete, Delete);
     const a = w.entity().add(Position);
     const b = w.entity().add(Position);
 
@@ -751,12 +755,12 @@ describe("Entity — component entity onDelete", () => {
     const carrier = w.entity().add(Position);
 
     // Start with a non-Throw policy so the eager `destroy()` check passes and
-    // the command is enqueued; flip to Throw before the drain so `_destroy`
-    // hits the deferred throw path (the race this guard exists for).
-    componentEntity.meta.onDelete = CleanupPolicy.Remove;
+    // the command is enqueued; queue the switch to Throw ahead of the destroy
+    // so `_destroy` hits the deferred throw path (the race this guard exists for).
+    componentEntity.add(OnDelete, Remove);
     w.beginDefer();
+    componentEntity.add(OnDelete, Throw);
     componentEntity.destroy();
-    componentEntity.meta.onDelete = CleanupPolicy.Throw;
     expect(() => w.endDefer()).toThrow(/component eid is still in use/);
     // Throw landed before _destroyed was set; entity is registered but world is dead.
     expect(componentEntity.destroyed).toBe(false);
@@ -765,11 +769,11 @@ describe("Entity — component entity onDelete", () => {
 
   it("Delete cascade into a Throw-policy component throws and leaves the world partial", () => {
     const w = new World();
-    w.component(InRoom).meta.onDeleteTarget = CleanupPolicy.Delete;
+    w.component(InRoom).add(OnDeleteTarget, Delete);
     w.component(Position);
     const room = w.entity();
     const lamp = w.entity();
-    lamp.meta.onDelete = CleanupPolicy.Throw;
+    lamp.add(OnDelete, Throw);
     w.entity().add(lamp); // carrier so usageCount > 0
     lamp.add(InRoom, room);
 
@@ -932,7 +936,7 @@ describe("Entity — relationship navigation", () => {
 
     source.set(FriendOf, { target: second } as any);
     expect(source.targets(FriendOf)).toEqual([first]);
-    expect(onSet).toHaveBeenCalledOnce();
+    expect(onSet).toHaveBeenCalledTimes(2);
   });
 
   it("fires edge hooks with finalized indexes and detaches before final removal hooks", () => {

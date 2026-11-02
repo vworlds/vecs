@@ -1,7 +1,7 @@
 // Member type vocabulary shared by reflection, decorators and default hooks.
 //
-// The names match `lib/vecs-wire/src/decorators.ts` (`WireScalarType`): until
-// vecs-wire reads them from core, both packages carry the same list.
+// `lib/vecs-wire/src/decorators.ts` reads `MemberScalarType` from here as
+// `WireScalarType`; this is the only declaration of the scalar names.
 
 /**
  * A scalar member type.
