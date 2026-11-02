@@ -269,8 +269,8 @@ joint.set(JointSettings, { collideConnected: true });
 
 ### Destroying a connected body
 
-`JointsModule` gives `JointBodyA` and `JointBodyB` the `CleanupPolicy.Delete`
-policy, so destroying either body destroys the joint entity too, together with
+`JointsModule` gives `JointBodyA` and `JointBodyB` the `(OnDeleteTarget, Delete)`
+cleanup policy, so destroying either body destroys the joint entity too, together with
 every component you attached to it yourself. This follows Box2D, which destroys a
 body's joints along with the body. The other body is not affected: it only loses
 the constraint. A body that several joints connect to takes all of them with it,

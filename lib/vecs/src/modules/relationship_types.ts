@@ -118,3 +118,57 @@ export class Traversable {
   /** Entity to depth (hops to root, 0-based). */
   depths = new Map<Entity, number>();
 }
+
+/**
+ * Pair-form trait choosing what happens to an entity's carriers when that
+ * entity, used as a component key, is destroyed.
+ *
+ * Attach it to the component entity; its target is one of the policy values
+ * {@link Throw} (the default), {@link Remove}, or {@link Delete}. It is
+ * exclusive, so adding another policy replaces the current one, and removing
+ * the edge restores the default.
+ *
+ * ```ts
+ * world.component(Temporary).add(OnDelete, Remove);
+ * world.component(Temporary).destroy(); // strips Temporary from every carrier
+ * ```
+ */
+export class OnDelete extends Relationship {}
+
+/**
+ * Pair-form trait choosing what happens to the sources of a relationship edge
+ * when the edge's target is destroyed.
+ *
+ * Attach it to the relationship's component entity; its target is
+ * {@link Remove} (the default) or {@link Delete}. It is exclusive, so adding
+ * another policy replaces the current one, and removing the edge restores the
+ * default.
+ *
+ * ```ts
+ * world.component(InRoom).add(OnDeleteTarget, Delete);
+ * room.destroy(); // destroys every entity with (InRoom, room)
+ * ```
+ */
+export class OnDeleteTarget extends Relationship {}
+
+/**
+ * Cleanup policy value for {@link OnDelete}: destroying the component entity
+ * while other entities carry it throws. The default for {@link OnDelete}; not
+ * accepted by {@link OnDeleteTarget}.
+ */
+export class Throw {}
+
+/**
+ * Cleanup policy value: remove only the component or edge. Under
+ * {@link OnDelete} every carrier loses the component; under
+ * {@link OnDeleteTarget} (the default) each source loses only the edge to the
+ * destroyed target.
+ */
+export class Remove {}
+
+/**
+ * Cleanup policy value: destroy the dependent entities. Under {@link OnDelete}
+ * every carrier is destroyed; under {@link OnDeleteTarget} every source with an
+ * edge to the destroyed target is destroyed.
+ */
+export class Delete {}
