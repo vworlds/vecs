@@ -145,6 +145,11 @@ export function makeUpdateRegistration<C extends ComponentType>(
   const { ComponentClass, components, useIter } = normalized;
   const { onEnter, onRemove, optional } = normalized;
   const componentEid = world.entity(ComponentClass).eid;
+  if (normalized.optionalMissing) {
+    throw new Error(
+      `update watch of ${ComponentClass.name}: options must set optional: true or optional: false`
+    );
+  }
   if (onRemove && !optional) {
     throw new Error(`update watch of ${ComponentClass.name}: onRemove requires optional: true`);
   }
@@ -209,6 +214,7 @@ function normalizeUpdateCallbackArgs<C extends ComponentType>(
   onEnter: boolean;
   onRemove: boolean;
   optional: boolean;
+  optionalMissing: boolean;
   useIter: boolean;
 } {
   if (isOptionsObject(arg0) && "watch" in arg0) {
@@ -218,6 +224,7 @@ function normalizeUpdateCallbackArgs<C extends ComponentType>(
       onEnter: arg0.onEnter === true,
       onRemove: arg0.onRemove === true,
       optional: arg0.optional === true,
+      optionalMissing: typeof arg0.optional !== "boolean",
       useIter: wantsIter(arg0.cursor),
     };
   }
@@ -227,6 +234,7 @@ function normalizeUpdateCallbackArgs<C extends ComponentType>(
     onEnter: false,
     onRemove: false,
     optional: false,
+    optionalMissing: false,
     useIter: false,
   };
 }

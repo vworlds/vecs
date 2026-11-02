@@ -67,7 +67,7 @@ export class JointLifecycleModule extends Module {
       })
       // Type-component change (e.g. DistanceJoint.length): destroy + recreate now.
       .update(
-        { watch: Joint, inject: [bodyAInject, bodyBInject] },
+        { watch: Joint, optional: false, inject: [bodyAInject, bodyBInject] },
         (entity, joint, [bodyA, bodyB]) => {
           recreateJointForEntity(engine, entity, joint, bodyA, bodyB);
         }
@@ -87,7 +87,7 @@ export class JointLifecycleModule extends Module {
       .with(JointFrame, jointWithBothBodies)
       .phase(phase)
       .update(
-        { watch: JointFrame, inject: [Joint, bodyAInject, bodyBInject] },
+        { watch: JointFrame, optional: false, inject: [Joint, bodyAInject, bodyBInject] },
         (entity, _frame, [joint, bodyA, bodyB]) => {
           recreateJointForEntity(engine, entity, joint, bodyA, bodyB);
         }
@@ -100,13 +100,13 @@ export class JointLifecycleModule extends Module {
       .with(JointBodyA, JointBodyB, jointWithBothBodies)
       .phase(phase)
       .update(
-        { watch: JointBodyA, inject: [Joint, bodyAInject, bodyBInject] },
+        { watch: JointBodyA, optional: false, inject: [Joint, bodyAInject, bodyBInject] },
         (entity, _rel, [joint, bodyA, bodyB]) => {
           recreateJointForEntity(engine, entity, joint, bodyA, bodyB);
         }
       )
       .update(
-        { watch: JointBodyB, inject: [Joint, bodyAInject, bodyBInject] },
+        { watch: JointBodyB, optional: false, inject: [Joint, bodyAInject, bodyBInject] },
         (entity, _rel, [joint, bodyA, bodyB]) => {
           recreateJointForEntity(engine, entity, joint, bodyA, bodyB);
         }

@@ -24,6 +24,7 @@ export class MaterialFilterSyncModule extends Module {
       .update(
         {
           watch: Material,
+          optional: false,
           onEnter: true,
           cursor: Iter,
           inject: [SingleShape, { target: [ChildOf, [Body]] }],
@@ -53,6 +54,7 @@ export class MaterialFilterSyncModule extends Module {
       .update(
         {
           watch: Material,
+          optional: false,
           onEnter: true,
           cursor: Iter,
           inject: [Chain, { target: [ChildOf, [Body]] }],
@@ -70,6 +72,7 @@ export class MaterialFilterSyncModule extends Module {
       .update(
         {
           watch: CollisionFilter,
+          optional: false,
           onEnter: true,
           cursor: Iter,
           inject: [SingleShape, { target: [ChildOf, [Body]] }],
@@ -100,6 +103,7 @@ export class MaterialFilterSyncModule extends Module {
       .update(
         {
           watch: CollisionFilter,
+          optional: false,
           onEnter: true,
           cursor: Iter,
           inject: [Chain, { target: [ChildOf, [Body]] }],
@@ -117,6 +121,7 @@ export class MaterialFilterSyncModule extends Module {
       .update(
         {
           watch: Sensor,
+          optional: false,
           onEnter: true,
           cursor: Iter,
           inject: [SingleShape, { target: [ChildOf, [Body]] }],
@@ -134,6 +139,7 @@ export class MaterialFilterSyncModule extends Module {
       .update(
         {
           watch: Sensor,
+          optional: false,
           onEnter: true,
           cursor: Iter,
           inject: [Chain, { target: [ChildOf, [Body]] }],

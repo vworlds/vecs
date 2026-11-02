@@ -709,16 +709,22 @@ export function deadReckoningReplicationCases(stress: boolean): void {
           .system("test.streamed.control")
           .with(PhysicsPosition, PhysicsRotation)
           .phase(ON_STORE)
-          .update({ watch: PhysicsPosition, onEnter: true }, (entity, position) => {
-            if (entity === toggled) {
-              streamedControl.set(RenderPosition, { x: position.x, y: position.y });
+          .update(
+            { watch: PhysicsPosition, optional: false, onEnter: true },
+            (entity, position) => {
+              if (entity === toggled) {
+                streamedControl.set(RenderPosition, { x: position.x, y: position.y });
+              }
             }
-          })
-          .update({ watch: PhysicsRotation, onEnter: true }, (entity, rotation) => {
-            if (entity === toggled) {
-              streamedControl.set(RenderRotation, { angle: rotation.angle });
+          )
+          .update(
+            { watch: PhysicsRotation, optional: false, onEnter: true },
+            (entity, rotation) => {
+              if (entity === toggled) {
+                streamedControl.set(RenderRotation, { angle: rotation.angle });
+              }
             }
-          });
+          );
         // Every switch, as the server frame it takes effect in. The first is at t = 5 s and then
         // every 1.5 s; even ones run outside a system, odd ones inside a system of a late phase.
         const switches: number[] = [];

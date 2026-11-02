@@ -37,7 +37,12 @@ export class ShapeLifecycleModule extends Module {
         }
       )
       .update(
-        { watch: SingleShape, cursor: Iter, inject: [{ target: [ChildOf, [Body]] }] },
+        {
+          watch: SingleShape,
+          optional: false,
+          cursor: Iter,
+          inject: [{ target: [ChildOf, [Body]] }],
+        },
         (it, shape, [body]) => {
           if (
             (shape instanceof Capsule &&
@@ -65,6 +70,7 @@ export class ShapeLifecycleModule extends Module {
       .update(
         {
           watch: ChildOf,
+          optional: false,
           cursor: Iter,
           inject: [SingleShape, { target: [ChildOf, [Body]] }],
         },

@@ -646,14 +646,17 @@ function installPhysics(sector: Sector): void {
     .with(Body, PhysPosition)
     .phase(PRE_UPDATE)
     .ignoreSource([PhysicsTag])
-    .update({ watch: PhysPosition, onEnter: true, inject: [Body] }, (entity, position, [body]) => {
-      trace(CB.poseInPosition, entity.eid);
-      const sim = engine.bodies[body.id];
-      if (sim !== undefined) {
-        sim.x = position.x;
-        sim.y = position.y;
+    .update(
+      { watch: PhysPosition, optional: false, onEnter: true, inject: [Body] },
+      (entity, position, [body]) => {
+        trace(CB.poseInPosition, entity.eid);
+        const sim = engine.bodies[body.id];
+        if (sim !== undefined) {
+          sim.x = position.x;
+          sim.y = position.y;
+        }
       }
-    })
+    )
     .entity.add(PhysicsTag);
 
   world
@@ -661,13 +664,16 @@ function installPhysics(sector: Sector): void {
     .with(Body, PhysRotation)
     .phase(PRE_UPDATE)
     .ignoreSource([PhysicsTag])
-    .update({ watch: PhysRotation, onEnter: true, inject: [Body] }, (entity, rotation, [body]) => {
-      trace(CB.poseInRotation, entity.eid);
-      const sim = engine.bodies[body.id];
-      if (sim !== undefined) {
-        sim.angle = rotation.angle;
+    .update(
+      { watch: PhysRotation, optional: false, onEnter: true, inject: [Body] },
+      (entity, rotation, [body]) => {
+        trace(CB.poseInRotation, entity.eid);
+        const sim = engine.bodies[body.id];
+        if (sim !== undefined) {
+          sim.angle = rotation.angle;
+        }
       }
-    })
+    )
     .entity.add(PhysicsTag);
 
   world
@@ -676,7 +682,7 @@ function installPhysics(sector: Sector): void {
     .phase(PRE_UPDATE)
     .ignoreSource([PhysicsTag])
     .update(
-      { watch: LinearVelocity, onEnter: true, inject: [Body] },
+      { watch: LinearVelocity, optional: false, onEnter: true, inject: [Body] },
       (entity, velocity, [body]) => {
         trace(CB.poseInLinear, entity.eid);
         const sim = engine.bodies[body.id];
@@ -694,7 +700,7 @@ function installPhysics(sector: Sector): void {
     .phase(PRE_UPDATE)
     .ignoreSource([PhysicsTag])
     .update(
-      { watch: AngularVelocity, onEnter: true, inject: [Body] },
+      { watch: AngularVelocity, optional: false, onEnter: true, inject: [Body] },
       (entity, velocity, [body]) => {
         trace(CB.poseInAngular, entity.eid);
         const sim = engine.bodies[body.id];
@@ -710,7 +716,7 @@ function installPhysics(sector: Sector): void {
     .with(Body, Force)
     .phase(PRE_UPDATE)
     .ignoreSource([PhysicsTag])
-    .update({ watch: Force, inject: [Body] }, (entity, force, [body]) => {
+    .update({ watch: Force, optional: false, inject: [Body] }, (entity, force, [body]) => {
       trace(CB.force, entity.eid);
       const sim = engine.bodies[body.id];
       if (sim !== undefined) {
@@ -749,7 +755,7 @@ function installPhysics(sector: Sector): void {
     .system("render:SyncPosition")
     .with(PhysPosition, Position)
     .phase(POST_UPDATE)
-    .update({ watch: PhysPosition, onEnter: true }, (entity, position) => {
+    .update({ watch: PhysPosition, optional: false, onEnter: true }, (entity, position) => {
       trace(CB.syncPosition, entity.eid);
       entity.set(Position, { x: position.x, y: position.y });
     });
@@ -758,7 +764,7 @@ function installPhysics(sector: Sector): void {
     .system("render:SyncRotation")
     .with(PhysRotation, Rotation)
     .phase(POST_UPDATE)
-    .update({ watch: PhysRotation, onEnter: true }, (entity, rotation) => {
+    .update({ watch: PhysRotation, optional: false, onEnter: true }, (entity, rotation) => {
       trace(CB.syncRotation, entity.eid);
       entity.set(Rotation, { angle: rotation.angle });
     });
@@ -947,7 +953,7 @@ function installInterestGrid(sector: Sector): void {
     .system("grid:AssignDisplayChildCells")
     .with(Networked)
     .phase(PRE_STORE)
-    .update({ watch: DrawBy, onEnter: true }, (entity) => {
+    .update({ watch: DrawBy, optional: false, onEnter: true }, (entity) => {
       trace(CB.displayChildCell, entity.eid);
       const cell = entity.target(DrawBy)?.target(InCell);
       if (cell && entity.target(InCell) !== cell) {

@@ -982,7 +982,7 @@ describe("ServerWorld", () => {
       .system("read-input")
       .with(Networked, NetworkInput)
       .phase(PRE_STORE)
-      .update({ watch: NetworkInput, onEnter: true }, (_e, ni) => {
+      .update({ watch: NetworkInput, optional: false, onEnter: true }, (_e, ni) => {
         observed = ni.input;
       });
 
@@ -1600,17 +1600,20 @@ describe("ServerWorld", () => {
       .system("CrossCell")
       .with(Networked, NetworkClient, Position, View)
       .phase(PRE_STORE)
-      .update({ watch: Position, onEnter: true, inject: [View] }, (entity, position, [view]) => {
-        const cell = position.x < 5 ? cellA : cellB;
-        const dsl = position.x < 5 ? dslA : dslB;
-        if (entity.target(InCell) !== cell) {
-          entity.add(InCell, cell);
+      .update(
+        { watch: Position, optional: false, onEnter: true, inject: [View] },
+        (entity, position, [view]) => {
+          const cell = position.x < 5 ? cellA : cellB;
+          const dsl = position.x < 5 ? dslA : dslB;
+          if (entity.target(InCell) !== cell) {
+            entity.add(InCell, cell);
+          }
+          if (view.dsl !== dsl) {
+            view.dsl = dsl;
+            entity.modified(View);
+          }
         }
-        if (view.dsl !== dsl) {
-          view.dsl = dsl;
-          entity.modified(View);
-        }
-      });
+      );
 
     const socket = new MemorySocket("client-1");
     listener.connect(socket);

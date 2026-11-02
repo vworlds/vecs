@@ -492,15 +492,18 @@ export class Query<
    * Register one update callback for a watched component.
    *
    * `update(ComponentClass, callback)` keeps the common component-only form.
-   * Use `update({ watch, inject, cursor }, callback)` when the callback
-   * needs injected components or an {@link Iter} cursor.
+   * Use `update({ watch, optional, inject, cursor }, callback)` when the
+   * callback needs injected components, an {@link Iter} cursor, or an optional
+   * watch. The options form must set `optional`, so each call states whether
+   * the watch requires the component; `optional: false` means the same as the
+   * shorthand.
    * System callbacks may also inject `Now` and `Delta`, both non-optional numbers
    * from the processing tick. Standalone query callbacks cannot inject clocks.
    *
    * `update` also adds the watched component to the query predicate, so the
    * callback only observes entities that carry it. The callback fires when the
    * component is set or marked modified on a matched entity. Pass
-   * `{ watch: ComponentClass, onEnter: true }` when the callback should also fire
+   * `{ watch: ComponentClass, optional: false, onEnter: true }` when the callback should also fire
    * when a matched entity enters with the watched component already present.
    *
    * Pass `{ watch: ComponentClass, optional: true }` to watch the component
@@ -515,8 +518,8 @@ export class Query<
    * system is rejected instead of replacing the previous callback.
    *
    * @throws When this query has already been built, when `ComponentClass`
-   *   already has an update callback on this query, or when `onRemove` is set
-   *   without `optional`.
+   *   already has an update callback on this query, when the options form
+   *   omits `optional`, or when `onRemove` is set without `optional: true`.
    */
   public update<C extends ComponentType>(
     ComponentClass: C,

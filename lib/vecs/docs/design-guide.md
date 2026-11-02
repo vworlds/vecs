@@ -325,9 +325,10 @@ Details: [Queries and filters](./queries-and-filters.md#the-cost-of-not-and-with
   (create the resource). It fires only when the entity remains a member when the system drains;
   vecs drops a transient entry and its paired exit, so setup code does not need a `destroyed` guard.
 - **`update(C, …)`** — adds `C` to the predicate and fires when watched component `C` is modified.
-  Pass `{ onEnter: true }` when it should also fire on entry for an already-present watched
+  The options form must say `optional: false` (same meaning) or `optional: true`, so every watch
+  states whether it requires `C`. Pass `{ onEnter: true }` when it should also fire on entry for an already-present watched
   component. Use that to initialize on entry _and_ react to changes; leave it off when a separate
-  `.enter` owns initialization. Pass `{ optional: true }` to watch `C` without requiring it (see
+  `.enter` owns initialization. Pass `optional: true` to watch `C` without requiring it (see
   [Watching optional components](#watching-optional-components)).
 - **`exit`** — fires when an entity stops matching (a component removed, or the entity destroyed).
   Its injected components are read from a **snapshot captured at exit time**, so they're still
@@ -352,17 +353,17 @@ Choose `onEnter: true` by asking who owns the initial value:
 - Use **plain `update(C, cb)`** for mutation-only callbacks that should react only after the entity
   is already live: expensive rebuilds, destructive recreate paths, validation/repair passes, or
   post-construction setters where an `enter` callback already consumed the same component state.
-- Do not duplicate an `.enter(...)` body and an `.update({ onEnter: true })` body that perform the
+- Do not duplicate an `.enter(...)` body and an `.update({ optional: false, onEnter: true })` body that perform the
   same work. Pick one owner: explicit `.enter` for separate lifecycle setup, or one
   `{ onEnter: true }` update callback for "initialize from current value, then keep synced."
 
 ```ts
 // ❌ redundant when update already owns initialization (Transform = Implements marker → the attached GameObject)
 .enter([Rotation, Transform], (_e, [r, obj]) => obj.setRotation(coords.rot(r.angle)))
-.update({ watch: Rotation, onEnter: true, inject: [Transform] }, (_e, r, [obj]) => obj.setRotation(coords.rot(r.angle)));
+.update({ watch: Rotation, optional: false, onEnter: true, inject: [Transform] }, (_e, r, [obj]) => obj.setRotation(coords.rot(r.angle)));
 
 // ✅ update opts into entry-time initialization
-.update({ watch: Rotation, onEnter: true, inject: [Transform] }, (_e, r, [obj]) => obj.setRotation(coords.rot(r.angle)));
+.update({ watch: Rotation, optional: false, onEnter: true, inject: [Transform] }, (_e, r, [obj]) => obj.setRotation(coords.rot(r.angle)));
 ```
 
 ### Watching optional components
@@ -380,7 +381,7 @@ when it leaves. The entity stays a member when `C` is removed, and the callback 
 
 A game server recomputes a client's interest view when its control, identity or sector transfer
 changes. Each of those components is optional, so the server used one system per component, each
-with `update({ watch, onEnter: true })` and an `exit`:
+with `update({ watch, optional: false, onEnter: true })` and an `exit`:
 
 ```ts
 // ❌ five systems, five inboxes, five exit callbacks around one function
@@ -388,7 +389,9 @@ for (const watch of [Controls, AuthenticatedPlayer, SectorTransfer, SlotWarned, 
   world
     .system(`UpdatePlayerViewsOn${watch.name}`)
     .with(NetworkClient, View)
-    .update({ watch, onEnter: true, inject: [View] }, (e, _c, [view]) => updateClientView(e, view))
+    .update({ watch, optional: false, onEnter: true, inject: [View] }, (e, _c, [view]) =>
+      updateClientView(e, view)
+    )
     .exit((e) => {
       const view = e.get(View);
       if (!e.destroyed && view) updateClientView(e, view);
@@ -412,7 +415,7 @@ for (const watch of [Controls, AuthenticatedPlayer, SectorTransfer, SlotWarned, 
 
 ```ts
 .enter([Arc], (entity, [arc]) => { /* … */ })
-.update({ watch: Arc, onEnter: true, inject: [Transform] }, (entity, arc, [obj]) => { /* … */ })
+.update({ watch: Arc, optional: false, onEnter: true, inject: [Transform] }, (entity, arc, [obj]) => { /* … */ })
 .exit([Arc, Transform], (entity, [arc, obj]) => { /* … */ })
 .each([Position, Velocity], (entity, [pos, vel]) => { /* … */ })
 ```
@@ -448,7 +451,7 @@ setup, see §3), so no creation path can forget it.
 
 ```ts
 // ❌ set on first use: Thrusting is optional to every reader, and creation is split
-.update({ watch: PlayerInputIntent, onEnter: true }, (entity, input) => {
+.update({ watch: PlayerInputIntent, optional: false, onEnter: true }, (entity, input) => {
   if (entity.get(Thrusting)?.on === input.thrust) return;
   if (!entity.has(Thrusting)) entity.set(Thrusting, { on: input.thrust });
   else entity.getMut(Thrusting, (t) => { t.on = input.thrust; });
@@ -456,7 +459,7 @@ setup, see §3), so no creation path can forget it.
 
 // ✅ Thrusting { on: false } exists from creation; the system requires and injects it
 .with(Ship, PlayerInputIntent, Thrusting)
-.update({ watch: PlayerInputIntent, onEnter: true, inject: [Thrusting] }, (entity, input, [t]) => {
+.update({ watch: PlayerInputIntent, optional: false, onEnter: true, inject: [Thrusting] }, (entity, input, [t]) => {
   if (t.on === input.thrust) return;
   t.on = input.thrust;
   entity.modified(Thrusting);
@@ -589,7 +592,7 @@ export class PhaserServerModule extends Module<undefined> {
       .with(PhysicsPosition, RenderPosition)
       .phase(POST_UPDATE)
       .update(
-        { watch: PhysicsPosition, onEnter: true, inject: [RenderPosition] },
+        { watch: PhysicsPosition, optional: false, onEnter: true, inject: [RenderPosition] },
         (e, p, [render]) => {
           if (render.x !== p.x || render.y !== p.y) {
             render.x = p.x;
@@ -603,7 +606,7 @@ export class PhaserServerModule extends Module<undefined> {
       .with(PhysicsRotation, RenderRotation)
       .phase(POST_UPDATE)
       .update(
-        { watch: PhysicsRotation, onEnter: true, inject: [RenderRotation] },
+        { watch: PhysicsRotation, optional: false, onEnter: true, inject: [RenderRotation] },
         (e, r, [render]) => {
           if (render.angle !== r.angle) {
             render.angle = r.angle;
@@ -759,7 +762,7 @@ world
   .system("render.arc")
   .with(Arc, Phaser.GameObjects.Arc)
   .phase(ON_STORE)
-  .update({ watch: Arc, inject: [Phaser.GameObjects.Arc] }, (e, arc, [obj]) =>
+  .update({ watch: Arc, optional: false, inject: [Phaser.GameObjects.Arc] }, (e, arc, [obj]) =>
     obj.setRadius(coords.len(arc.radius))
   );
 
@@ -793,7 +796,7 @@ it, so it is non-nullable, see §4), and write only when `B` differs from `A`:
 
 ```ts
 .with(PhysicsPosition, RenderPosition).update(
-  { watch: PhysicsPosition, onEnter: true, inject: [RenderPosition] },
+  { watch: PhysicsPosition, optional: false, onEnter: true, inject: [RenderPosition] },
   (e, p, [render]) => {
     if (render.x !== p.x || render.y !== p.y) {
       render.x = p.x;
@@ -933,7 +936,7 @@ system after whatever produces the entity/companion.
 | `entity.destroyed` guards on an entity looked up from a stored link    | A missing edge: replace the link. Keep checks for event buffers; writes need none ([why](./relationships.md#link-with-edges-not-stored-ids)).        |
 | `OwnedTarget` on `CurrentEnemy`, `InCell`, `Team`, or shared state     | Use a normal relationship; replacing or removing an owned edge destroys its target.                                                                  |
 | One owned target used as a collection                                  | Use multiple child/item entities; owned targets model zero-or-one aggregates.                                                                        |
-| Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, onEnter: true })` when update owns initialization.                                                                           |
+| Duplicated `enter` + `update` doing the same thing                     | One `update({ watch: C, optional: false, onEnter: true })` when update owns initialization.                                                          |
 | One system trying to act in two phases                                 | Split into two systems, one per phase.                                                                                                               |
 | Custom phases for app/render logic                                     | Use the standard taxonomy; only engine modules insert phases.                                                                                        |
 | `.each` scanning every entity to detect change                         | Reactive `.update(C)` — fires only on change.                                                                                                        |
@@ -1083,7 +1086,7 @@ render code**.
   `ON_STORE`; a **geometry** system (`.with(Shape, m.Geometry).update`) in `ON_STORE`; and a
   shape-data **remove hook** (`component(Shape).on("remove", ...)` → remove the Phaser object) instead of a
   teardown system. Shared transform/style **sync** systems
-  (`.with(Component, m.Marker).update({ watch: Component, onEnter: true })`) apply
+  (`.with(Component, m.Marker).update({ watch: Component, optional: false, onEnter: true })`) apply
   position/rotation/scale/alpha/depth/size/fill/stroke through the markers — initialization is
   explicit via `onEnter: true`, and the umbrella loads shape modules _before_ the sync module so
   creation precedes sync within `ON_STORE`.

@@ -31,7 +31,7 @@ export class SpatialInterestModule extends Module {
       .system("AssignCells")
       .with(Networked, RenderPosition)
       .phase(PRE_STORE)
-      .update({ watch: RenderPosition, onEnter: true }, (entity, position) =>
+      .update({ watch: RenderPosition, optional: false, onEnter: true }, (entity, position) =>
         assignCell(entity, position, cellEntities)
       );
 
@@ -53,7 +53,7 @@ export class SpatialInterestModule extends Module {
       .with(Networked, NetworkClient, RenderPosition, View)
       .phase(PRE_STORE)
       .update(
-        { watch: RenderPosition, onEnter: true, inject: [View, ViewAll] },
+        { watch: RenderPosition, optional: false, onEnter: true, inject: [View, ViewAll] },
         (entity, position, [view, viewAll]) =>
           updatePlayerView(entity, position, view, cellViewDSL, viewAll !== undefined)
       );

@@ -88,13 +88,14 @@ describe("system clock injection", () => {
           };
           system
             .enter(options, (e, values) => record("enter", e, values))
-            .update({ ...options, watch: Position, onEnter: true }, (e, _p, values) =>
-              record("update", e, values)
+            .update(
+              { ...options, watch: Position, optional: false, onEnter: true },
+              (e, _p, values) => record("update", e, values)
             )
             .each(options, (e, values) => record("each", e, values))
             .exit(options, (e, values) => record("exit", e, values));
           configure(world.system("plain").with(Position, Sprite)).update(
-            { ...options, watch: Position },
+            { ...options, watch: Position, optional: false },
             (e, _p, values) => record("plain", e, values)
           );
           const entity = world.entity().set(Position, { x: 42 }).add(Sprite);
@@ -286,18 +287,21 @@ describe("system clock injection", () => {
         >();
         entered.push([it.entity, values, it.src]);
       })
-      .update({ cursor: Iter, watch: Sprite, inject, onEnter: true }, (it, _sprite, values) => {
-        expectTypeOf(values).toEqualTypeOf<
-          [
-            number,
-            Entity | undefined,
-            Position | undefined,
-            number,
-            ReadonlyArray<readonly [Position | undefined]>,
-          ]
-        >();
-        updated.push([it.entity, [...values], [...it.src]]);
-      });
+      .update(
+        { cursor: Iter, watch: Sprite, optional: false, inject, onEnter: true },
+        (it, _sprite, values) => {
+          expectTypeOf(values).toEqualTypeOf<
+            [
+              number,
+              Entity | undefined,
+              Position | undefined,
+              number,
+              ReadonlyArray<readonly [Position | undefined]>,
+            ]
+          >();
+          updated.push([it.entity, [...values], [...it.src]]);
+        }
+      );
     world.progress(10, 8);
     source.remove(Link, firstTarget);
     source.add(Link, secondTarget);
@@ -319,8 +323,9 @@ describe("system clock injection", () => {
       .system("numbers")
       .with(Position)
       .each([Now, Delta], (_e, values) => each.push(values))
-      .update({ watch: Position, onEnter: true, inject: [Now, Delta] }, (_e, _p, values) =>
-        update.push(values)
+      .update(
+        { watch: Position, optional: false, onEnter: true, inject: [Now, Delta] },
+        (_e, _p, values) => update.push(values)
       );
     world.entity().add(Position);
     world.progress(10, 1);
@@ -349,7 +354,7 @@ describe("system clock injection", () => {
         expectTypeOf(values).toEqualTypeOf<[number, Position, number]>();
       })
       .update(
-        { watch: Position, inject: [Missing, Now, Position, Delta], cursor: Iter },
+        { watch: Position, optional: false, inject: [Missing, Now, Position, Delta], cursor: Iter },
         (it, pos, values) => {
           expectTypeOf(it).toEqualTypeOf<Iter>();
           expectTypeOf(pos).toEqualTypeOf<Position>();
@@ -381,7 +386,7 @@ describe("system clock injection", () => {
     }).toThrow(message);
     expect(() => {
       // @ts-expect-error Standalone update has no system clock.
-      query.update({ watch: Position, inject: [Now] }, () => {});
+      query.update({ watch: Position, optional: false, inject: [Now] }, () => {});
     }).toThrow(message);
     expect(() => {
       // @ts-expect-error A synchronous forEach also has no processing tick.

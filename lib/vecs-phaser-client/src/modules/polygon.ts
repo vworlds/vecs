@@ -34,8 +34,11 @@ export class PolygonModule extends Module<{ scene: Phaser.Scene; coords: CoordSp
       .system("phaser.render.polygon.geometry")
       .with(Polygon, m.Vertices)
       .phase(ON_STORE)
-      .update({ watch: Polygon, inject: [m.Vertices] }, (_entity, polygon, [obj]) => {
-        obj.setTo(polygonPoints(coords, polygon));
-      });
+      .update(
+        { watch: Polygon, optional: false, inject: [m.Vertices] },
+        (_entity, polygon, [obj]) => {
+          obj.setTo(polygonPoints(coords, polygon));
+        }
+      );
   }
 }

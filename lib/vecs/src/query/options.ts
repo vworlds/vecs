@@ -28,10 +28,13 @@ type OnEnterUpdateOption = {
   onEnter?: boolean;
 };
 
-/** `optional` keeps the watch out of the predicate; `onRemove` needs it. */
+/**
+ * Required: `optional: false` adds the watch to the predicate, `optional: true`
+ * keeps it out. `onRemove` needs `optional: true`.
+ */
 type OptionalWatchOption =
   | {
-      optional?: false;
+      optional: false;
       onRemove?: never;
     }
   | {
