@@ -188,22 +188,25 @@ const traits = world.query("Traits").with(ComponentDef, Trait).build();
 The query tracks declarations incrementally. `Trait` is local-only metadata, not an enforcement
 gate or a hook installer; see [trait reflection](./components.md#reflecting-on-component-definitions).
 
-| Trait/declaration | Reach for it when                                                                  |
-| ----------------- | ---------------------------------------------------------------------------------- |
-| `Singleton`       | At most one entity may carry the component                                         |
-| `Implements`      | Concrete components should be queryable through abstract aliases                   |
-| `Exclusive`       | A relationship must have at most one target                                        |
-| `Traversable`     | An exclusive relationship hierarchy needs depth or cascade ordering                |
-| `OwnedTarget`     | An exclusive relationship owns its explicitly added target                         |
-| `OneOf`           | A relationship's targets must be direct children of a declared parent (enum-style) |
-| `With`            | Adding one component should bring another along, as a companion it does not own    |
-| `Requires`        | Adding one component should bring another, and removing it should take it away     |
-| `OnSnapshot`      | Choose a component's subtree snapshot policy                                       |
+| Trait/declaration | Reach for it when                                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `Singleton`       | At most one entity may carry the component                                                                             |
+| `Implements`      | Concrete components should be queryable through abstract aliases                                                       |
+| `Exclusive`       | A relationship must have at most one target                                                                            |
+| `Traversable`     | An exclusive relationship hierarchy needs depth or cascade ordering                                                    |
+| `OwnedTarget`     | An exclusive relationship owns its explicitly added target                                                             |
+| `OneOf`           | A relationship's targets must be direct children of a declared parent (enum-style)                                     |
+| `With`            | Adding one component should bring another along, as a companion it does not own                                        |
+| `Requires`        | Adding one component should bring another, and removing it should take it away                                         |
+| `OnSnapshot`      | Choose a component's subtree snapshot policy                                                                           |
+| `OnDelete`        | Destroying a component entity should strip (`Remove`) or destroy (`Delete`) its carriers instead of throwing (`Throw`) |
+| `OnDeleteTarget`  | Destroying a relationship target should destroy its sources (`Delete`) instead of only dropping the edge (`Remove`)    |
 
 Traits declare policy; modules implement it through hooks and metadata. Configure them in module
 setup, not inside systems. Lifecycle differs by trait: `OwnedTarget` and `Singleton` are setup-time
 policy, `Traversable` backfills, and `Implements` recomputes declarations. Do not assume traits are
-dynamically removable. See the [Components guide](./components.md#component-traits-policy-on-component-entities)
+dynamically removable; the cleanup policies `OnDelete` and `OnDeleteTarget` are, and removing one
+restores its default. See the [Components guide](./components.md#component-traits-policy-on-component-entities)
 for the full model and custom-trait guidance.
 
 `With` is a pair-form trait: `world.component(Motion).add(With, world.component(Position))` adds a
@@ -281,7 +284,8 @@ these policies.
 
 - **Target storage is private.** Read edges with `target` / `targets` / `hasTarget`; mutate them only
   with `add(Rel, target)` and `remove(Rel, target)` (or `remove(Rel)` for all edges). There is no
-  public `Relationship.target` field.
+  public `Relationship.target` field. Naming a data field `target` or `targets` is discouraged
+  because `entity.target(Rel)` / `entity.targets(Rel)` use that vocabulary for edges.
 - **Relationships can be networked** when listed in `networkComponents`. A relationship snapshot
   carries all target eids plus the relationship's ordinary wire fields. The client reconciles the
   complete edge set and creates ghost targets that have not arrived yet. Use a dedicated
@@ -995,7 +999,7 @@ system after whatever produces the entity/companion.
   only with `InheritRotation`, which makes the resolver derive its `Rotation` every frame, so
   writing `Rotation` on a tagged child has no effect (see
   [Turning with the parent](../../vecs-phaser-client/README.md#turning-with-the-parent)).
-- **vecs-phaser: `DrawBy` and `DrawIn` use `CleanupPolicy.Remove`,** so destroying a display parent
+- **vecs-phaser: `DrawBy` and `DrawIn` use `(OnDeleteTarget, Remove)`,** so destroying a display parent
   detaches its children instead of destroying them, unlike `ChildOf`, which deletes them. A display
   child that must die with its parent also needs `ChildOf` to it, or must be its owned target (see
   [Destroying the display parent](../../vecs-phaser-client/README.md#destroying-the-display-parent)).
@@ -1049,7 +1053,9 @@ render code**.
   attached to its entity **as the component** (`entity.attach(obj)`) — no wrapper. Each concrete
   Phaser class declares the **interface markers** it satisfies with `Implements` (`GameObject`,
   `Transform`, `Fill`, … plus a geometry marker like `Arc`/`Vertices`/`Text`), so one set of
-  systems drives every renderable polymorphically. Per shape: a **creation** system
+  systems drives every renderable polymorphically, including Phaser objects a game attaches itself
+  ([Attaching your own Phaser objects](../../vecs-phaser-client/README.md#attaching-your-own-phaser-objects)).
+  Per shape: a **creation** system
   (`.with(Shape).without(Phaser.GameObjects.Kind).enter` → `scene.add.*` + `entity.attach`) in
   `ON_STORE`; a **geometry** system (`.with(Shape, m.Geometry).update`) in `ON_STORE`; and a
   shape-data **remove hook** (`component(Shape).on("remove", ...)` → remove the Phaser object) instead of a

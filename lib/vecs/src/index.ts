@@ -27,14 +27,19 @@ export { Filter } from "./filter.js";
 export { ComponentDef, Trait } from "./component_def.js";
 export {
   ChildOf,
+  Delete,
   DependsOn,
   Exclusive,
+  OnDelete,
+  OnDeleteTarget,
   OneOf,
   OwnedTarget,
+  Remove,
+  Requires,
   SilenceSource,
+  Throw,
 } from "./modules/relationships.js";
 export {
-  CleanupPolicy,
   Component,
   Implements,
   Relationship,
@@ -74,7 +79,7 @@ export { MoveSubtreeError } from "./world/world.transfers.js";
 export { IdentityModule } from "./modules/identity.js";
 export { ImplementsModule } from "./modules/implements.js";
 export { Singleton, SingletonModule } from "./modules/singleton.js";
-export { Requires, Traversable, With, RelationshipsModule } from "./modules/relationships.js";
+export { Traversable, With, RelationshipsModule } from "./modules/relationships.js";
 export {
   type SnapshotCapture,
   type SnapshotMaterialize,
