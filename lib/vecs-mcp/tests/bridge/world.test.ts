@@ -92,9 +92,19 @@ it("classifies all built-ins by declaration, independently of their usage", () =
     [["Trait", "ComponentDef", "Identity"], "component", false],
     [["ChildOf", "DependsOn", "SilenceSource"], "relationship", false],
     [["Exclusive", "Traversable", "OwnedTarget", "Singleton", "Implements"], "component", true],
-    [["With", "OneOf", "OnSnapshot"], "relationship", true],
+    [["With", "OneOf", "OnSnapshot", "OnDelete", "OnDeleteTarget"], "relationship", true],
     [
-      ["ClonePublic", "DontSnapshot", "CustomSnapshot", "Phase", "Query", "System"],
+      [
+        "ClonePublic",
+        "DontSnapshot",
+        "CustomSnapshot",
+        "Throw",
+        "Remove",
+        "Delete",
+        "Phase",
+        "Query",
+        "System",
+      ],
       "component",
       false,
     ],
@@ -104,6 +114,10 @@ it("classifies all built-ins by declaration, independently of their usage", () =
       expect(rows.get(name), name).toMatchObject({ name, kind, trait });
     }
   }
+  expect(rows.get("ChildOf")?.traits).toContainEqual({
+    name: "OnDeleteTarget",
+    targets: ["Delete"],
+  });
   world.dispose();
 });
 

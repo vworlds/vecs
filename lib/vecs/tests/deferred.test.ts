@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { CommandKind } from "../src/command.js";
-import { CleanupPolicy, Exclusive, Relationship, World } from "../src/index.js";
+import { Delete, Exclusive, OnDelete, Relationship, Remove, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -503,7 +503,7 @@ describe("World.defer(fn)", () => {
     {
       const w = new World();
       const componentEntity = w.component(DeferredRemove);
-      componentEntity.meta.onDelete = CleanupPolicy.Remove;
+      componentEntity.add(OnDelete, Remove);
       w.component(Velocity);
       const carrier = w.entity().add(DeferredRemove);
       const sentinel = w.entity();
@@ -522,7 +522,7 @@ describe("World.defer(fn)", () => {
     {
       const w = new World();
       const componentEntity = w.component(DeferredDelete);
-      componentEntity.meta.onDelete = CleanupPolicy.Delete;
+      componentEntity.add(OnDelete, Delete);
       w.component(Velocity);
       const carrier = w.entity().add(DeferredDelete);
       const sentinel = w.entity();
