@@ -15,6 +15,8 @@
 // call lists only component references, does nothing when a `with(...)` of the
 // chain already names it, and otherwise inserts `.with(C)` just before `.update`.
 // Every site it cannot rewrite is printed and the script exits with status 1.
+// Run it once, on code written for the previous API: on migrated code it would
+// read every options literal as the old form and require its watch again.
 // Format the rewritten files with your formatter afterwards.
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";

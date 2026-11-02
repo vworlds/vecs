@@ -21,11 +21,14 @@ const playerShape = world
 If `playerShape` touches another shape, `vecs-physics` updates its `ContactEvents` component and marks it modified. Vecs systems can listen with `.with(ContactEvents).update({ watch: ContactEvents }, ...)`.
 
 ```ts
-world.system("LogContacts").with(ContactEvents).update({ watch: ContactEvents }, (shapeEntity, events) => {
-  for (const event of events.begin) {
-    console.log("started touching", event.other.eid);
-  }
-});
+world
+  .system("LogContacts")
+  .with(ContactEvents)
+  .update({ watch: ContactEvents }, (shapeEntity, events) => {
+    for (const event of events.begin) {
+      console.log("started touching", event.other.eid);
+    }
+  });
 ```
 
 ## Event Components
@@ -125,11 +128,14 @@ const crate = world.entity().set(Position, { x: 0, y: 3 }).set(Body, { type: Bod
 
 world.entity().add(ChildOf, crate).set(Box, { hx: 0.5, hy: 0.5 }).add(ContactEvents);
 
-world.system("CrateContacts").with(ContactEvents).update({ watch: ContactEvents }, (shape, events) => {
-  for (const event of events.begin) {
-    console.log(`shape ${shape.eid} touched shape ${event.other.eid}`);
-  }
-});
+world
+  .system("CrateContacts")
+  .with(ContactEvents)
+  .update({ watch: ContactEvents }, (shape, events) => {
+    for (const event of events.begin) {
+      console.log(`shape ${shape.eid} touched shape ${event.other.eid}`);
+    }
+  });
 ```
 
 If both shapes have `ContactEvents`, both receive their own event. If only one shape has `ContactEvents`, only that shape receives the event.
