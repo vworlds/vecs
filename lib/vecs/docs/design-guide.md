@@ -1037,7 +1037,9 @@ render code**.
   attached to its entity **as the component** (`entity.attach(obj)`) — no wrapper. Each concrete
   Phaser class declares the **interface markers** it satisfies with `Implements` (`GameObject`,
   `Transform`, `Fill`, … plus a geometry marker like `Arc`/`Vertices`/`Text`), so one set of
-  systems drives every renderable polymorphically. Per shape: a **creation** system
+  systems drives every renderable polymorphically, including Phaser objects a game attaches itself
+  ([Attaching your own Phaser objects](../../vecs-phaser-client/README.md#attaching-your-own-phaser-objects)).
+  Per shape: a **creation** system
   (`.with(Shape).without(Phaser.GameObjects.Kind).enter` → `scene.add.*` + `entity.attach`) in
   `ON_STORE`; a **geometry** system (`.with(Shape, m.Geometry).update`) in `ON_STORE`; and a
   shape-data **remove hook** (`component(Shape).on("remove", ...)` → remove the Phaser object) instead of a
