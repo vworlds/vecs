@@ -69,13 +69,15 @@ export {
  *
  * `OwnedTarget` and `Traversable` are irrevocable once attached: both
  * `entity.remove(Trait)` and `entity.attach(newInstance)` throw, and the world
- * must be discarded after the throw. Destroying the relationship entity itself
- * skips these guards — its `remove` hooks see it `destroyed` — so
- * `clearAllEntities` can still tear down worlds with these traits configured.
+ * must be discarded after the throw. Teardown bypasses these guards —
+ * `Entity._destroy` fires only the application `remove` handlers, not the
+ * trait ones — so `clearAllEntities` can still tear down worlds with these
+ * traits configured.
  *
- * The trait handlers live in the ordinary hook lists, registered ahead of the
- * application's handlers, so they run first. `World.dispose` detaches their
- * `remove` / `targetRemove` handlers before tearing down infrastructure.
+ * The trait handlers register through `ComponentMeta._onTrait` into internal
+ * slots that run before the application's handlers of the same event.
+ * `World.dispose` clears their `remove` / `targetRemove` slots before tearing
+ * down infrastructure.
  *
  * Depth is computed by walking `entity.target(relEid)` to the root. When an
  * entity's depth changes, every descendant is recursively recomputed.
@@ -102,9 +104,6 @@ export class RelationshipsModule extends Module {
       relationship.meta.relationshipExclusive = true;
     });
     exclusive.meta._onTrait("remove", (relationship): void => {
-      if (relationship.destroyed) {
-        return;
-      }
       if (relationship.has(OwnedTarget) || relationship.has(Traversable)) {
         throw new Error("Exclusive cannot be removed while a dependent relationship trait exists");
       }
@@ -129,10 +128,7 @@ export class RelationshipsModule extends Module {
       );
       rel.meta._onTrait("targetRemove", (_source, _relationship, target) => target.destroy());
     });
-    ownedTarget.meta._onTrait("remove", (rel): void => {
-      if (rel.destroyed) {
-        return;
-      }
+    ownedTarget.meta._onTrait("remove", (): void => {
       throw new Error("OwnedTarget cannot be removed once added");
     });
 
@@ -161,10 +157,7 @@ export class RelationshipsModule extends Module {
         }
       });
     });
-    traversableTrait.meta._onTrait("remove", (rel): void => {
-      if (rel.destroyed) {
-        return;
-      }
+    traversableTrait.meta._onTrait("remove", (): void => {
       throw new Error("Traversable cannot be removed once added");
     });
 

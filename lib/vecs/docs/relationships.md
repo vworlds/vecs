@@ -292,9 +292,9 @@ edge is destroyed before the public hook runs on every path. A dying end takes n
 
 Register handlers with `on("targetAdd", handler)` and `on("targetRemove", handler)`; remove them
 with `off(event, handler)`. Multiple handlers may be registered for the same event and fire in
-registration order, after the handlers the built-in traits register. Adding a trait adds its
-handlers ahead of yours rather than replacing them. When a handler removes or replaces the edge it
-was called for, the remaining handlers for that edge are skipped.
+registration order, after the built-in traits' handlers. Adding a trait adds its handlers ahead of
+yours rather than replacing them. When a trait handler removes or replaces the edge it was called
+for, your handlers for that edge are skipped.
 
 ## Owned targets
 

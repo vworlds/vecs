@@ -305,9 +305,9 @@ describe("RelationshipsModule", () => {
     expect(owned.parent).toBe(player);
     expect(depthOf(w, child)).toBe(1);
 
-    // Entity._destroy marks the entity destroyed before firing its `remove`
-    // hooks, and the irrevocability guards skip a destroyed carrier, so they
-    // never fire during world destruction.
+    // Entity._destroy fires only the application `remove` handlers, not the
+    // trait ones, so the irrevocability guards never fire during world
+    // destruction.
     expect(() => w.clearAllEntities()).not.toThrow();
 
     // Everything is gone, including the trait-carrying component entities.

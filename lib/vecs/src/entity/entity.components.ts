@@ -7,8 +7,6 @@ import {
   type ComponentType,
   type HookEvent,
   type HookEventMap,
-  type HookHandler,
-  type HookSlot,
   type TargetHandler,
 } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
@@ -34,13 +32,12 @@ export class Components extends Relationships {
       throw new Error("Entity.attach cannot attach Relationship components; add explicit targets");
     }
     const existing = this._components.get(meta.eid);
-    const replaces = existing !== undefined && existing !== component;
-    if (replaces) {
-      this._runTraitHooks(meta, "remove", existing);
+    if (existing !== undefined && existing !== component) {
+      meta._traitRemove?.(this, existing);
     }
     this._storeComponent(meta, component, existing === undefined);
-    if (replaces) {
-      this._runTraitHooks(meta, "add", component);
+    if (existing !== undefined && existing !== component) {
+      meta._traitAdd?.(this, component);
     }
     this._notifyComponentSet(meta, component, existing !== undefined);
   }
@@ -103,6 +100,7 @@ export class Components extends Relationships {
     this._components.delete(meta.eid);
     this.world._notifyComponentChanged(meta.eid, this);
     meta._detachCarrier(this);
+    meta._traitRemove?.(this, c);
     meta._onRemove?.(this, c);
   }
 
@@ -821,32 +819,11 @@ export class Components extends Relationships {
       meta._attachCarrier(this);
     }
     if (isAdd && !existing) {
+      meta._traitAdd?.(this, instance);
       meta._onAdd?.(this, instance);
     }
     if (!existing) {
       this.world._notifyComponentAdded(meta.eid, this);
-    }
-  }
-
-  /**
-   * Run the relationship-trait handlers recorded for `event` on `meta`, in the
-   * order the hook list holds them (each trait prepends, so the latest first).
-   */
-  private _runTraitHooks(
-    this: Entity,
-    meta: ComponentMeta,
-    event: "add" | "remove",
-    component: ComponentInstance
-  ): void {
-    const traitHooks = meta._traitHooks;
-    if (traitHooks === undefined) {
-      return;
-    }
-    for (let i = traitHooks.length - 1; i >= 0; i--) {
-      const [e, handler] = traitHooks[i];
-      if (e === event) {
-        (handler as HookHandler)(this, component);
-      }
     }
   }
 
@@ -871,7 +848,27 @@ export class Components extends Relationships {
     target: Entity,
     isCurrent: () => boolean
   ): boolean {
-    return this._runTargetHandlers(meta._onTargetAdd, relationship, target, isCurrent);
+    // Trait handlers run first; each may mutate the relationship (e.g. an
+    // OwnedTarget handler parents the target). If one makes the edge no longer
+    // current, skip the remaining trait handlers and the application handlers.
+    const traits = meta._traitTargetAdd;
+    if (traits !== undefined) {
+      if ("handlers" in traits) {
+        for (const h of traits.handlers as TargetHandler[]) {
+          h(this, relationship, target);
+          if (!isCurrent()) {
+            return false;
+          }
+        }
+      } else {
+        traits(this, relationship, target);
+        if (!isCurrent()) {
+          return false;
+        }
+      }
+    }
+    meta._onTargetAdd?.(this, relationship, target);
+    return isCurrent();
   }
 
   private _emitTargetRemove(
@@ -881,35 +878,24 @@ export class Components extends Relationships {
     target: Entity,
     isCurrent: () => boolean
   ): boolean {
-    return this._runTargetHandlers(meta._onTargetRemove, relationship, target, isCurrent);
-  }
-
-  /**
-   * Run a `targetAdd` / `targetRemove` slot handler by handler. Each may mutate
-   * the relationship (e.g. an `OwnedTarget` handler parents the target); once
-   * one makes the edge no longer current, the remaining handlers are skipped.
-   */
-  private _runTargetHandlers(
-    this: Entity,
-    slot: HookSlot<TargetHandler>,
-    relationship: Relationship,
-    target: Entity,
-    isCurrent: () => boolean
-  ): boolean {
-    if (slot === undefined) {
-      return isCurrent();
-    }
-    if (!("handlers" in slot)) {
-      slot(this, relationship, target);
-      return isCurrent();
-    }
-    for (const h of slot.handlers as TargetHandler[]) {
-      h(this, relationship, target);
-      if (!isCurrent()) {
-        return false;
+    const traits = meta._traitTargetRemove;
+    if (traits !== undefined) {
+      if ("handlers" in traits) {
+        for (const h of traits.handlers as TargetHandler[]) {
+          h(this, relationship, target);
+          if (!isCurrent()) {
+            return false;
+          }
+        }
+      } else {
+        traits(this, relationship, target);
+        if (!isCurrent()) {
+          return false;
+        }
       }
     }
-    return true;
+    meta._onTargetRemove?.(this, relationship, target);
+    return isCurrent();
   }
 
   /**

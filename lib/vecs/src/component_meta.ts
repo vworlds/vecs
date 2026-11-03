@@ -182,6 +182,13 @@ export interface HookEventMap {
 export type HookEvent = keyof HookEventMap;
 
 /**
+ * Events a relationship trait registers through `ComponentMeta._onTrait`.
+ *
+ * @internal
+ */
+export type TraitEvent = "add" | "remove" | "targetAdd" | "targetRemove";
+
+/**
  * Multi-handler metadata attached to a wrapper function when two or more
  * handlers are registered for the same event.
  *
@@ -397,10 +404,17 @@ export class ComponentMeta {
   /** @internal Whether `_onNormalize` holds only the metadata-derived default. */
   public _normalizeIsDefault = false;
   /**
-   * @internal Handlers the relationship traits registered with {@link _onTrait},
-   * so `World.dispose` can detach them before tearing down infrastructure.
+   * @internal Relationship-trait handlers fired before {@link _onAdd}, kept in
+   * their own slot so dispatch calls the application slot directly. Registered
+   * with {@link _onTrait}.
    */
-  public _traitHooks: [HookEvent, Function][] | undefined = undefined;
+  public _traitAdd: HookSlot<HookHandler> = undefined;
+  /** @internal Relationship-trait handlers fired before {@link _onRemove}; see {@link _traitAdd}. */
+  public _traitRemove: HookSlot<HookHandler> = undefined;
+  /** @internal Relationship-trait handlers fired before {@link _onTargetAdd}; see {@link _traitAdd}. */
+  public _traitTargetAdd: HookSlot<TargetHandler> = undefined;
+  /** @internal Relationship-trait handlers fired before {@link _onTargetRemove}; see {@link _traitAdd}. */
+  public _traitTargetRemove: HookSlot<TargetHandler> = undefined;
 
   /**
    * @internal Reverse index of entities currently carrying this component eid.
@@ -439,10 +453,10 @@ export class ComponentMeta {
    * Multiple handlers may be registered for the same event; they fire in
    * registration order, after the handlers of the built-in relationship traits
    * (`Exclusive`, `Traversable`, `OwnedTarget`, `With`, `OneOf`). Removing a
-   * handler is via {@link off} with the same reference. When a `targetAdd` or
-   * `targetRemove` handler changes the edge it was called for (removes or
-   * replaces it, or removes the relationship), the remaining handlers for that
-   * edge are skipped.
+   * handler is via {@link off} with the same reference. When a trait's
+   * `targetAdd` or `targetRemove` handler changes the edge it was called for
+   * (removes or replaces it, or removes the relationship), the application
+   * handlers for that edge are skipped.
    *
    * The `targetAdd` and `targetRemove` events require this meta to be a
    * relationship; registering one on a non-relationship meta throws at
@@ -458,45 +472,37 @@ export class ComponentMeta {
    * @returns This meta, for chaining.
    */
   public on<E extends HookEvent>(event: E, handler: HookEventMap[E]): this {
-    return this._on(event, handler, false);
-  }
-
-  /**
-   * @internal {@link on} with a choice of position: `insert` `true` prepends the
-   * handler instead of appending it. {@link _onTrait} uses it.
-   */
-  public _on<E extends HookEvent>(event: E, handler: HookEventMap[E], insert: boolean): this {
     switch (event) {
       case "add":
-        this._onAdd = _installHook(this._onAdd, handler as HookHandler, insert);
+        this._onAdd = _installHook(this._onAdd, handler as HookHandler, false);
         break;
       case "remove":
-        this._onRemove = _installHook(this._onRemove, handler as HookHandler, insert);
+        this._onRemove = _installHook(this._onRemove, handler as HookHandler, false);
         break;
       case "set":
-        this._onSet = _installHook(this._onSet, handler as HookHandler, insert);
+        this._onSet = _installHook(this._onSet, handler as HookHandler, false);
         break;
       case "targetAdd":
         this._requireRelationship(event);
-        this._onTargetAdd = _installHook(this._onTargetAdd, handler as TargetHandler, insert);
+        this._onTargetAdd = _installHook(this._onTargetAdd, handler as TargetHandler, false);
         break;
       case "targetRemove":
         this._requireRelationship(event);
-        this._onTargetRemove = _installHook(this._onTargetRemove, handler as TargetHandler, insert);
+        this._onTargetRemove = _installHook(this._onTargetRemove, handler as TargetHandler, false);
         break;
       case "validate":
         if (this._validateIsDefault) {
           this._onValidate = undefined;
           this._validateIsDefault = false;
         }
-        this._onValidate = _installHook(this._onValidate, handler as ValidateHandler, insert);
+        this._onValidate = _installHook(this._onValidate, handler as ValidateHandler, false);
         break;
       case "normalize":
         if (this._normalizeIsDefault) {
           this._onNormalize = undefined;
           this._normalizeIsDefault = false;
         }
-        this._onNormalize = _installHook(this._onNormalize, handler as NormalizeHandler, insert);
+        this._onNormalize = _installHook(this._onNormalize, handler as NormalizeHandler, false);
         break;
       default: {
         const _exhaustive: never = event;
@@ -548,12 +554,34 @@ export class ComponentMeta {
   }
 
   /**
-   * @internal Register a relationship-trait handler ahead of the application's
-   * handlers and record it in {@link _traitHooks}.
+   * @internal Register a relationship-trait handler. Trait handlers of one event
+   * run in registration order, before every application handler of that event.
    */
-  public _onTrait<E extends HookEvent>(event: E, handler: HookEventMap[E]): this {
-    this._on(event, handler, true);
-    (this._traitHooks ??= []).push([event, handler]);
+  public _onTrait<E extends TraitEvent>(event: E, handler: HookEventMap[E]): this {
+    switch (event) {
+      case "add":
+        this._traitAdd = _installHook(this._traitAdd, handler as HookHandler, false);
+        break;
+      case "remove":
+        this._traitRemove = _installHook(this._traitRemove, handler as HookHandler, false);
+        break;
+      case "targetAdd":
+        this._requireRelationship(event);
+        this._traitTargetAdd = _installHook(this._traitTargetAdd, handler as TargetHandler, false);
+        break;
+      case "targetRemove":
+        this._requireRelationship(event);
+        this._traitTargetRemove = _installHook(
+          this._traitTargetRemove,
+          handler as TargetHandler,
+          false
+        );
+        break;
+      default: {
+        const _exhaustive: never = event;
+        throw new Error(`Unknown trait hook event: ${String(_exhaustive)}`);
+      }
+    }
     return this;
   }
 
