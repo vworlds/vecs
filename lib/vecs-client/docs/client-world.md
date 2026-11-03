@@ -26,7 +26,7 @@ policy note](../../vecs/docs/queries-and-filters.md#filters-one-shot-scans) and 
 note](../../vecs-wire/README.md#content-security-policy).
 
 Construct the world with its world options, install your modules and listeners, then connect it
-with `connectDgram`. The world installs its own `Pull` and `Apply` systems in the `ON_LOAD` phase,
+with `connectDgram`. The world installs its own `Pull`, `Apply` and `Release` systems in the `ON_LOAD` phase,
 so a normal `progress()` loop applies everything that has arrived.
 
 ```ts
