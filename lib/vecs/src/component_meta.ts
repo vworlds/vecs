@@ -226,28 +226,20 @@ export type HookSlot<H extends Function> = H | (H & HookMetadata) | undefined;
  * - Single-handler slot → wrap both handlers into a multi-handler wrapper
  *   whose `handlers` array is captured by reference and mutated in place by
  *   future `on` / `off` calls.
- * - Multi-handler slot → push (append) or unshift (prepend) into the existing
- *   `handlers` array; the wrapper closure sees the mutation without reinstallation.
+ * - Multi-handler slot → append to the existing `handlers` array; the wrapper
+ *   closure sees the mutation without reinstallation.
  *
  * @internal
  */
-export function _installHook<H extends Function>(
-  slot: HookSlot<H>,
-  handler: H,
-  insert: boolean
-): HookSlot<H> {
+export function _installHook<H extends Function>(slot: HookSlot<H>, handler: H): HookSlot<H> {
   if (slot === undefined) {
     return handler;
   }
   if ("handlers" in slot) {
-    if (insert) {
-      slot.handlers.unshift(handler);
-    } else {
-      slot.handlers.push(handler);
-    }
+    slot.handlers.push(handler);
     return slot;
   }
-  const handlers = insert ? [handler, slot] : [slot, handler];
+  const handlers = [slot, handler];
   const wrapper = ((...args: unknown[]) => {
     for (const h of handlers) {
       (h as Function)(...args);
@@ -509,35 +501,35 @@ export class ComponentMeta {
     const handler = handlerOrOptions;
     switch (event) {
       case "add":
-        this._onAdd = _installHook(this._onAdd, handler as HookHandler, false);
+        this._onAdd = _installHook(this._onAdd, handler as HookHandler);
         break;
       case "remove":
-        this._onRemove = _installHook(this._onRemove, handler as HookHandler, false);
+        this._onRemove = _installHook(this._onRemove, handler as HookHandler);
         break;
       case "set":
-        this._onSet = _installHook(this._onSet, handler as HookHandler, false);
+        this._onSet = _installHook(this._onSet, handler as HookHandler);
         break;
       case "targetAdd":
         this._requireRelationship(event);
-        this._onTargetAdd = _installHook(this._onTargetAdd, handler as TargetHandler, false);
+        this._onTargetAdd = _installHook(this._onTargetAdd, handler as TargetHandler);
         break;
       case "targetRemove":
         this._requireRelationship(event);
-        this._onTargetRemove = _installHook(this._onTargetRemove, handler as TargetHandler, false);
+        this._onTargetRemove = _installHook(this._onTargetRemove, handler as TargetHandler);
         break;
       case "validate":
         if (this._validateIsDefault) {
           this._onValidate = undefined;
           this._validateIsDefault = false;
         }
-        this._onValidate = _installHook(this._onValidate, handler as ValidateHandler, false);
+        this._onValidate = _installHook(this._onValidate, handler as ValidateHandler);
         break;
       case "normalize":
         if (this._normalizeIsDefault) {
           this._onNormalize = undefined;
           this._normalizeIsDefault = false;
         }
-        this._onNormalize = _installHook(this._onNormalize, handler as NormalizeHandler, false);
+        this._onNormalize = _installHook(this._onNormalize, handler as NormalizeHandler);
         break;
       default: {
         const _exhaustive: never = event;
@@ -592,22 +584,18 @@ export class ComponentMeta {
   private _installTraitHook(event: TraitEvent, handler: HookEventMap[TraitEvent]): void {
     switch (event) {
       case "add":
-        this._traitAdd = _installHook(this._traitAdd, handler as HookHandler, false);
+        this._traitAdd = _installHook(this._traitAdd, handler as HookHandler);
         break;
       case "remove":
-        this._traitRemove = _installHook(this._traitRemove, handler as HookHandler, false);
+        this._traitRemove = _installHook(this._traitRemove, handler as HookHandler);
         break;
       case "targetAdd":
         this._requireRelationship(event);
-        this._traitTargetAdd = _installHook(this._traitTargetAdd, handler as TargetHandler, false);
+        this._traitTargetAdd = _installHook(this._traitTargetAdd, handler as TargetHandler);
         break;
       case "targetRemove":
         this._requireRelationship(event);
-        this._traitTargetRemove = _installHook(
-          this._traitTargetRemove,
-          handler as TargetHandler,
-          false
-        );
+        this._traitTargetRemove = _installHook(this._traitTargetRemove, handler as TargetHandler);
         break;
       default: {
         const _exhaustive: never = event;
