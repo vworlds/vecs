@@ -128,18 +128,20 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
   /** @internal Register a relationship-trait handler. See {@link ComponentMeta.on}. */
   public override on<E extends TraitEvent>(
     event: E,
-    handler: ComponentEventMap<T>[E],
-    options: TraitHookOptions
+    options: TraitHookOptions,
+    handler: ComponentEventMap<T>[E]
   ): this;
   public override on<E extends HookEvent>(
     event: E,
-    handler: ComponentEventMap<T>[E],
-    options?: TraitHookOptions
+    handlerOrOptions: ComponentEventMap<T>[E] | TraitHookOptions,
+    maybeHandler?: ComponentEventMap<T>[E]
   ): this {
-    if (options === undefined) {
-      return super.on(event, handler as HookEventMap[E]);
-    }
-    return super.on(event as TraitEvent, handler as HookEventMap[TraitEvent], options);
+    this.meta._on(
+      event,
+      handlerOrOptions as HookEventMap[E] | TraitHookOptions,
+      maybeHandler as HookEventMap[E] | undefined
+    );
+    return this;
   }
 
   /** Remove a previously-registered handler by reference. See {@link ComponentMeta.off}. */

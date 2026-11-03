@@ -207,10 +207,10 @@ describe("Entity — components", () => {
     const w = new World();
     const calls: [string, Position][] = [];
     const position = w.component(Position);
-    position.meta.on("add", (_e, c) => calls.push(["trait add", c as Position]), { trait: true });
-    position.meta.on("remove", (_e, c) => calls.push(["trait remove", c as Position]), {
-      trait: true,
-    });
+    position.meta.on("add", { trait: true }, (_e, c) => calls.push(["trait add", c as Position]));
+    position.meta.on("remove", { trait: true }, (_e, c) =>
+      calls.push(["trait remove", c as Position])
+    );
     position
       .on("remove", (_e, c) => calls.push(["remove", c]))
       .on("set", (_e, c) => calls.push(["set", c]));
@@ -225,6 +225,36 @@ describe("Entity — components", () => {
       ["trait add", pos2],
       ["set", pos2],
     ]);
+  });
+
+  it("runs trait handlers registered through any on ahead of application handlers", () => {
+    const w = new World();
+    const calls: string[] = [];
+    const position = w.component(Position);
+    position.on("add", () => calls.push("app"));
+    position.meta.on("add", { trait: true }, () => calls.push("meta trait"));
+    position.on("add", { trait: true }, () => calls.push("component trait"));
+    (position as Entity).on("add", { trait: true }, () => calls.push("entity trait"));
+
+    w.entity().add(Position);
+
+    expect(calls).toEqual(["meta trait", "component trait", "entity trait", "app"]);
+  });
+
+  it("rejects a malformed trait registration", () => {
+    const w = new World();
+    const meta = w.component(Position).meta;
+    const on = meta.on.bind(meta) as (...args: unknown[]) => unknown;
+
+    expect(() => on("add", { trait: true })).toThrow(
+      'on("add", { trait: true }, handler) requires a handler function'
+    );
+    expect(() => on("add", () => {}, { trait: true })).toThrow(
+      'on("add", handler) takes no third argument; a trait handler is on("add", { trait: true }, handler)'
+    );
+    expect(() => on("add", { trait: false }, () => {})).toThrow(
+      'on("add", ...): the second argument must be a handler or { trait: true }'
+    );
   });
 
   it("attach of the stored instance fires only set", () => {

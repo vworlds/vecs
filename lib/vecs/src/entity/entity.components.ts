@@ -909,19 +909,15 @@ export class Components extends Relationships {
   /** @internal Register a relationship-trait handler. See {@link ComponentMeta.on}. */
   public on<E extends TraitEvent>(
     event: E,
-    handler: HookEventMap[E],
-    options: TraitHookOptions
+    options: TraitHookOptions,
+    handler: HookEventMap[E]
   ): this;
   public on<E extends HookEvent>(
     event: E,
-    handler: HookEventMap[E],
-    options?: TraitHookOptions
+    handlerOrOptions: HookEventMap[E] | TraitHookOptions,
+    maybeHandler?: HookEventMap[E]
   ): this {
-    if (options === undefined) {
-      this.meta.on(event, handler);
-    } else {
-      this.meta.on(event as TraitEvent, handler as HookEventMap[TraitEvent], options);
-    }
+    this.meta._on(event, handlerOrOptions, maybeHandler);
     return this;
   }
 

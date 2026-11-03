@@ -491,18 +491,50 @@ export class ComponentMeta {
    */
   public on<E extends TraitEvent>(
     event: E,
-    handler: HookEventMap[E],
-    options: TraitHookOptions
+    options: TraitHookOptions,
+    handler: HookEventMap[E]
   ): this;
   public on<E extends HookEvent>(
     event: E,
-    handler: HookEventMap[E],
-    options?: TraitHookOptions
+    handlerOrOptions: HookEventMap[E] | TraitHookOptions,
+    maybeHandler?: HookEventMap[E]
   ): this {
-    if (options !== undefined) {
-      this._installTraitHook(event as TraitEvent, handler);
+    return this._on(event, handlerOrOptions, maybeHandler);
+  }
+
+  /**
+   * @internal The implementation behind every `on` overload, on this meta and
+   * on the `Entity` / `Component` forwarders: a function in second position
+   * registers an application handler, a `{ trait: true }` object followed by a
+   * function a relationship-trait handler.
+   *
+   * @throws When the options object is not `{ trait: true }` or lacks a handler
+   *   function after it, or when an application handler is followed by a third
+   *   argument.
+   */
+  public _on<E extends HookEvent>(
+    event: E,
+    handlerOrOptions: HookEventMap[E] | TraitHookOptions,
+    maybeHandler: HookEventMap[E] | undefined
+  ): this {
+    if (typeof handlerOrOptions !== "function") {
+      if (handlerOrOptions?.trait !== true) {
+        throw new Error(
+          `on("${event}", ...): the second argument must be a handler or { trait: true }`
+        );
+      }
+      if (typeof maybeHandler !== "function") {
+        throw new Error(`on("${event}", { trait: true }, handler) requires a handler function`);
+      }
+      this._installTraitHook(event as TraitEvent, maybeHandler);
       return this;
     }
+    if (maybeHandler !== undefined) {
+      throw new Error(
+        `on("${event}", handler) takes no third argument; a trait handler is on("${event}", { trait: true }, handler)`
+      );
+    }
+    const handler = handlerOrOptions;
     switch (event) {
       case "add":
         this._onAdd = _installHook(this._onAdd, handler as HookHandler, false);
