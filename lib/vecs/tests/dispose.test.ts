@@ -295,7 +295,10 @@ describe("World.dispose", () => {
       w.component(Handle).on("remove", (entity) => events.push(entity.eid));
       const first = w.module(First).add(Handle);
       const second = w.module(Second).add(Handle);
-      first.add(second);
+      // Modules themselves are singleton values, so use a scoped definition
+      // as the cross-module carrier dependency instead.
+      const key = w.component(Marker).childOf(second);
+      first.add(key);
       expect(() => w.dispose()).not.toThrow();
       expect(events).toEqual([second.eid, first.eid]);
       expect(entityIds(w)).toEqual([]);
