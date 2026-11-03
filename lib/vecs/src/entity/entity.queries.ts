@@ -90,11 +90,12 @@ export class Queries extends Base {
   /**
    * @internal Route the removal of component `ceid` to queries that still hold
    * this entity and watch it with `onRemove`. Called after the
-   * component is gone, so callbacks observe `has(C) === false`.
+   * component is gone, so callbacks observe `has(C) === false`. A destroyed
+   * entity does not stay a member, so its relationship teardown routes nothing.
    */
   public _routeRemoved(this: Entity, ceid: EID, component: ComponentInstance): void {
     const watchers = this.world._updateWatchers[ceid];
-    if (watchers === undefined || watchers.removals === 0) {
+    if (watchers === undefined || watchers.removals === 0 || this._destroyed) {
       return;
     }
     this._routePresence(watchers, ceid, component, true);
