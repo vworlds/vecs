@@ -135,14 +135,13 @@ export class Deferred extends Queries {
         if (entity) {
           const meta = this._relationshipUpdates[nextUpdate + 1] as ComponentMeta;
           this._routingSource = this._relationshipUpdates[nextUpdate + 2] as Entity | undefined;
-          entity._prepareRelationshipUpdate(meta);
-          if (i < this._commandQueue.length) {
+          if (entity._prepareRelationshipUpdate(meta) && i < this._commandQueue.length) {
             continue;
           }
           nextUpdate += 3;
           // Removal/destroy clears the bit. A remove/re-add can leave multiple
           // queued commands, but only the first still-dirty command routes.
-          entity._modified(meta);
+          entity._modifiedRelationship(meta);
         }
       }
       this._commandQueue.length = 0;

@@ -10,7 +10,19 @@ if (![drains, warmup].every((n) => Number.isSafeInteger(n) && n > 0)) {
   throw new Error("BENCH_DRAINS and BENCH_WARMUP_DRAINS must be positive integers");
 }
 
-for (const mode of ["immediate", "deferred", "exclusive"] as const) {
+const modes = ["immediate", "deferred", "exclusive"] as const;
+const selected = process.argv[2];
+if (
+  process.argv.length > 3 ||
+  (selected !== undefined && !modes.some((mode) => mode === selected))
+) {
+  throw new Error("usage: edge-coalesce.ts [immediate|deferred|exclusive]");
+}
+
+for (const mode of modes) {
+  if (selected !== undefined && mode !== selected) {
+    continue;
+  }
   const world = new World();
   const rel = world.component(Link);
   if (mode === "exclusive") {

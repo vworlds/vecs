@@ -27,6 +27,8 @@ exclusive replacements. `BENCH_DRAINS` and `BENCH_WARMUP_DRAINS` override those 
 Each `EDGE_RESULT` reports nanoseconds per pair/drain and update/edge-hook counts; edge hooks
 remain per edge even when deferred updates coalesce. Compare five alternating base/head rounds
 with identical loads using `BENCH_VECS_ROOT` for the base build.
+Pass `immediate`, `deferred` or `exclusive` as the final argument to isolate one mode for
+`node --cpu-prof`; omit it to run all three. Unknown modes fail rather than reporting an empty run.
 
 ## Dead-reckoning eligibility
 

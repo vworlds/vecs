@@ -62,14 +62,11 @@ export class Components extends Relationships {
    * so its queued mutations can apply before routing. Edge-only updates never fire it.
    */
   public _modified(this: Entity, meta: ComponentMeta): void {
-    if (this._destroyed) {
+    if (meta.isRelationship && this.world.deferred) {
+      this._modifiedRelationship(meta);
       return;
     }
-    if (
-      meta.isRelationship &&
-      this.world.deferred &&
-      !this._dirtyComponentBitmask.hasBit(meta.bitPtr)
-    ) {
+    if (this._destroyed) {
       return;
     }
     const c = this._components.get(meta.eid);
@@ -80,26 +77,37 @@ export class Components extends Relationships {
       this._relationshipDataWrites?.delete(meta);
       return;
     }
-    if (meta.isRelationship && this.world.deferred) {
-      this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
-      this.world._notifyComponentChanged(meta.eid, this);
-      this._routeModified(meta.eid, c);
-      return;
-    }
     this._notifyComponentSet(meta, c, true);
   }
 
-  /** @internal Run an explicit relationship data hook before draining any mutations it queues. */
-  public _prepareRelationshipUpdate(this: Entity, meta: ComponentMeta): void {
-    if (!this._relationshipDataWrites?.delete(meta)) {
+  /** @internal Apply an already-classified deferred relationship notification. */
+  public _modifiedRelationship(this: Entity, meta: ComponentMeta): void {
+    if (this._destroyed || !this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       return;
+    }
+    const relationship = this._components.get(meta.eid);
+    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+    if (!relationship) {
+      this._relationshipDataWrites?.delete(meta);
+      return;
+    }
+    this.world._notifyComponentChanged(meta.eid, this);
+    this._routeModified(meta.eid, relationship);
+  }
+
+  /** @internal Run an explicit data hook; return whether it could have queued mutations. */
+  public _prepareRelationshipUpdate(this: Entity, meta: ComponentMeta): boolean {
+    if (!this._relationshipDataWrites?.delete(meta)) {
+      return false;
     }
     const relationship = this._components.get(meta.eid);
     if (!this._destroyed && relationship && this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       meta._onSet?.(this, relationship);
       // Like ordinary modified, a recursive modified from onSet is coalesced.
       this._relationshipDataWrites.delete(meta);
+      return true;
     }
+    return false;
   }
 
   /**
@@ -519,9 +527,9 @@ export class Components extends Relationships {
   }
 
   /** @internal Mark a component changed, coalescing duplicate pending notifications. */
-  protected _markModified(this: Entity, meta: ComponentMeta, dataWrite = true): this {
+  protected _markModified(this: Entity, meta: ComponentMeta): this {
     this._throwIfInterface(meta, "modify");
-    if (meta.isRelationship && this.world.deferred && dataWrite) {
+    if (meta.isRelationship && this.world.deferred) {
       (this._relationshipDataWrites ??= new Set()).add(meta);
     }
     if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
@@ -530,11 +538,7 @@ export class Components extends Relationships {
     this._dirtyComponentBitmask.addBit(meta.bitPtr);
     if (this.world.deferred) {
       if (meta.isRelationship) {
-        this.world._enqueueRelationshipUpdate(
-          this,
-          meta,
-          dataWrite ? this.world._currentSource : this.world._routingSource
-        );
+        this.world._enqueueRelationshipUpdate(this, meta, this.world._currentSource);
       } else {
         this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta });
       }

@@ -5,6 +5,56 @@ class Link extends Relationship {}
 class Producer {}
 
 describe("relationship update drains", () => {
+  it("does not suppress an immediate edge update inside an onSet hook while dirty", () => {
+    const world = new World();
+    world.component(Link).add(Exclusive);
+    const a = world.entity();
+    const b = world.entity();
+    const source = world.entity().add(Link, a);
+    world.component(Link).on("set", (e) => e.add(Link, b));
+    const seen: Entity[][] = [];
+    world
+      .query("immediate-hook")
+      .with(Link)
+      .update({ watch: Link }, (e) => seen.push([...e.targets(Link)]))
+      .build();
+    source.modified(Link);
+    expect(seen).toEqual([[b], [b]]);
+    world.dispose();
+  });
+
+  it("keeps both hooks per exclusive replacement under one dirty entry", () => {
+    const world = new World();
+    const rel = world.component(Link).add(Exclusive);
+    const a = world.entity();
+    const b = world.entity();
+    const source = world.entity().add(Link, a);
+    const events: [string, Entity][] = [];
+    rel.on("targetRemove", (_e, _r, t) => events.push(["remove", t]));
+    rel.on("targetAdd", (_e, _r, t) => events.push(["add", t]));
+    let sets = 0;
+    rel.on("set", () => sets++);
+    const seen: Entity[][] = [];
+    world
+      .query("exclusive-hooks")
+      .with(Link)
+      .update({ watch: Link }, (e) => seen.push([...e.targets(Link)]))
+      .build();
+    world.defer(() => {
+      source.add(Link, b);
+      source.add(Link, a);
+    });
+    expect(events).toEqual([
+      ["remove", a],
+      ["add", b],
+      ["remove", b],
+      ["add", a],
+    ]);
+    expect(sets).toBe(0);
+    expect(seen).toEqual([[a]]);
+    world.dispose();
+  });
+
   it("does not leave an absent relationship dirty across later entry and edge changes", () => {
     const world = new World();
     world.component(Link);
