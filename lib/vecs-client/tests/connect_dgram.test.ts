@@ -149,9 +149,8 @@ describe("ClientWorld.connectDgram", () => {
     const reason = new Error("left the lobby");
     const disposed: string[] = [];
     class Game extends Module {
-      public init(): void {}
-      public override dispose(): void {
-        disposed.push("Game");
+      public init(): void {
+        this.on("remove", () => disposed.push("Game"));
       }
     }
     let created: ClientWorld | undefined;

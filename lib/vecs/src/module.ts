@@ -3,14 +3,19 @@ import { Component } from "./component.js";
 export type ModuleConfig<T extends Module<any>> = T extends Module<infer Config> ? Config : never;
 
 /**
- * Base class for built-in world modules.
+ * Base class for world modules.
  *
- * A `Module` is a special component entity that is registered by the world at
- * construction time and performs one-time initialisation (registering
+ * A `Module` is a special component entity registered by {@link World.module}
+ * that performs one-time initialisation (registering
  * components, setting up hooks, etc.) via its {@link init} method.
  *
  * User code does not instantiate `Module` subclasses directly; they are
- * created and initialised by the world internally.
+ * created and initialised by the world internally. It carries itself as its
+ * class's `Singleton` value: `world.get(MyModule)` returns that same module.
+ * Module values are `DontSnapshot`. Release resources acquired in {@link init}
+ * through `on("remove", ...)` or a static `vecs_remove(entity, mod)` hook.
+ * {@link World.dispose} removes module values in reverse installation order
+ * after application cleanup and before infrastructure destruction.
  */
 export abstract class Module<Config extends object | undefined = undefined> extends Component {
   declare protected readonly moduleConfig?: Config;
@@ -23,19 +28,4 @@ export abstract class Module<Config extends object | undefined = undefined> exte
    * perform any other world-level setup required by the module.
    */
   public abstract init(config: Config): void;
-
-  /**
-   * Release what this module holds outside the world, such as DOM or scene listeners.
-   *
-   * Optional. {@link World.dispose} calls it once for every installed module that is still
-   * alive, in reverse install order, after application entities are destroyed and before the
-   * infrastructure pass destroys component, module, query, system and phase entities. Their
-   * `remove` hooks therefore run after every module's `dispose`, and the world, its components
-   * and module singleton data are still usable here. Resources bound to a component instance
-   * still belong in that component's `remove` hook; use this for what no entity carries.
-   *
-   * A module destroyed before disposal is not called. An error thrown here propagates out of
-   * `World.dispose` and leaves the world partial, as a throwing `remove` hook does.
-   */
-  public dispose?(): void;
 }

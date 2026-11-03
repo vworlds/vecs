@@ -32,9 +32,9 @@ export class Disposal extends Transfers {
    *
    * ## Order
    *
-   * Queued application cleanup finishes before infrastructure teardown starts. Then every live
-   * module's optional {@link Module.dispose} runs, in reverse install order, so a module releases
-   * what no entity carries while the infrastructure is still intact. Systems and
+   * Queued application cleanup finishes first, then module singleton values are removed
+   * in reverse installation order (nested modules before their installing parent), while
+   * infrastructure and earlier modules' values remain available. Systems and
    * queries go first in the infrastructure pass, then modules in reverse registration
    * order, then the rest. Beyond these priorities the order is unspecified, not a
    * resource dependency contract. Infrastructure carrier cycles are stripped, not
@@ -80,7 +80,15 @@ export class Disposal extends Transfers {
       });
       applications = this._destroyOrder();
     }
-    this._disposeModules();
+    // Remove values without destroying their definition entities or scoped children.
+    // Keep systems, queries, traits and other singleton data alive for these hooks.
+    const moduleValues = [...this._classRegistry.values()]
+      .filter((entity) => entity instanceof Module && !entity.destroyed)
+      .reverse();
+    for (const mod of moduleValues) {
+      mod.remove(mod);
+      this.flush();
+    }
     this._neutraliseCleanup();
     while (this._entities.size > 0) {
       const entities = this._entities.values().filter((entity) => !entity.destroyed);
@@ -130,24 +138,6 @@ export class Disposal extends Transfers {
       throw new Error(
         "dispose() must be called outside progress(), defer, a command drain or an entity's destroy"
       );
-    }
-  }
-
-  /**
-   * Call {@link Module.dispose} on every live module, last installed first. The class registry
-   * is insertion-ordered and a module is registered before its `init` runs, so a module nested in
-   * another's `init` is disposed before the module that installed it. Commands the calls queue
-   * settle before infrastructure teardown starts.
-   */
-  private _disposeModules(this: World): void {
-    const modules = [...this._classRegistry.values()]
-      .filter((entity): entity is Module<any> => entity instanceof Module)
-      .reverse();
-    for (const module of modules) {
-      if (!module.destroyed) {
-        module.dispose?.();
-        this.flush();
-      }
     }
   }
 

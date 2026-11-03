@@ -34,6 +34,9 @@ world.module(PoseSyncModule);
 module on first call — drawing its entity id from the `module` pool (900–999 by default, or pass
 an explicit `eid`) — and invokes `init(config)` exactly once. Subsequent calls return the existing
 module instance; passing a config again after the first registration throws.
+The definition carries the module itself as its `Singleton` value: `world.get(M)` returns
+`world.module(M)`, and `world.has(M)` reports whether that value is present. Module classes
+declare `DontSnapshot`; live module instances are never captured or restored as data.
 Install new modules outside `progress()` and `defer`; installation also throws during a command
 drain, before registering anything. Looking up an already installed module works in any of those
 contexts. Lazy loading from a system or hook is the application's job: schedule it after
@@ -57,39 +60,6 @@ world.module(RenderModule, { scene });
 
 For `Module<undefined>` (the default), the config argument is omitted. Keep configs minimal;
 prefer zero-config when a sensible default exists.
-
-## Releasing resources with `dispose`
-
-Override the optional `dispose()` to release what the module holds outside the world, such as a
-DOM or scene listener its `init` registered. `world.dispose()` calls it once for every live module,
-last installed first, after application entities are destroyed and before the infrastructure pass
-destroys component, module, query, system and phase entities
-([Disposing a world](./entities.md#disposing-a-world)). The world, the module's components and its
-singleton data are still usable inside it.
-
-```ts
-export class ResizeModule extends Module<{ target: EventTarget }> {
-  private _release?: () => void;
-
-  public init(cfg: { target: EventTarget }): void {
-    const onResize = (): void => {
-      // ...
-    };
-    cfg.target.addEventListener("resize", onResize);
-    this._release = () => cfg.target.removeEventListener("resize", onResize);
-  }
-
-  public override dispose(): void {
-    this._release?.();
-  }
-}
-```
-
-A resource bound to a component instance still belongs in that component's `remove` hook, which
-also runs when the entity is destroyed before the world is. Use `dispose` for what no entity
-carries, rather than a throwaway entity whose `remove` hook does the release. A module destroyed
-before `world.dispose()` is not called, and an error thrown from `dispose` propagates out of
-`world.dispose()`.
 
 ## Composition and umbrella modules
 
@@ -178,6 +148,43 @@ network, Phaser and application modules. Registration outside a scope leaves a r
 re-registration keeps the existing parent: there is no list of duplicate registrars and no record of
 which module added a trait edge. Explicit reparenting changes ownership, not a historical audit.
 
+## Releasing resources
+
+Release resources acquired in `init` with the module's own `remove` hook. You do not need
+a sentinel entity solely to observe world teardown (such as SpaceRocks' RadialMenu pattern).
+For a class-owned recipe, declare a static hook:
+
+```ts
+import { type Entity, Module } from "@vworlds/vecs";
+
+class RefreshModule extends Module {
+  private timer?: ReturnType<typeof setInterval>;
+
+  public init(): void {
+    this.timer = setInterval(() => console.log("refresh"), 1000);
+  }
+
+  public static vecs_remove(_entity: Entity, mod: RefreshModule): void {
+    clearInterval(mod.timer);
+  }
+}
+```
+
+Alternatively, register an instance hook inside `init`, for example
+`this.on("remove", () => clearInterval(this.timer))`, or register one on
+the result of `world.module(RefreshModule)`. Both arguments identify that same module.
+If you register both static and instance hooks, both run.
+
+[`world.dispose()`](./entities.md#disposing-a-world) first settles application cleanup,
+then removes module singleton values in reverse installation order: later siblings and nested
+children precede their installing parents. Earlier modules' values, systems, queries and other
+infrastructure singletons are still available to the hook. A throwing hook propagates out of
+disposal and leaves the world partial. Repeated disposal does not run the hooks again.
+Modules without hooks need no special handling.
+
+Removing a module singleton manually is not a supported module-unloading API: it does not
+define what should happen to entities created by that module.
+
 ## Built-in modules
 
 Every `World` constructor installs these (`lib/vecs/src/world/world.ts`); you interact with their
@@ -200,7 +207,6 @@ All are exported, so a custom world setup can reuse them.
 | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
 | `class M extends Module<Config>`                                               | Declare a module; `Config` defaults to `undefined`.                                                 |
 | `init(config)`                                                                 | One-time setup hook; called by the world on first registration.                                     |
-| `dispose()`                                                                    | Optional teardown hook; `world.dispose()` calls it in reverse install order before infrastructure.  |
 | `world.module(M)` / `world.module(M, config)` / `world.module(M, config, eid)` | Register (first call) or retrieve (later calls) the module. Config after first registration throws. |
 | `this.world`                                                                   | Inside `init`: the owning world (a module is an entity).                                            |
 | `world.scope(parent, fn)`                                                      | Parent all synchronous creations in `fn`; existing lookups are unchanged.                           |

@@ -1,6 +1,8 @@
 import { type ComponentClass } from "../component.js";
 import { type EID, type EntityClass } from "../entity/index.js";
 import { type Module, type ModuleConfig } from "../module.js";
+import { Singleton } from "../modules/singleton.js";
+import { DontSnapshot } from "../modules/snapshot_types.js";
 import { Components } from "./world.components.js";
 import type { World } from "./world.js";
 
@@ -20,6 +22,9 @@ export class Modules extends Components {
    * Subsequent calls return the existing instance; passing config again throws.
    * New installations throw while deferred; call outside progress() and defer.
    * Existing-instance lookups remain available while deferred.
+   * The module is its own Singleton value (read with world.get/has), excluded
+   * from snapshots. Release its resources with an instance or static remove hook;
+   * dispose removes module values after application cleanup, in reverse install order.
    */
   public module<T extends Module<any>>(
     this: World,
@@ -39,6 +44,9 @@ export class Modules extends Components {
       );
     }
     if (isNew) {
+      if (!this._initializingModules) {
+        this._installModuleSingleton(mod);
+      }
       if (this._initializingModules) {
         mod.init(config as ModuleConfig<T>);
       } else {
@@ -46,6 +54,11 @@ export class Modules extends Components {
       }
     }
     return mod;
+  }
+
+  /** @internal Core modules are prepared after their trait installers have bootstrapped. */
+  protected _installModuleSingleton(mod: Module<any>): void {
+    mod.snapshotPolicy(DontSnapshot).add(Singleton);
   }
 }
 

@@ -488,9 +488,9 @@ world.attachSocket(next);
 ```
 
 **Replace** with `dispose()` and a new `ClientWorld` when the schema changes, on a hot reload or
-route change, or when nothing client-side should outlive the switch. Disposal runs every module's
-[`dispose`](../../vecs/docs/modules.md#releasing-resources-with-dispose) and every `remove` hook,
-then `connectDgram` with `setup` installs the modules again on the new world.
+route change, or when nothing client-side should outlive the switch. Disposal runs every `remove`
+hook, including each module's own
+([Releasing resources](../../vecs/docs/modules.md#releasing-resources)), then `connectDgram` with `setup` installs the modules again on the new world.
 
 ## Frames the client cannot decode
 
