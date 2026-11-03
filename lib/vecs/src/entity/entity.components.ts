@@ -74,6 +74,9 @@ export class Components extends Relationships {
     }
     const c = this._components.get(meta.eid);
     if (!c) {
+      if (meta.isRelationship) {
+        this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+      }
       this._relationshipDataWrites?.delete(meta);
       return;
     }

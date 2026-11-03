@@ -5,6 +5,27 @@ class Link extends Relationship {}
 class Producer {}
 
 describe("relationship update drains", () => {
+  it("does not leave an absent relationship dirty across later entry and edge changes", () => {
+    const world = new World();
+    world.component(Link);
+    const source = world.entity();
+    const a = world.entity();
+    const b = world.entity();
+    const seen: Entity[][] = [];
+    world
+      .query("absent-modified")
+      .with(Link)
+      .update({ watch: Link }, (e) => seen.push([...e.targets(Link)]))
+      .build();
+    world.defer(() => source.modified(Link));
+    expect(seen).toEqual([]);
+    world.defer(() => source.add(Link, a));
+    expect(seen).toEqual([]);
+    world.defer(() => source.add(Link, b));
+    expect(seen).toEqual([[a, b]]);
+    world.dispose();
+  });
+
   it("commits edges queued by onSet before the coalesced synchronous update", () => {
     const world = new World();
     const rel = world.component(Link);
