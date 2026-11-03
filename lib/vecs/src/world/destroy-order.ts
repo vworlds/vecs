@@ -9,9 +9,11 @@ export function carriersFirst(entities: Entity[], childOfEid?: EID): Entity[] {
   const ordered: Entity[] = [];
   const outside = new Set<Entity>();
   for (const key of entities) {
-    for (const carrier of key.meta._carriers ?? []) {
-      if (carrier !== key && !pending.has(carrier)) {
-        outside.add(carrier);
+    if (key.instanceCount() > 0) {
+      for (const carrier of key.meta._term) {
+        if (carrier !== key && !pending.has(carrier)) {
+          outside.add(carrier);
+        }
       }
     }
     if (childOfEid !== undefined) {
@@ -43,7 +45,11 @@ export function carriersFirst(entities: Entity[], childOfEid?: EID): Entity[] {
 
 /** Whether a key has a carrier other than itself matching `blocks`. */
 export function isCarried(key: Entity, blocks: (carrier: Entity) => boolean = () => true): boolean {
-  for (const carrier of key.meta._carriers ?? []) {
+  // Plain entities need no meta/term allocated merely to order their teardown.
+  if (key.instanceCount() === 0) {
+    return false;
+  }
+  for (const carrier of key.meta._term) {
     if (carrier !== key && blocks(carrier)) {
       return true;
     }

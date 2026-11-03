@@ -500,13 +500,18 @@ applies. On top of it:
 
 ### `ComponentMeta` (`lib/vecs/src/component_meta.ts`)
 
-| Field                   | Description                                                                                   |
-| ----------------------- | --------------------------------------------------------------------------------------------- |
-| `Class`                 | The component class constructor.                                                              |
-| `eid`                   | Component entity id assigned at registration.                                                 |
-| `bitPtr`                | Pre-computed bit pointer into entity archetype bitsets.                                       |
-| `isRelationship`        | `true` when the class extends `Relationship`.                                                 |
-| `relationshipExclusive` | `true` when the relationship carries the `Exclusive` trait.                                   |
-| `onDelete`              | `CleanupPolicy` applied to carriers when the component entity is destroyed. Default `Throw`.  |
-| `onDeleteTarget`        | `CleanupPolicy` applied to sources when a relationship target is destroyed. Default `Remove`. |
-| `usageCount`            | Number of entities currently carrying this component.                                         |
+Carrier membership is stored once, in the component-presence query term, even if you
+never query the component. `usageCount` includes the newly attached entity inside
+add and target-add hooks. A query rooted directly at that component term also
+includes it when iterated inside those hooks, before its `enter` callback fires.
+Composite and sorted query membership still follows event propagation after the
+hooks. On removal, the count drops before exit callbacks run.
+
+| Field                   | Description                                                 |
+| ----------------------- | ----------------------------------------------------------- |
+| `Class`                 | The component class constructor.                            |
+| `eid`                   | Component entity id assigned at registration.               |
+| `bitPtr`                | Pre-computed bit pointer into entity archetype bitsets.     |
+| `isRelationship`        | `true` when the class extends `Relationship`.               |
+| `relationshipExclusive` | `true` when the relationship carries the `Exclusive` trait. |
+| `usageCount`            | Number of entities currently carrying this component.       |

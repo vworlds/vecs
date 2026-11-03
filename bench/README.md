@@ -264,6 +264,15 @@ its invoker per callback, so the figure left over is per-entity resolution, not 
 
 ## Component removal routing
 
+Run `node --expose-gc --import ./bench/register-dist.mjs bench/carrier-index.ts` to
+measure add-heavy and add/remove workloads, both with no query and with one direct
+component query. `CARRIER_INDEX` reports median nanoseconds per add and per operation
+over 100 batches of 10,000 entities after 20 warmup batches. Retained heap is the
+post-GC `heapUsed` delta for a separate 10,000-entity scene with eight components per
+entity (and, in the queried case, one query per component). Setup, assertions and GC
+are outside timing. Pin alternating before/after processes to the same CPU; use
+`BENCH_VECS_ROOT` to select saved baseline builds and report host load with results.
+
 Run `node --import ./bench/register-dist.mjs bench/remove-notify.ts` after building. It reports
 median nanoseconds per removal for no query, a storage-reading watched predicate, and an exclusive
 component swap (including the replacement add). Each scenario warms up for 20 batches and measures

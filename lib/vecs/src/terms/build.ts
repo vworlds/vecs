@@ -241,7 +241,11 @@ function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
  * Return the world's singleton `ComponentTerm` for `ceid`, creating it if
  * absent.
  */
-function getComponentTerm(world: World, ceid: EID, key: string): ComponentTerm {
+export function getComponentTerm(
+  world: World,
+  ceid: EID,
+  key = getDSLCacheKey(ceid, world)
+): ComponentTerm {
   let term = world._componentTerms.get(ceid);
   if (!term) {
     term = new ComponentTerm(world, key, ceid, (t) => destroyTerm(world, t));
