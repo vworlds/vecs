@@ -140,8 +140,16 @@ unit.remove(VisibleTo); // remove the component and every remaining edge
 `add(Relationship)` without a target is invalid. Targets must be live entities in the same world as
 the source. The `target` argument accepts any `ComponentRef` (registered class, numeric component
 id, or entity) and is resolved eagerly via `world.entity(target)`, so the target entity must
-already exist when the call is made. Removing a missing edge is a no-op; removing the final edge
-also removes the relationship component.
+already exist when the call is made. Adding an existing edge (including the current target of an
+`Exclusive` relationship), removing an absent edge, and removing an absent relationship are silent
+no-ops: no hook and no notification. Removing the final edge also removes the relationship component.
+
+Within one deferred drain, edge changes while the relationship remains present and `modified(Rel)`
+coalesce into one `update` per watcher, in either order. The update routes after queued mutations
+apply, so synchronous queries and replayed system callbacks see the committed edge set. First-edge
+entry and last-edge exit are unchanged; edge hooks and trait policies still run for each edge as its
+command applies. Outside deferred execution, each change routes immediately. Use
+[edge hooks](#edge-hooks) for per-edge detail rather than counting updates.
 
 A relationship subclass can still declare ordinary data fields:
 

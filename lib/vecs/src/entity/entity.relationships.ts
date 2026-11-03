@@ -75,6 +75,10 @@ export class Relationships extends Queries {
     meta: ComponentMeta,
     relationship: Relationship
   ): void {
+    if (this.world.deferred) {
+      this._markModified(meta, false);
+      return;
+    }
     this.world._notifyComponentChanged(meta.eid, this);
     this._routeModified(meta.eid, relationship);
   }
