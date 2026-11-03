@@ -114,6 +114,13 @@ it("classifies all built-ins by declaration, independently of their usage", () =
       expect(rows.get(name), name).toMatchObject({ name, kind, trait });
     }
   }
+  for (const name of groups[0][0]) {
+    expect(rows.get(name)?.traits).toContainEqual({ name: "Singleton" });
+    expect(rows.get(name)?.traits).toContainEqual({
+      name: "OnSnapshot",
+      targets: ["DontSnapshot"],
+    });
+  }
   expect(rows.get("ChildOf")?.traits).toContainEqual({
     name: "OnDeleteTarget",
     targets: ["Delete"],

@@ -22,6 +22,10 @@ export interface UpdateWatchers {
   readonly queries: Query[];
   /** How many of {@link queries} run callbacks synchronously, i.e. are not systems. */
   synchronous: number;
+  /** How many of {@link queries} watch the eid with `onEnter`. */
+  arrivals: number;
+  /** How many of {@link queries} watch the eid with `onRemove`. */
+  removals: number;
 }
 
 export class Queries extends Storage {
@@ -127,9 +131,18 @@ export class Queries extends Storage {
     notifyComponentChanged(this as unknown as World, ceid, entity);
   }
 
-  /** @internal Drive the component leaf for a detached component. */
-  public _notifyComponentRemoved(ceid: EID, entity: Entity): void {
-    notifyComponentRemoved(this as unknown as World, ceid, entity);
+  /**
+   * @internal Drive the component leaf for a detached component.
+   *
+   * Passing an already-resolved `componentTerm` (or explicit `null` for a
+   * known-absent leaf) avoids a second lookup; the default looks the leaf up.
+   */
+  public _notifyComponentRemoved(
+    ceid: EID,
+    entity: Entity,
+    componentTerm: ComponentTerm | null = this._componentTerms.get(ceid) ?? null
+  ): void {
+    notifyComponentRemoved(this as unknown as World, ceid, entity, componentTerm);
   }
 
   /** @internal Drive the world leaf for a created entity. */
@@ -167,12 +180,18 @@ export class Queries extends Storage {
     q._watchlistBitmask.forEach((ceid) => {
       let watchers = this._updateWatchers[ceid];
       if (watchers === undefined) {
-        watchers = { queries: [], synchronous: 0 };
+        watchers = { queries: [], synchronous: 0, arrivals: 0, removals: 0 };
         this._updateWatchers[ceid] = watchers;
       }
       watchers.queries.push(q);
       if (!q._queuesUpdates) {
         watchers.synchronous++;
+      }
+      if (q._onEnterUpdateEids.includes(ceid)) {
+        watchers.arrivals++;
+      }
+      if (q._onRemoveUpdateEids.includes(ceid)) {
+        watchers.removals++;
       }
     });
   }
@@ -188,6 +207,12 @@ export class Queries extends Storage {
       watchers!.queries.splice(index, 1);
       if (!q._queuesUpdates) {
         watchers!.synchronous--;
+      }
+      if (q._onEnterUpdateEids.includes(ceid)) {
+        watchers!.arrivals--;
+      }
+      if (q._onRemoveUpdateEids.includes(ceid)) {
+        watchers!.removals--;
       }
     });
   }

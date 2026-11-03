@@ -50,7 +50,7 @@ world
   .system("Reap")
   .phase(ON_VALIDATE)
   .with(Health)
-  .update(Health, (entity, health) => {
+  .update({ watch: Health }, (entity, health) => {
     if (health.hp <= 0) entity.destroy();
   });
 
@@ -60,6 +60,9 @@ world.progress(performance.now(), 16); // call once per frame
 ```
 
 ## Documentation
+
+Use the type returned by `groupBy`, [`GroupedQuery`](./docs/queries-and-filters.md#grouped-queries-groupby),
+for typed live bucket access; it is not a runtime class.
 
 Use the optional [`@vworlds/vecs/testing`](./docs/testing.md) equality tester for cheap reference
 comparisons in Vitest; entities and worlds also provide safe diagnostic JSON summaries.
@@ -81,6 +84,8 @@ components to read the processing tick's timestamp and the system's accumulated 
 Inspect [system execution order and cadence](./docs/systems.md#introspection) with `world.pipeline`,
 registered callbacks and watched components with `system.callbacks` and `system.watched`, and
 [scoped module provenance](./docs/modules.md#scopes-and-module-provenance) through entity parents.
+Modules carry themselves as singleton values (`world.get/has`) and release resources through
+their own [remove hooks](./docs/modules.md#releasing-resources) during world disposal.
 For opt-in timings and cadence run counts, see [Measuring systems](./docs/systems.md#measuring-systems).
 
 For Node clients that need replicated Phaser poses, see [Headless clients](../vecs-phaser-client/README.md#headless-clients).

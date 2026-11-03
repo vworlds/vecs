@@ -186,21 +186,74 @@ describe("Entity — components", () => {
     expect(onSet).toHaveBeenCalledWith(e, pos);
   });
 
-  it("attach triggers onSet but not onAdd when replacing", () => {
+  it("attach replacing an instance fires only set for application hooks", () => {
     const w = new World();
-    w.component(Position);
-    const onAdd = vi.fn();
-    const onSet = vi.fn();
-    w.component(Position).on("add", onAdd).on("set", onSet);
+    const calls: [string, Position][] = [];
+    w.component(Position)
+      .on("add", (_e, c) => calls.push(["add", c]))
+      .on("remove", (_e, c) => calls.push(["remove", c]))
+      .on("set", (_e, c) => calls.push(["set", c]));
     const e = w.entity();
     const pos1 = new Position();
     const pos2 = new Position();
     e.attach(pos1);
-    onAdd.mockClear();
-    onSet.mockClear();
+    calls.length = 0;
     e.attach(pos2);
-    expect(onAdd).not.toHaveBeenCalled();
-    expect(onSet).toHaveBeenCalledWith(e, pos2);
+    expect(calls).toEqual([["set", pos2]]);
+    expect(e.get(Position)).toBe(pos2);
+  });
+
+  it("attach replacing an instance runs trait remove for the old and trait add for the new", () => {
+    const w = new World();
+    const calls: [string, Position][] = [];
+    const position = w.component(Position);
+    position.meta.on("add", { trait: true }, (_e, c) => calls.push(["trait add", c as Position]));
+    position.meta.on("remove", { trait: true }, (_e, c) =>
+      calls.push(["trait remove", c as Position])
+    );
+    position
+      .on("remove", (_e, c) => calls.push(["remove", c]))
+      .on("set", (_e, c) => calls.push(["set", c]));
+    const e = w.entity();
+    const pos1 = new Position();
+    const pos2 = new Position();
+    e.attach(pos1);
+    calls.length = 0;
+    e.attach(pos2);
+    expect(calls).toEqual([
+      ["trait remove", pos1],
+      ["trait add", pos2],
+      ["set", pos2],
+    ]);
+  });
+
+  it("runs trait handlers registered through any on ahead of application handlers", () => {
+    const w = new World();
+    const calls: string[] = [];
+    const position = w.component(Position);
+    position.on("add", () => calls.push("app"));
+    position.meta.on("add", { trait: true }, () => calls.push("meta trait"));
+    position.on("add", { trait: true }, () => calls.push("component trait"));
+    (position as Entity).on("add", { trait: true }, () => calls.push("entity trait"));
+
+    w.entity().add(Position);
+
+    expect(calls).toEqual(["meta trait", "component trait", "entity trait", "app"]);
+  });
+
+  it("attach of the stored instance fires only set", () => {
+    const w = new World();
+    const calls: string[] = [];
+    w.component(Position)
+      .on("add", () => calls.push("add"))
+      .on("remove", () => calls.push("remove"))
+      .on("set", () => calls.push("set"));
+    const e = w.entity();
+    const pos = new Position();
+    e.attach(pos);
+    calls.length = 0;
+    e.attach(pos);
+    expect(calls).toEqual(["set"]);
   });
 
   it("attach handles exclusive components", () => {
@@ -364,23 +417,6 @@ describe("Entity — components", () => {
     w.component(Position);
     const e = w.entity();
     expect(() => e.ensure(Position)).toThrow("deferred mode");
-  });
-
-  it("ensure returns fresh unstored instances on a destroyed entity, even outside deferred mode", () => {
-    const w = new World();
-    w.component(Position);
-    const e = w.entity();
-    const callback = vi.fn();
-
-    e.destroy();
-
-    const first = e.ensure(Position);
-    const second = e.ensure(Position, callback);
-    expect(first).toEqual(new Position());
-    expect(second).toEqual(new Position());
-    expect(second).not.toBe(first);
-    expect(e.get(Position)).toBeUndefined();
-    expect(callback).not.toHaveBeenCalled();
   });
 
   it("ensure(typeId) works with numeric type ids", () => {
@@ -967,7 +1003,7 @@ describe("Entity — relationship navigation", () => {
       .with({ target: [FriendOf, ThirdTarget] })
       .build();
     const updates = vi.fn();
-    w.query("relationship updates").with(FriendOf).update(FriendOf, updates).build();
+    w.query("relationship updates").with(FriendOf).update({ watch: FriendOf }, updates).build();
     const removed: Entity[] = [];
     const added: Entity[] = [];
     relationship

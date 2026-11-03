@@ -73,6 +73,14 @@ contact events), and hooks that run while an entity or an edge target is being d
 
 `ChildOf` and `DependsOn` are also `Traversable`; all three built-ins above are `Exclusive`.
 
+## Companions: `With`
+
+`world.component(X).add(With, world.component(Y))` adds `Y`, or the same targets for edges, whenever
+`X` is added. It never removes `Y` when `X` leaves: `With` is inclusion, not requirement. See the
+[settled decision](../../../architecture/DECISIONS.md#with-adds-never-removes) and the owning
+trait pending in [#463](https://github.com/vworlds/vecs/issues/463), and the
+[design guide](./design-guide.md#component-traits-policy-on-component-entities) for when to use it.
+
 ## Diagram examples
 
 Use the [ECS diagram notation](./diagrams.md) to distinguish a schema from a concrete scene.
@@ -231,8 +239,8 @@ world.entity().add(Alignment, weather); // throws: weather is not a child of Ali
 ```
 
 `OneOf` checks `target.parent === parentEntity`, so only a **direct** `ChildOf` edge satisfies
-the constraint — transitive descendants are rejected. The check runs in the relationship's
-`targetPolicyAdd` hook, so in deferred mode an invalid target surfaces from `flush()` /
+the constraint — transitive descendants are rejected. The check runs in a `targetAdd` handler
+the trait registers on the relationship, so in deferred mode an invalid target surfaces from `flush()` /
 `progress()` rather than from the `add` call site. A thrown edge leaves the world partially
 mutated; treat it as a programming error and discard the world (same contract as other
 trait-invariant violations).
@@ -292,8 +300,9 @@ edge is destroyed before the public hook runs on every path. A dying end takes n
 
 Register handlers with `on("targetAdd", handler)` and `on("targetRemove", handler)`; remove them
 with `off(event, handler)`. Multiple handlers may be registered for the same event and fire in
-registration order. Framework traits install separate internal `targetPolicyAdd` /
-`targetPolicyRemove` policies, so adding or removing a trait does not replace these public hooks.
+registration order, after the built-in traits' handlers. Adding a trait adds its handlers ahead of
+yours rather than replacing them. When a trait handler removes or replaces the edge it was called
+for, your handlers for that edge are skipped.
 
 ## Owned targets
 

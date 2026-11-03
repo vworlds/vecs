@@ -18,7 +18,7 @@ describe("idle systems", () => {
       const system = world.system(kind).with(Value);
       const entity = world.entity();
       if (kind === "reactive") {
-        system.enter(callback).update(Value, callback);
+        system.enter(callback).with(Value).update({ watch: Value }, callback);
         entity.add(Value);
       } else {
         system.each([Value], callback);
@@ -66,7 +66,7 @@ describe("idle systems", () => {
       .system("reactive")
       .with(Value)
       .enter(() => events.push("enter"))
-      .update(Value, (_entity, value) => events.push(`update:${value.n}`))
+      .update({ watch: Value }, (_entity, value) => events.push(`update:${value.n}`))
       .exit([Value], (_entity, [value]) => events.push(`exit:${value.n}`));
     world.progress(10, 10);
     world.progress(20, 10);
@@ -99,7 +99,10 @@ describe("idle systems", () => {
         }
       });
     const values: number[] = [];
-    world.system("consumer").update(Value, (_entity, value) => values.push(value.n));
+    world
+      .system("consumer")
+      .with(Value)
+      .update({ watch: Value }, (_entity, value) => values.push(value.n));
     world.progress(10, 10);
     expect(values).toEqual([]);
     write = true;
@@ -165,7 +168,7 @@ describe("idle systems", () => {
   it("records admitted idle systems in stats but not disabled or cadence-gated runs", () => {
     const world = new World();
     world.component(Value);
-    const reactive = world.system("reactive").update(Value, vi.fn());
+    const reactive = world.system("reactive").with(Value).update({ watch: Value }, vi.fn());
     const each = world.system("each").with(Value).each([], vi.fn());
     const empty = world.system("empty");
     const rate = world.system("rate").rate(2);

@@ -126,29 +126,38 @@ export function makeSortedEntitySet(
   return { set, watchEids };
 }
 
+/** A normalized `update` registration: the wrapped callback and its watch flags. */
+export interface UpdateRegistration {
+  componentEid: EID;
+  callback: ComponentCallback;
+  onEnter: boolean;
+  onRemove: boolean;
+}
+
 export function makeUpdateRegistration<C extends ComponentType>(
   world: World,
-  arg0: C | UpdateCallbackOptions<C, InjectTuple>,
+  arg0: UpdateCallbackOptions<C, InjectTuple>,
   arg1: (...args: any[]) => void,
   clock?: InjectClock
-): { componentEid: EID; callback: ComponentCallback; onEnter: boolean } {
+): UpdateRegistration {
   const normalized = normalizeUpdateCallbackArgs(arg0);
-  const { ComponentClass, components, onEnter, useIter } = normalized;
+  const { ComponentClass, components, onEnter, onRemove, useIter } = normalized;
   const componentEid = world.entity(ComponentClass).eid;
+  const flags = { onEnter, onRemove };
   if (components === undefined) {
     const fn = arg1 as (eOrIt: CursorCallbackArg, c: InstanceType<C>) => void;
     if (useIter) {
       const it = new Iter(0);
       return {
         componentEid,
-        onEnter,
+        ...flags,
         callback: (e: Entity, c: ComponentInstance) => {
           it.entity = e;
           fn(it, c as InstanceType<C>);
         },
       };
     }
-    return { componentEid, onEnter, callback: arg1 as ComponentCallback };
+    return { componentEid, ...flags, callback: arg1 as ComponentCallback };
   }
   const specialized = specializeClockInject(world, components, useIter, arg1, clock, "update");
   const callback = specialized.callback as (...args: any[]) => void;
@@ -162,13 +171,13 @@ export function makeUpdateRegistration<C extends ComponentType>(
       getInjectedWithSrc(e, inject, injected, it.src);
       callback(it, c as InstanceType<C>, injected as any);
     };
-    return { componentEid, onEnter, callback: cb };
+    return { componentEid, ...flags, callback: cb };
   }
   const cb = (e: Entity, c: ComponentInstance) => {
     getInjected(e, inject, false, injected);
     callback(e, c as InstanceType<C>, injected as any);
   };
-  return { componentEid, onEnter, callback: cb };
+  return { componentEid, ...flags, callback: cb };
 }
 
 function isOptionsObject(value: unknown): value is Record<string, unknown> {
@@ -188,20 +197,24 @@ function normalizeInjectCallbackArgs(
 }
 
 function normalizeUpdateCallbackArgs<C extends ComponentType>(
-  arg0: C | UpdateCallbackOptions<C, InjectTuple>
+  arg0: UpdateCallbackOptions<C, InjectTuple>
 ): {
   ComponentClass: C;
   components: readonly InjectElement[] | undefined;
   onEnter: boolean;
+  onRemove: boolean;
   useIter: boolean;
 } {
-  if (isOptionsObject(arg0) && "watch" in arg0) {
-    return {
-      ComponentClass: arg0.watch as C,
-      components: arg0.inject as readonly InjectElement[] | undefined,
-      onEnter: arg0.onEnter === true,
-      useIter: wantsIter(arg0.cursor),
-    };
+  if (!isOptionsObject(arg0) || !("watch" in arg0)) {
+    throw new Error(
+      "update requires the options form update({ watch: C }, callback); require C with with(C)"
+    );
   }
-  return { ComponentClass: arg0 as C, components: undefined, onEnter: false, useIter: false };
+  return {
+    ComponentClass: arg0.watch as C,
+    components: arg0.inject as readonly InjectElement[] | undefined,
+    onEnter: arg0.onEnter === true,
+    onRemove: arg0.onRemove === true,
+    useIter: wantsIter(arg0.cursor),
+  };
 }

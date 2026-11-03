@@ -75,10 +75,7 @@ export class Lifecycle extends Components {
           this._detachRelationship(componentMeta, c as Relationship);
           return;
         }
-        this.componentBitmask.deleteBit(componentMeta.bitPtr);
-        this.world._notifyComponentRemoved(ceid, this);
-        componentMeta._detachCarrier(this);
-        componentMeta._onRemove?.(this, c);
+        this._detachSlot(componentMeta, c, true);
       });
       this._dirtyComponentBitmask.clear();
       this._queries.clear();

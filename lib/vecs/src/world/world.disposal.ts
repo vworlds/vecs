@@ -32,7 +32,9 @@ export class Disposal extends Transfers {
    *
    * ## Order
    *
-   * Queued application cleanup finishes before infrastructure teardown starts. Systems and
+   * Queued application cleanup finishes first, then module singleton values are removed
+   * in reverse installation order (nested modules before their installing parent), while
+   * infrastructure and earlier modules' values remain available. Systems and
    * queries go first in the infrastructure pass, then modules in reverse registration
    * order, then the rest. Beyond these priorities the order is unspecified, not a
    * resource dependency contract. Infrastructure carrier cycles are stripped, not
@@ -77,6 +79,15 @@ export class Disposal extends Transfers {
         }
       });
       applications = this._destroyOrder();
+    }
+    // Remove values without destroying their definition entities or scoped children.
+    // Keep systems, queries, traits and other singleton data alive for these hooks.
+    const moduleValues = [...this._classRegistry.values()]
+      .filter((entity) => entity instanceof Module && !entity.destroyed)
+      .reverse();
+    for (const mod of moduleValues) {
+      mod.remove(mod);
+      this.flush();
     }
     this._neutraliseCleanup();
     while (this._entities.size > 0) {
@@ -131,16 +142,17 @@ export class Disposal extends Transfers {
   }
 
   /**
-   * Strip every entity's key-side trait policy handlers and set its cleanup policies to `Remove`, so
-   * the infrastructure pass neither cascades nor throws. Covers every registered entity, not just class-registered components: named entities can be
-   * component keys too. Public hooks stay. The world is being
-   * destroyed, so the metas are not restored.
+   * Clear every entity's key-side relationship-trait `remove` / `targetRemove` handlers and set
+   * its cleanup policies to `Remove`, so the infrastructure pass neither cascades nor throws.
+   * Covers every registered entity, not just class-registered components: named entities can be
+   * component keys too. Application hooks stay. The world is being destroyed, so the metas are
+   * not restored.
    */
   private _neutraliseCleanup(this: World): void {
     for (const entity of this._entities.values()) {
       const meta = entity.meta;
-      meta._onPolicyRemove = undefined;
-      meta._onTargetPolicyRemove = undefined;
+      meta._traitRemove = undefined;
+      meta._traitTargetRemove = undefined;
       meta._onDelete = CleanupPolicy.Remove;
       meta._onDeleteTarget = CleanupPolicy.Remove;
     }

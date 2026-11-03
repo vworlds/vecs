@@ -6,6 +6,7 @@ import {
   type Relationship,
 } from "../component.js";
 import {
+  _resolveRelationship,
   containsDownTerm,
   isQueryConfig,
   type ExtractSpecsRequired,
@@ -15,7 +16,11 @@ import {
 import { Entity, type EID } from "../entity/index.js";
 import {
   forEachInjected,
+  getInjected,
+  injectArity,
+  injectWatchEids,
   Iter,
+  mapInject,
   type FanInjectCallbackArg,
   type FanInjectElement,
   type FanInjectTuple,
@@ -45,8 +50,9 @@ import {
   type InjectSnapshotter,
 } from "./callbacks.js";
 import { SOURCE_TRACKED_QUERY_ERROR } from "./constants.js";
-import { getGroupedQueryPrototype } from "./grouped_query_registry.js";
+import { type Group } from "./group.js";
 import { type GroupedQuery } from "./grouped_query.js";
+import { Grouping } from "./grouping.js";
 import type {
   CascadeOptions,
   EntityCursorOption,
@@ -109,8 +115,10 @@ export class Query<
   public _tracking = false;
   /** @internal Bitmask of component eids this query reacts to via `update`. */
   public _watchlistBitmask: Bitset = new Bitset();
-  /** @internal Update callback eids opted into entry-time dispatch. */
+  /** @internal Update callback eids opted into entry-time and arrival dispatch. */
   public _onEnterUpdateEids: EID[] = [];
+  /** @internal Update callback eids whose removal from a member dispatches `update`. */
+  public _onRemoveUpdateEids: EID[] = [];
   /**
    * @internal `true` when {@link _notifyModified} only queues an event and never
    * runs a callback synchronously (systems). Lets entities route `modified`
@@ -124,6 +132,8 @@ export class Query<
   protected _destroyed = false;
   /** @internal Sorted projection. Unsorted membership is read from `rootTerm`. */
   protected _entities: Set<Entity> | undefined = undefined;
+  /** @internal Optional live bucket index configured by groupBy. */
+  protected _grouping: Grouping | undefined = undefined;
   /** @internal `true` once `with` has set an explicit predicate. */
   protected _hasExplicitQuery: boolean = false;
   /** @internal Per-component-eid `update` callbacks. */
@@ -178,6 +188,29 @@ export class Query<
       return 0;
     }
     return this._entities?.size ?? this.rootTerm?.count ?? 0;
+  }
+
+  /** Number of live buckets. Throws with the query name when not grouped. */
+  public get groupCount(): number {
+    return this._requireGrouping().groups.size;
+  }
+
+  /**
+   * Look up a live bucket. Use groupBy's return type for typed keys and members.
+   * Throws with the query name when not grouped.
+   */
+  public group(key: unknown): Group<unknown, R> | undefined {
+    return this._requireGrouping().get(key) as Group<unknown, R> | undefined;
+  }
+
+  /** Iterate live buckets. Throws with the query name when not grouped. */
+  public groups(): IterableIterator<Group<unknown, R>> {
+    return this._requireGrouping().groups.values() as IterableIterator<Group<unknown, R>>;
+  }
+
+  /** Iterate live bucket keys. Throws with the query name when not grouped. */
+  public groupKeys(): IterableIterator<unknown> {
+    return this._requireGrouping().keys();
   }
 
   public [Symbol.iterator](): IterableIterator<Entity> {
@@ -345,6 +378,11 @@ export class Query<
     return this;
   }
 
+  /**
+   * Partition this query into live buckets by injected values or relationship
+   * targets. Returns the same object typed as GroupedQuery, and enables tracking.
+   * @throws When already built or grouped. Systems do not support grouping.
+   */
   public groupBy<K, const J extends ComponentFanInjectTuple>(
     components: readonly [...J],
     key: (e: Entity, resolved: MaybeResolvedInjectTuple<J, R>) => K
@@ -364,14 +402,54 @@ export class Query<
     arg1?: (e: Entity, resolved: any) => any
   ): GroupedQuery<unknown, R> {
     this._assertConfigurable();
-    Object.setPrototypeOf(this, getGroupedQueryPrototype());
+    if (this._grouping !== undefined) {
+      throw new Error(`query '${this.name}' is already grouped`);
+    }
     if (isGroupByInjectOptions(arg0)) {
-      return (this as any)._initialize(arg0.inject, arg1);
+      arg0 = arg0.inject;
+    } else if (isRelationshipOptions(arg0)) {
+      arg0 = arg0.relationship;
     }
-    if (isRelationshipOptions(arg0)) {
-      return (this as any)._initialize(arg0.relationship, arg1);
+    let keysOf: (e: Entity) => Iterable<unknown>;
+    let watchEids: EID[];
+    if (typeof arg1 === "function") {
+      const components = arg0 as readonly FanInjectElement[];
+      const inject = mapInject(this.world, components);
+      const resolved = new Array(injectArity(inject));
+      keysOf = (e: Entity) => {
+        getInjected(e, inject, false, resolved);
+        return [arg1(e, resolved)];
+      };
+      watchEids = injectWatchEids(inject);
+      this._composeGroupMembership(components);
+    } else {
+      const relEid = _resolveRelationship(arg0 as ComponentRef, this.world);
+      keysOf = (e: Entity) => e.targets(relEid);
+      watchEids = [relEid];
+      this._composeGroupMembership([arg0 as ComponentRef]);
     }
-    return (this as any)._initialize(arg0, arg1);
+    for (const ceid of watchEids) {
+      this._watchlistBitmask.add(ceid);
+    }
+    this.track();
+    this._grouping = new Grouping(this.world, keysOf, watchEids);
+    return this as GroupedQuery<unknown, R>;
+  }
+
+  /** Configure bucket creation before building; throws when not grouped. */
+  public onGroupEnter(callback: (group: Group<unknown, R>) => void): this {
+    const grouping = this._requireGrouping();
+    this._assertConfigurable();
+    grouping.setOnGroupEnter(callback as (group: Group) => void);
+    return this;
+  }
+
+  /** Configure bucket removal before building; throws when not grouped. */
+  public onGroupExit(callback: (key: unknown, group: Group<unknown, R>) => void): this {
+    const grouping = this._requireGrouping();
+    this._assertConfigurable();
+    grouping.setOnGroupExit(callback as (key: unknown, group: Group) => void);
+    return this;
   }
 
   public ignoreSource(source: QueryDSL | Query): this {
@@ -459,7 +537,13 @@ export class Query<
     return this;
   }
 
-  /** Register an exit callback; components are snapshotted, system clocks are filled at replay. */
+  /**
+   * Register an exit callback. Inject removed components: `entity.get(C)` returns
+   * `undefined` for a removed slot even in synchronous query callbacks. Systems
+   * snapshot injected components at exit time and fill clocks at replay.
+   * A throwing synchronous query exit interrupts removal and leaves the world
+   * partial; do not continue using that world.
+   */
   public exit<const J extends readonly (ComponentInjectElement | K)[]>(
     inject: readonly [...J],
     callback: (e: Entity, injected: RequiredResolvedInjectTuple<J>) => void
@@ -487,27 +571,29 @@ export class Query<
   /**
    * Register one update callback for a watched component.
    *
-   * `update(ComponentClass, callback)` keeps the common component-only form.
-   * Use `update({ watch, inject, cursor }, callback)` when the callback
-   * needs injected components or an {@link Iter} cursor.
+   * `update({ watch, inject, cursor }, callback)` watches `watch` on the
+   * entities this query already matches. It never changes membership: build the
+   * predicate with {@link with}, which is the only way to require a component.
+   * Building a query or system that registers an update callback but has no
+   * `with` terms throws.
    * System callbacks may also inject `Now` and `Delta`, both non-optional numbers
    * from the processing tick. Standalone query callbacks cannot inject clocks.
    *
-   * `update` also adds the watched component to the query predicate, so the
-   * callback only observes entities that carry it. The callback fires when the
-   * component is set or marked modified on a matched entity. Pass
-   * `{ watch: ComponentClass, onEnter: true }` when the callback should also fire
-   * when a matched entity enters with the watched component already present.
-   * Calling `update` more than once for the same component on one query or
-   * system is rejected instead of replacing the previous callback.
+   * The callback fires when the watched component is set or marked modified on a
+   * member. Pass `onEnter: true` to also fire when the value first becomes
+   * visible to the callback: when an entity enters with the component present,
+   * or when the component is added to an existing member. Pass `onRemove: true`
+   * to fire with the removed instance when the component is removed from an
+   * entity that stays a member; the callback then sees `e.has(watch)` as false.
+   * When the watched component is also in the predicate, removing it makes the
+   * entity exit instead, and only `exit` fires. The callback's component argument
+   * is never undefined, and `ignoreSource` silences arrival, change and removal
+   * alike. Calling `update` more than once for the same component on one query
+   * or system is rejected instead of replacing the previous callback.
    *
-   * @throws When this query has already been built, when `ComponentClass`
-   *   already has an update callback on this query.
+   * @throws When this query has already been built, when the options form is
+   *   not used, or when `watch` already has an update callback on this query.
    */
-  public update<C extends ComponentType>(
-    ComponentClass: C,
-    callback: (e: Entity, c: InstanceType<C>) => void
-  ): this;
   public update<C extends ComponentType, const J extends readonly (ComponentInjectElement | K)[]>(
     options: EntityCursorOption & UpdateCallbackOptions<C, J> & { inject: readonly [...J] },
     callback: (e: Entity, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
@@ -525,15 +611,15 @@ export class Query<
     callback: (it: Iter, c: InstanceType<C>) => void
   ): this;
   public update<C extends ComponentType>(
-    arg0: C | UpdateCallbackOptions<C, readonly (ComponentInjectElement | K)[]>,
+    arg0: UpdateCallbackOptions<C, readonly (ComponentInjectElement | K)[]>,
     callback: (e: Entity, c: InstanceType<C>) => void
   ): this;
   public update<C extends ComponentType>(
-    arg0: C | UpdateCallbackOptions<C, InjectTuple>,
+    arg0: UpdateCallbackOptions<C, InjectTuple>,
     arg1: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    const { componentEid, callback, onEnter } = makeUpdateRegistration(
+    const { componentEid, callback, onEnter, onRemove } = makeUpdateRegistration(
       this.world,
       arg0,
       arg1,
@@ -550,7 +636,10 @@ export class Query<
     if (onEnter) {
       this._onEnterUpdateEids.push(componentEid);
     }
-    return this.with(componentEid) as unknown as this;
+    if (onRemove) {
+      this._onRemoveUpdateEids.push(componentEid);
+    }
+    return this;
   }
 
   /* -------------------------------------------------------------------------
@@ -576,6 +665,13 @@ export class Query<
     if (this.built) {
       return this;
     }
+    if (this._dsl === undefined && this._componentUpdateCallbacks.size > 0) {
+      const message =
+        `query '${this.name}' registers update callbacks but has no with(...) terms; ` +
+        "update only watches, so add with(...) to say which entities it matches";
+      this.destroy();
+      throw new Error(message);
+    }
     if (!this._isBuildable()) {
       this.destroy();
       return this;
@@ -600,11 +696,14 @@ export class Query<
     this._silenceQuery = undefined;
   }
 
+  /** Release membership and grouping state; subsequent group access throws. */
   public destroy(): void {
     if (this._destroyed) {
       return;
     }
     this._destroyed = true;
+    this._grouping?.clear();
+    this._grouping = undefined;
     this.world._removeQuery(this as any);
     this._entities?.clear();
     this._entities = undefined;
@@ -616,6 +715,7 @@ export class Query<
 
   /** Extension hook for subclasses that need to observe query membership entry. */
   protected _enter(e: Entity): void {
+    this._grouping?.enter(e);
     this.changed = true;
     this._entities?.add(e);
     e._addQueryMembership(this as any);
@@ -634,6 +734,7 @@ export class Query<
     this._exitCallback?.(e);
     this._entities?.delete(e);
     e._removeQueryMembership(this as any);
+    this._grouping?.exit(e);
   }
 
   /** @internal */
@@ -651,6 +752,20 @@ export class Query<
     const callback = this._componentUpdateCallbacks.get(ceid);
     if (callback) {
       callback(e, c);
+    }
+    // Silenced writes return above, so they cannot leak through group membership.
+    this._grouping?.refresh(e, ceid);
+  }
+
+  /**
+   * @internal Route a watched component's arrival on, or removal from, a
+   * member entity to its `update` callback when the watch opted in with
+   * `onEnter` or `onRemove`.
+   */
+  public _notifyPresence(e: Entity, ceid: EID, c: ComponentInstance, removed: boolean): void {
+    const eids = removed ? this._onRemoveUpdateEids : this._onEnterUpdateEids;
+    if (eids.includes(ceid)) {
+      this._notifyModified(e, ceid, c);
     }
   }
 
@@ -671,7 +786,11 @@ export class Query<
 
   /** @internal */
   public _watchesUpdates(): boolean {
-    return this._componentUpdateCallbacks.size > 0 || (this._orderByWatch?.size ?? 0) > 0;
+    return (
+      this._grouping !== undefined ||
+      this._componentUpdateCallbacks.size > 0 ||
+      (this._orderByWatch?.size ?? 0) > 0
+    );
   }
 
   /** @internal Throw when a builder method is called after registration. */
@@ -731,6 +850,26 @@ export class Query<
     const q = this.world.query(`${this.name}:silence`).with(dsl);
     q.entity.childOf(this.entity);
     return q;
+  }
+
+  private _composeGroupMembership(refs: readonly unknown[]): void {
+    const componentRefs = refs.filter(
+      (ref): ref is ComponentRef =>
+        typeof ref === "number" || typeof ref === "function" || ref instanceof Entity
+    );
+    if (componentRefs.length === 0) {
+      return;
+    }
+    const existing: QueryDSL = this._dsl ?? true;
+    this._dsl = { all: [existing, ...componentRefs] };
+    this._hasExplicitQuery = true;
+  }
+
+  private _requireGrouping(): Grouping {
+    if (this._grouping === undefined) {
+      throw new Error(`query '${this.name}' is not grouped`);
+    }
+    return this._grouping;
   }
 
   /**

@@ -106,14 +106,14 @@ describe("PhaserServerModule pose sync", () => {
       .system("RenderPositionObserver")
       .with(RenderPosition)
       .phase(ON_STORE)
-      .update(RenderPosition, () => {
+      .update({ watch: RenderPosition }, () => {
         positionUpdates++;
       });
     world
       .system("RenderRotationObserver")
       .with(RenderRotation)
       .phase(ON_STORE)
-      .update(RenderRotation, () => {
+      .update({ watch: RenderRotation }, () => {
         rotationUpdates++;
       });
 
@@ -180,14 +180,14 @@ describe("PhaserServerModule pose sync writes only on change", () => {
       .system("PhysicsPositionObserver")
       .with(PhysicsPosition)
       .phase(ON_STORE)
-      .update(PhysicsPosition, () => {
+      .update({ watch: PhysicsPosition }, () => {
         updates.position++;
       });
     world
       .system("PhysicsRotationObserver")
       .with(PhysicsRotation)
       .phase(ON_STORE)
-      .update(PhysicsRotation, () => {
+      .update({ watch: PhysicsRotation }, () => {
         updates.rotation++;
       });
     return updates;
@@ -318,14 +318,14 @@ describe("PhaserServerModule pose sync writes only on change", () => {
       .system("RenderPositionWatcher")
       .with(RenderPosition)
       .phase(ON_STORE)
-      .update(RenderPosition, (_entity, position) => {
+      .update({ watch: RenderPosition }, (_entity, position) => {
         observed.position.push({ x: position.x, y: position.y });
       });
     world
       .system("RenderRotationWatcher")
       .with(RenderRotation)
       .phase(ON_STORE)
-      .update(RenderRotation, (_entity, rotation) => {
+      .update({ watch: RenderRotation }, (_entity, rotation) => {
         observed.rotation.push({ angle: rotation.angle });
       });
     const entity = createSyncedEntity(world);

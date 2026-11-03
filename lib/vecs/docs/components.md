@@ -193,9 +193,15 @@ world.component(Shield).on("remove", (entity) => {
 ```
 
 Multiple handlers may be registered for the same event: they fire in registration
-order. Call `on(event, handler)` to append, `on(event, handler, true)` to
-prepend, and `off(event, handler)` to remove a handler by reference. All three
-return the component entity for chaining.
+order. Call `on(event, handler)` to append and `off(event, handler)` to remove a handler by
+reference; both return the component entity for chaining. The built-in relationship traits
+(`Exclusive`, `Traversable`, `OwnedTarget`, `With`, `OneOf`) react to the same events, and their
+handlers always run before yours, so your handlers see the state they establish: a `ChildOf`
+`targetAdd` handler already finds the source's `Traversable` depth updated.
+
+`entity.attach(instance)` that replaces a different stored instance fires only `set` for your
+handlers. The built-in traits' own `remove` and `add` handlers run for the old and new instance
+first, so a trait such as `Traversable` refuses being swapped out.
 
 ## Component traits: policy on component entities
 
@@ -438,6 +444,7 @@ For world-global state, store the component **on its own component entity** with
 ```ts
 world.set(Gravity, { y: -9.8 }); // world.component(Gravity).set(Gravity, {...})
 world.get(Gravity)?.y; // world.component(Gravity).get(Gravity)
+world.has(Gravity); // whether the definition carries a Gravity value; no registration
 ```
 
 `SingletonModule` enforces the constraint (`lib/vecs/src/modules/singleton.ts`); see
@@ -472,6 +479,7 @@ interface markers for polymorphic dispatch — is in the
 | `component(Class, ceid?)`            | Register or look up the `Component` entity for `Class`; optional explicit numeric id.              |
 | `component(name)`                    | Resolve an already-registered component entity by its `name`. Throws if absent or not a component. |
 | `get(Class)`                         | Singleton read: `component(Class).get(Class)`.                                                     |
+| `has(Class)`                         | Singleton presence check; returns false for an unregistered class without registering it.          |
 | `set(Class, props)`                  | Singleton write: `component(Class).set(Class, props)`.                                             |
 | `setExclusiveComponents(...classes)` | Declare one mutually exclusive group.                                                              |
 | `validate(c)` / `isValid(c)`         | Run the class's `validate` hooks; see [Component reflection](./reflection.md).                     |
@@ -482,12 +490,12 @@ interface markers for polymorphic dispatch — is in the
 A `Component<T>` is an `Entity` subclass, so the full [entity API](./entities.md#reference)
 applies. On top of it:
 
-| Member                        | Description                                                                                                                                                                                                                                                                                                                                 |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `member(name, type)`          | Declare a member for [reflection](./reflection.md) and return the component; `.range` / `.description` / `.unit` / `.values` then apply to it.                                                                                                                                                                                              |
-| `on(event, handler, insert?)` | Register a handler for `add` / `remove` / `set` / `targetAdd` / `targetRemove` / `validate` / `normalize` (plus the internal `policyAdd` / `policyRemove` / `targetPolicyAdd` / `targetPolicyRemove` events). `insert` defaults to `false` (append); `true` prepends. Rejects `target*` events on non-relationships. Returns the component. |
-| `off(event, handler)`         | Remove a previously-registered handler by reference. Idempotent. Returns the component.                                                                                                                                                                                                                                                     |
-| `meta`                        | The `ComponentMeta` bookkeeping record.                                                                                                                                                                                                                                                                                                     |
+| Member                | Description                                                                                                                                                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `member(name, type)`  | Declare a member for [reflection](./reflection.md) and return the component; `.range` / `.description` / `.unit` / `.values` then apply to it.                                                                                   |
+| `on(event, handler)`  | Register a handler for `add` / `remove` / `set` / `targetAdd` / `targetRemove` / `validate` / `normalize`, appended after the handlers already registered. Rejects `target*` events on non-relationships. Returns the component. |
+| `off(event, handler)` | Remove a previously-registered handler by reference. Idempotent. Returns the component.                                                                                                                                          |
+| `meta`                | The `ComponentMeta` bookkeeping record.                                                                                                                                                                                          |
 
 ### `ComponentMeta` (`lib/vecs/src/component_meta.ts`)
 

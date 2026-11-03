@@ -144,7 +144,7 @@ flowchart TB
     Position[/"📦 Position"/]
   end
   subgraph POST_UPDATE
-    tow{{"tow<br/><small>.update(TowedBy)<br/>query: TowedBy + Position + Winch</small>"}}
+    tow{{"tow<br/><small>.update({ watch: TowedBy })<br/>query: TowedBy + Position + Winch</small>"}}
     Winch[/"📦 Winch"/]
     Velocity[/"📦 Velocity"/]
   end

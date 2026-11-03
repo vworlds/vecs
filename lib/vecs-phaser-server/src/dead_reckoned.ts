@@ -343,7 +343,7 @@ export class DeadReckonedModule extends Module<DeadReckonedOptions | undefined> 
     // never the pose components: physics write-back must not pay a DR routing probe or hook.
     world
       .system("phaser.motion.body")
-      .with(PhysicsPosition, PhysicsRotation, DeadReckoned, Motion, MotionPrediction)
+      .with(PhysicsPosition, PhysicsRotation, DeadReckoned, Motion, MotionPrediction, Body)
       .phase(POST_UPDATE)
       .update({ watch: Body, onEnter: true }, (entity, body) => {
         if (body.type !== BodyType.Dynamic || !body.enabled) {
