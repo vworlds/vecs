@@ -35,7 +35,7 @@ import {
   type ComponentInterpolator,
   type Diff,
 } from "./diff_buffer.js";
-import { createDgramSocket, type DgramSocketOptions } from "./dgram_socket.js";
+import { createDgramSocket, type DgramSocket, type DgramSocketOptions } from "./dgram_socket.js";
 
 class Networked {}
 
@@ -113,19 +113,13 @@ export interface ClientWorldOptions extends NetworkWorldOptions {
   interpolators?: Array<readonly [ComponentClass, ComponentInterpolator]>;
 }
 
-export interface DgramConnectOptions
-  extends Omit<ClientWorldOptions, "socket">, DgramSocketOptions {
+/** Connection settings for {@link ClientWorld.connectDgram}; world options go to the constructor. */
+export interface DgramConnectOptions extends DgramSocketOptions {
   /**
-   * Install modules and listeners on the new world before the socket connects. It runs once,
-   * synchronously, after construction and before `connect()` is called, so its time is not
-   * spent inside the ack budget that attaching starts. If it throws, the world is disposed, the
-   * socket closed and the error rethrown.
-   */
-  setup?: (world: ClientWorld) => void;
-  /**
-   * Cancel the connection. Aborting before `connectDgram` returns disposes the world, closes the
-   * socket and rejects with `signal.reason`; a signal already aborted on entry creates nothing.
-   * Aborting after it returns has no effect: call {@link ClientWorld.dispose} instead.
+   * Cancel the connection. Aborting before `connectDgram` settles closes the socket and rejects
+   * with `signal.reason`, leaving the world unattached; a signal already aborted on entry rejects
+   * before a socket is created. Aborting after it resolves has no effect: call
+   * {@link ClientWorld.close} or {@link ClientWorld.dispose} instead.
    */
   signal?: AbortSignal;
 }
@@ -136,9 +130,9 @@ export interface DgramConnectOptions
  * Connect it, drive it from `progress()`, and tear it down with
  * {@link ClientWorld.dispose} when it is finished. Across a switch to another
  * server world with the same network components, either keep it ({@link close},
- * then {@link attachSocket} with the next socket, whose baseline replaces the
- * replicated entities) or dispose it and build a fresh one, so that no listener,
- * timer or client-local entity outlives the switch.
+ * then {@link connectDgram} or {@link attachSocket} with the next socket, whose
+ * baseline replaces the replicated entities) or dispose it and build a fresh one,
+ * so that no listener, timer or client-local entity outlives the switch.
  */
 export class ClientWorld extends NetworkWorld {
   public readonly events = new Events<ClientWorldEvents>();
@@ -161,6 +155,7 @@ export class ClientWorld extends NetworkWorld {
   private _disconnected = false;
   private _forceBaselineReset = false;
   private _disposed = false;
+  private _connecting = false;
   private _callDepth = 0;
   private _pendingDisconnects: Array<CloseNotice | undefined> | undefined;
 
@@ -248,31 +243,38 @@ export class ClientWorld extends NetworkWorld {
   }
 
   /**
-   * Connect to a `VecsListener`-hosted world over the dgram transport.
+   * Connect this world to a `VecsListener`-hosted world over the dgram transport.
    *
-   * In order: it creates the socket with {@link createDgramSocket}, constructs the world, runs
-   * `setup`, awaits `connect()`, and attaches. Compose those steps yourself when this order does
-   * not fit.
+   * Construct the world and install its modules and listeners first, then call this: their
+   * setup time is not spent inside the ack budget that attaching starts. It creates the socket
+   * with {@link createDgramSocket}, awaits `connect()`, then calls {@link attachSocket}, so no
+   * ack is sent before the data channel exists. To reconnect or switch to another server world,
+   * {@link close} the world first, then call this again; see {@link attachSocket} for what
+   * survives.
    *
-   * @param options - Connection settings; `host`, `port`, and `worldName` select
-   *   the world, `setup` and `signal` control the connection, and the remaining
-   *   fields are passed to the constructor.
-   * @returns A world with its socket already attached and connected. The socket
-   *   is attached only after `connect()` resolves, so no ack is sent before the
-   *   data channel exists.
-   * @throws `signal.reason` when the signal aborts first, or whatever `setup` throws
-   *   or `connect()` rejects with. Each disposes the unattached world and closes the
-   *   socket first, except a signal already aborted on entry, which creates neither.
+   * On failure or abort the socket is closed and the world is left unattached and undisposed:
+   * you own it, and may retry or dispose it.
+   *
+   * @param options - `host`, `port`, and `worldName` select the world; `signal` cancels.
+   * @returns Once the socket is attached and connected.
+   * @throws `signal.reason` when the signal aborts first, or whatever `connect()` rejects with.
+   *   Rejects before creating a socket if the signal is already aborted, the world is disposed,
+   *   it is connected, or another `connectDgram` call on it has not settled.
    */
-  public static async connectDgram(options: DgramConnectOptions): Promise<ClientWorld> {
-    const { setup, signal } = options;
+  public async connectDgram(options: DgramConnectOptions): Promise<void> {
+    const { signal } = options;
     signal?.throwIfAborted();
-    const socket = await createDgramSocket(options);
-    const client = new ClientWorld(options);
+    if (this._disposed) {
+      throw new Error("ClientWorld is disposed");
+    }
+    if (this.connected || this._connecting) {
+      throw new Error("ClientWorld is already connected or connecting; call close() first");
+    }
+    this._connecting = true;
+    let socket: DgramSocket | undefined;
     let removeAbortListener: (() => void) | undefined;
     try {
-      signal?.throwIfAborted();
-      setup?.(client);
+      socket = await createDgramSocket(options);
       signal?.throwIfAborted();
       const connected = socket.connect();
       if (signal) {
@@ -290,16 +292,16 @@ export class ClientWorld extends NetworkWorld {
       } else {
         await connected;
       }
+      // Throws if the world was disposed while connecting.
+      this.attachSocket(socket);
     } catch (error) {
-      // Nothing was attached, so only the transport and the world need releasing.
-      client.dispose();
-      socket.close();
+      // Nothing was attached, so only the transport needs releasing; the world is the caller's.
+      socket?.close();
       throw error;
     } finally {
+      this._connecting = false;
       removeAbortListener?.();
     }
-    client.attachSocket(socket);
-    return client;
   }
 
   /**

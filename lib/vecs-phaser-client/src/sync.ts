@@ -39,8 +39,8 @@ export const rotationInterpolator: ComponentInterpolator = (source, target, alph
  * interpolation is always installed; pass an empty `interpolators` to
  * `ClientWorld` to disable it too.
  *
- * Pass this at `ClientWorld` construction/connect time, for example:
- * `ClientWorld.connectDgram({ networkComponents: phaserNetworkComponents, interpolators: phaserInterpolators() })`.
+ * Pass this at `ClientWorld` construction time, for example:
+ * `new ClientWorld({ networkComponents: phaserNetworkComponents, interpolators: phaserInterpolators() })`.
  */
 export function phaserInterpolators(options?: {
   interpolateRotation?: boolean;

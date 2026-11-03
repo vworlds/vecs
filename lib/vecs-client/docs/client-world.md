@@ -25,24 +25,27 @@ In browsers, query compilation and `@wireType` codecs require `'unsafe-eval'`; s
 policy note](../../vecs/docs/queries-and-filters.md#filters-one-shot-scans) and [wire codec policy
 note](../../vecs-wire/README.md#content-security-policy).
 
-Either build the world with a socket or let `connectDgram` do both. The world installs its own
-`Pull` and `Apply` systems in the `ON_LOAD` phase, so a normal `progress()` loop applies everything
-that has arrived.
+Construct the world with its world options, install your modules and listeners, then connect it
+with `connectDgram`. The world installs its own `Pull` and `Apply` systems in the `ON_LOAD` phase,
+so a normal `progress()` loop applies everything that has arrived.
 
 ```ts
 import { ClientWorld, interpolatePosition } from "@vworlds/vecs-client";
 
-const world = await ClientWorld.connectDgram({
-  host: "localhost",
-  port: 8080,
-  worldName: "arena",
+const world = new ClientWorld({
   networkComponents: [Position],
   interpolators: [[Position, interpolatePosition]],
 });
+world.module(GameModule, { scene });
+await world.connectDgram({ host: "localhost", port: 8080, worldName: "arena" });
 
 // per frame, from your render loop
 world.progress(performance.now(), 16);
 ```
+
+Install modules before connecting rather than after: attaching starts the ack timer, so work done
+after it, such as a first load that builds painters and caches, runs while the server already waits
+for acks.
 
 To drive a world yourself instead — in a test, or behind your own loop — hand it a `VecsSocket`
 directly with `attachSocket` and call `apply(now)` when you want buffered frames applied.
@@ -50,42 +53,35 @@ directly with `attachSocket` and call `apply(now)` when you want buffered frames
 Only attach a socket that is already **connected**. `attachSocket` (and the `socket` option) starts
 the ack timer, and an ack the transport rejects because it is not ready, such as dgram's
 `DATA_CHANNEL_NOT_CREATED` before the data channel opens, counts as a failed send and tears the
-world down as a disconnect. `connectDgram` therefore builds the world without a socket, awaits
-`connect()`, and only then attaches; if `connect()` rejects, it disposes the world, closes the
-socket, and rethrows. The client cannot instead wait for the first server frame before acking: the
+world down as a disconnect. `connectDgram` therefore awaits `connect()` and only then attaches. The
+client cannot instead wait for the first server frame before acking: the
 server sends nothing before a session has a baseline to acknowledge if its diff is empty and it has
 no RPC traffic, even with keepalives enabled, and it closes sessions
 that stay silent past `disconnectGraceMs`, so a client that withheld its first ack could be
 dropped, or could never deliver an early `invoke`.
 
-### Setup and cancellation
+### Failure and cancellation
 
-Pass `setup` to install modules and listeners before the socket connects, and `signal` to cancel a
-connection in progress:
+`connectDgram` connects a world you own, so it never disposes it. If `connect()` rejects, it closes
+the socket, leaves the world unattached, and rethrows: retry on the same world or dispose it. Pass
+`signal` to cancel a connection in progress:
 
 ```ts
 const controller = new AbortController();
 
-const world = await ClientWorld.connectDgram({
-  host: "localhost",
-  port: 8080,
-  worldName: "arena",
-  networkComponents: [Position],
-  signal: controller.signal,
-  setup: (client) => {
-    client.module(GameModule, { scene });
-  },
-});
+try {
+  await world.connectDgram({ host, port, worldName: "arena", signal: controller.signal });
+} catch (error) {
+  world.dispose(); // or keep the world and call connectDgram again
+  throw error;
+}
 ```
 
-`setup` runs once, synchronously, on the new world before `connect()` is called. Install your
-modules there rather than after `connectDgram` resolves: attaching starts the ack timer, so work
-done after it, such as a first load that builds painters and caches, runs while the server already
-waits for acks. If `setup` throws, the world is disposed, the socket closed, and the error rethrown.
-
-Aborting `signal` before `connectDgram` resolves disposes the world, closes the socket, and rejects
-with `signal.reason`; a signal already aborted on entry rejects before creating either. An abort
-after the world is returned does nothing: dispose the world instead.
+Aborting before `connectDgram` settles closes the socket and rejects with `signal.reason`; a signal
+already aborted on entry rejects before creating a socket. An abort after it resolves does nothing:
+`close()` or `dispose()` the world instead. `connectDgram` also rejects, without creating a socket,
+on a disposed world, on a connected one, and while another `connectDgram` call on the same world
+has not settled.
 
 When `connectDgram` still does not fit, compose it from its parts. `createDgramSocket(options)`
 returns an unconnected dgram socket typed as a `VecsSocket` with `connect()`, so you need no cast:
@@ -472,7 +468,7 @@ a new `ClientWorld` to start over; the constructor has no internal state tied to
 A sector switch, a reconnect, or a retry can either keep the `ClientWorld` or build a new one. Both
 are supported; choose by what must survive.
 
-**Reuse** with `close()` then `attachSocket(next)` when the next server world replicates the same
+**Reuse** with `close()` then `connectDgram` (or `attachSocket` with your own socket) when the next server world replicates the same
 `networkComponents` the client was built with: the wire schema is fixed at construction. Modules,
 systems, painter caches and client-local entities stay, so the switch costs only the next baseline.
 That baseline is adopted even if the new server's frame counter is lower, destroys every replicated
@@ -482,15 +478,13 @@ longer exists, is yours to clear, typically from that `reset` handler.
 
 ```ts
 world.close();
-const next = await createDgramSocket({ host, port, worldName: nextSector });
-await next.connect();
-world.attachSocket(next);
+await world.connectDgram({ host, port, worldName: nextSector });
 ```
 
 **Replace** with `dispose()` and a new `ClientWorld` when the schema changes, on a hot reload or
 route change, or when nothing client-side should outlive the switch. Disposal runs every `remove`
 hook, including each module's own
-([Releasing resources](../../vecs/docs/modules.md#releasing-resources)), then `connectDgram` with `setup` installs the modules again on the new world.
+([Releasing resources](../../vecs/docs/modules.md#releasing-resources)), then construct the new world, install its modules, and call its `connectDgram`.
 
 ## Frames the client cannot decode
 
@@ -539,22 +533,22 @@ a payload that fails there still throws out of `apply()`.
 
 ## Reference
 
-| Member                              | Description                                                                                |
-| ----------------------------------- | ------------------------------------------------------------------------------------------ |
-| `ClientWorld.connectDgram(options)` | Run `setup`, connect over dgram, then attach; `signal` cancels. Returns a connected world. |
-| `createDgramSocket(options)`        | Create an unconnected dgram socket typed as a `VecsSocket` with `connect()`.               |
-| `world.attachSocket(socket)`        | Bind a connected socket and start the ack timer. Throws after disposal.                    |
-| `world.setInput(input)`             | Set the input replicated on the next outgoing frame.                                       |
-| `world.invoke(rpcId, params?)`      | Call the server; settles with the reply params as soon as the reply arrives.               |
-| `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client; it runs from `apply()`.      |
-| `world.unlisten(rpcId, handler)`    | Remove only the same handler reference; return whether it was removed.                     |
-| `world.connected`                   | Whether an attached socket is still connected and the world is not disposed.               |
-| `world.disposed`                    | Whether permanent teardown has begun.                                                      |
-| `world.apply(now)`                  | Run queued server requests, then apply buffered frames in reset/snapshot/removal order.    |
-| `world.renderFrame`                 | The fractional server frame the world renders; `0` before the first baseline.              |
-| `world.send()`                      | Send input, outstanding replies, the current ack frame, and a gap report if one is open.   |
-| `world.close()`                     | Disconnect, reject pending calls, and close the socket while leaving state reusable.       |
-| `world.dispose()`                   | One-way teardown: reject calls, close the socket, destroy network and local entities.      |
+| Member                           | Description                                                                               |
+| -------------------------------- | ----------------------------------------------------------------------------------------- |
+| `world.connectDgram(options)`    | Connect over dgram, then attach; `signal` cancels. On failure the world stays undisposed. |
+| `createDgramSocket(options)`     | Create an unconnected dgram socket typed as a `VecsSocket` with `connect()`.              |
+| `world.attachSocket(socket)`     | Bind a connected socket and start the ack timer. Throws after disposal.                   |
+| `world.setInput(input)`          | Set the input replicated on the next outgoing frame.                                      |
+| `world.invoke(rpcId, params?)`   | Call the server; settles with the reply params as soon as the reply arrives.              |
+| `world.listen(rpcId, handler)`   | Register a handler for calls the server makes on this client; it runs from `apply()`.     |
+| `world.unlisten(rpcId, handler)` | Remove only the same handler reference; return whether it was removed.                    |
+| `world.connected`                | Whether an attached socket is still connected and the world is not disposed.              |
+| `world.disposed`                 | Whether permanent teardown has begun.                                                     |
+| `world.apply(now)`               | Run queued server requests, then apply buffered frames in reset/snapshot/removal order.   |
+| `world.renderFrame`              | The fractional server frame the world renders; `0` before the first baseline.             |
+| `world.send()`                   | Send input, outstanding replies, the current ack frame, and a gap report if one is open.  |
+| `world.close()`                  | Disconnect, reject pending calls, and close the socket while leaving state reusable.      |
+| `world.dispose()`                | One-way teardown: reject calls, close the socket, destroy network and local entities.     |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-client/src/client_world.ts` and
 `lib/vecs-client/src/diff_buffer.ts`.

@@ -56,7 +56,8 @@ class ConnectGatedSocket implements VecsSocket {
 
 vi.mock("@vworlds/dgram-client", () => ({ ClientSocket: ConnectGatedSocket }));
 
-const connectOptions = { host: "localhost", port: 1, worldName: "w", ackIntervalMs: 5 };
+const connectOptions = { host: "localhost", port: 1, worldName: "w" };
+const worldOptions = { ackIntervalMs: 5 };
 
 afterEach(() => {
   sockets.length = 0;
@@ -65,7 +66,8 @@ afterEach(() => {
 
 describe("ClientWorld.connectDgram", () => {
   it("does not disconnect on acks that would precede the data channel", async () => {
-    const world = await ClientWorld.connectDgram(connectOptions);
+    const world = new ClientWorld(worldOptions);
+    await world.connectDgram(connectOptions);
     const onDisconnect = vi.fn();
     world.events.on("disconnect", onDisconnect);
 
@@ -78,7 +80,8 @@ describe("ClientWorld.connectDgram", () => {
   });
 
   it("sends acks after connect and lets invoke reach the server", async () => {
-    const world = await ClientWorld.connectDgram(connectOptions);
+    const world = new ClientWorld(worldOptions);
+    await world.connectDgram(connectOptions);
     void world.invoke(101).catch(() => undefined);
 
     await new Promise((resolve) => setTimeout(resolve, 40));
@@ -88,130 +91,130 @@ describe("ClientWorld.connectDgram", () => {
     world.dispose();
   });
 
-  it("leaves no timer or half-attached world behind when connect fails", async () => {
+  it("closes the socket and leaves the world unattached and undisposed when connect fails", async () => {
     connectFailure = new Error("connect failed");
+    const world = new ClientWorld(worldOptions);
 
-    await expect(ClientWorld.connectDgram(connectOptions)).rejects.toThrow("connect failed");
+    await expect(world.connectDgram(connectOptions)).rejects.toThrow("connect failed");
     await new Promise((resolve) => setTimeout(resolve, 40));
 
     expect(sockets[0]!.rejectedSends).toBe(0);
     expect(sockets[0]!.closeCalls).toBe(1);
-  });
-
-  it("runs setup on the unattached world before connect() is called", async () => {
-    const seen: Array<{ connectCalls: number; connected: boolean; sent: number }> = [];
-    class Game extends Module {
-      public init(): void {
-        const socket = sockets[0]!;
-        seen.push({
-          connectCalls: socket.connectCalls,
-          connected: this.world instanceof ClientWorld && this.world.connected,
-          sent: socket.sent.length + socket.rejectedSends,
-        });
-      }
-    }
-    let installed: Game | undefined;
-
-    const world = await ClientWorld.connectDgram({
-      ...connectOptions,
-      setup: (client) => {
-        installed = client.module(Game);
-      },
-    });
-
-    expect(seen).toEqual([{ connectCalls: 0, connected: false, sent: 0 }]);
-    expect(world.module(Game)).toBe(installed);
-    expect(world.connected).toBe(true);
-    expect(sockets[0]!.connectCalls).toBe(1);
+    expect(world.connected).toBe(false);
+    expect(world.disposed).toBe(false);
     world.dispose();
   });
 
-  it("disposes the world and closes the socket when setup throws", async () => {
-    let created: ClientWorld | undefined;
+  it("sends nothing while connecting a world whose modules were installed first", async () => {
+    class Game extends Module {
+      public init(): void {}
+    }
+    const world = new ClientWorld(worldOptions);
+    const game = world.module(Game);
 
-    await expect(
-      ClientWorld.connectDgram({
-        ...connectOptions,
-        setup: (client) => {
-          created = client;
-          throw new Error("setup failed");
-        },
-      })
-    ).rejects.toThrow("setup failed");
+    const pending = world.connectDgram(connectOptions);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(sockets[0]!.connectCalls).toBe(1);
+    expect(sockets[0]!.sent).toEqual([]);
+    expect(sockets[0]!.rejectedSends).toBe(0);
+    expect(world.connected).toBe(false);
 
-    expect(created?.disposed).toBe(true);
-    expect(sockets[0]!.connectCalls).toBe(0);
-    expect(sockets[0]!.closeCalls).toBe(1);
+    await pending;
+    expect(world.connected).toBe(true);
+    expect(world.module(Game)).toBe(game);
+    world.dispose();
   });
 
-  it("rejects with the abort reason and releases everything when aborted during connect()", async () => {
+  it("rejects with the abort reason and leaves the world usable when aborted during connect()", async () => {
     const controller = new AbortController();
     const reason = new Error("left the lobby");
-    const disposed: string[] = [];
+    const removed: string[] = [];
     class Game extends Module {
       public init(): void {
-        this.on("remove", () => disposed.push("Game"));
+        this.on("remove", () => removed.push("Game"));
       }
     }
-    let created: ClientWorld | undefined;
+    const world = new ClientWorld(worldOptions);
+    world.module(Game);
 
-    const pending = ClientWorld.connectDgram({
-      ...connectOptions,
-      signal: controller.signal,
-      setup: (client) => {
-        created = client;
-        client.module(Game);
-      },
-    });
+    const pending = world.connectDgram({ ...connectOptions, signal: controller.signal });
     await new Promise((resolve) => setTimeout(resolve, 5));
     expect(sockets[0]!.connectCalls).toBe(1);
     controller.abort(reason);
 
     await expect(pending).rejects.toBe(reason);
-    expect(created?.disposed).toBe(true);
-    expect(disposed).toEqual(["Game"]);
     expect(sockets[0]!.closeCalls).toBe(1);
+    expect(world.disposed).toBe(false);
+    expect(world.connected).toBe(false);
+    expect(removed).toEqual([]);
     // connect() resolving later attaches nothing and sends nothing.
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(sockets[0]!.sent).toEqual([]);
     expect(sockets[0]!.rejectedSends).toBe(0);
+
+    await world.connectDgram(connectOptions);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(world.connected).toBe(true);
+    expect(sockets[1]!.sent.length).toBeGreaterThan(0);
+    expect(sockets[1]!.rejectedSends).toBe(0);
+    world.dispose();
+    expect(removed).toEqual(["Game"]);
   });
 
-  it("rejects without creating a socket or world when the signal is already aborted", async () => {
+  it("rejects without creating a socket when the signal is already aborted", async () => {
     const reason = new Error("cancelled");
-    const setup = vi.fn();
+    const world = new ClientWorld(worldOptions);
 
     await expect(
-      ClientWorld.connectDgram({ ...connectOptions, signal: AbortSignal.abort(reason), setup })
+      world.connectDgram({ ...connectOptions, signal: AbortSignal.abort(reason) })
     ).rejects.toBe(reason);
 
     expect(sockets).toEqual([]);
-    expect(setup).not.toHaveBeenCalled();
+    expect(world.disposed).toBe(false);
+    world.dispose();
   });
 
-  it("does not call connect() when setup aborts the signal", async () => {
-    const controller = new AbortController();
-    let created: ClientWorld | undefined;
+  it("rejects without creating a socket while connected or connecting", async () => {
+    const world = new ClientWorld(worldOptions);
+    const pending = world.connectDgram(connectOptions);
 
-    await expect(
-      ClientWorld.connectDgram({
-        ...connectOptions,
-        signal: controller.signal,
-        setup: (client) => {
-          created = client;
-          controller.abort(new Error("aborted in setup"));
-        },
-      })
-    ).rejects.toThrow("aborted in setup");
+    await expect(world.connectDgram(connectOptions)).rejects.toThrow("call close() first");
+    await pending;
+    await expect(world.connectDgram(connectOptions)).rejects.toThrow("call close() first");
 
-    expect(created?.disposed).toBe(true);
-    expect(sockets[0]!.connectCalls).toBe(0);
+    expect(sockets).toHaveLength(1);
+    expect(world.connected).toBe(true);
+    world.dispose();
+  });
+
+  it("rejects without creating a socket on a disposed world", async () => {
+    const world = new ClientWorld(worldOptions);
+    world.dispose();
+
+    await expect(world.connectDgram(connectOptions)).rejects.toThrow("ClientWorld is disposed");
+    expect(sockets).toEqual([]);
+  });
+
+  it("reconnects the same world after close()", async () => {
+    const world = new ClientWorld(worldOptions);
+    await world.connectDgram(connectOptions);
+    world.close();
+    expect(world.connected).toBe(false);
     expect(sockets[0]!.closeCalls).toBe(1);
+
+    await world.connectDgram({ ...connectOptions, worldName: "next" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(world.connected).toBe(true);
+    expect(sockets).toHaveLength(2);
+    expect(sockets[1]!.sent.length).toBeGreaterThan(0);
+    world.dispose();
   });
 
   it("ignores an abort after the connection is established", async () => {
     const controller = new AbortController();
-    const world = await ClientWorld.connectDgram({ ...connectOptions, signal: controller.signal });
+    const world = new ClientWorld(worldOptions);
+    await world.connectDgram({ ...connectOptions, signal: controller.signal });
 
     controller.abort();
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -230,7 +233,7 @@ describe("createDgramSocket", () => {
     expect(sockets[0]!.connectCalls).toBe(0);
 
     await socket.connect();
-    const world = new ClientWorld({ ackIntervalMs: 5 });
+    const world = new ClientWorld(worldOptions);
     world.attachSocket(socket);
     await new Promise((resolve) => setTimeout(resolve, 20));
 

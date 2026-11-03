@@ -598,7 +598,7 @@ No interpolators are registered by default. `phaserInterpolators()` (from
 `vecs-phaser-client`) opts in: it installs `interpolatePosition` (linear `{x,y}`
 lerp) on the `Position` wire type and `rotationInterpolator` (shortest-arc
 angular lerp in radians) on the `Rotation` wire type, both looked up from
-`phaserNetworkComponents`. Pass it at `ClientWorld.connectDgram` time via
+`phaserNetworkComponents`. Pass it at `ClientWorld` construction via
 `interpolators: phaserInterpolators()`. Pass
 `phaserInterpolators({ interpolateRotation: false })` to snap rotation while
 still interpolating `Position`. All other components snap to latest.
@@ -951,14 +951,12 @@ const catalog = await loadAssets(scene, {
   onProgress: (value) => updateLoadingBar(value),
 });
 
-const world = await ClientWorld.connectDgram({
-  host: "localhost",
-  port: 8080,
-  worldName: "main",
+const world = new ClientWorld({
   networkComponents: phaserNetworkComponents,
   interpolators: phaserInterpolators(),
 });
 world.module(PhaserRenderModule, { scene, pixelsPerMeter: 100, catalog });
+await world.connectDgram({ host: "localhost", port: 8080, worldName: "main" });
 ```
 
 `loadAssets` is awaited **before** `connectDgram`, guaranteeing every texture is resident before
@@ -1004,8 +1002,8 @@ Tiled tileset.
 - A `Phaser.Game` with scenes `[BootScene, DemoScene]`.
 - `BootScene`: draws a progress bar, `await loadAssets(scene, { host, port, worldName,
 onProgress })`, then `scene.start("DemoScene", { catalog })`; retries on failure.
-- `DemoScene`: `init` captures the catalog; `create` connects `ClientWorld.connectDgram` and
-  registers `PhaserRenderModule({ scene, pixelsPerMeter: 100, catalog })`; `update` drives
+- `DemoScene`: `init` captures the catalog; `create` constructs a `ClientWorld`, registers
+  `PhaserRenderModule({ scene, pixelsPerMeter: 100, catalog })`, then awaits `world.connectDgram`; `update` drives
   `world.setInput` + `world.progress(time, delta)`. Cosmetic grid + instructions drawn with Phaser
   `Graphics`/`Text` (client-only). On disconnect, `clearAllEntities()`; reconnect creates a fresh
   `ClientWorld` and registers the render module again.
