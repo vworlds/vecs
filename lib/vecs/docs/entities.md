@@ -234,7 +234,12 @@ Disposal uses two passes through the existing entity destroy path. Every `remove
 entities already destroyed by a hook or cascade are skipped. In **pass 1**, every application entity
 uses ordinary [cleanup policies and cascades](./relationships.md#cleanup-when-a-target-dies).
 This includes plain entities created inside module scopes, even though their parent is infrastructure.
-Application hook-generated commands settle before pass 2 starts.
+Application hook-generated commands settle before the module step starts.
+
+**Module step:** remove every module's own singleton value, in reverse installation order,
+without destroying its definition entity. Nested modules precede their installing parent.
+Their [`remove` hooks release module resources](./modules.md#releasing-resources) while
+earlier modules' values and all world infrastructure remain available.
 
 **Pass 2** destroys remaining infrastructure (`lib/vecs/src/world/world.disposal.ts`):
 
@@ -245,8 +250,8 @@ Application hook-generated commands settle before pass 2 starts.
 | Phase entities                | They carry the `Phase` component.                             |
 
 Data stored on component entities (including singletons set with `world.set`) is removed once,
-after queued application cleanup. Bind module-owned resources to that data with `remove` hooks;
-you do not need a separate disposal callback.
+after queued application cleanup and the module step. Module values have already been removed,
+so destroying their definition entities does not re-fire their hooks.
 
 During pass 2 only, cleanup policies are suspended. `ChildOf`/`OwnedTarget` do not cascade;
 children are destroyed explicitly in the pass. A component still carried by another entity is removed

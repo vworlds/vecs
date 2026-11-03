@@ -434,6 +434,7 @@ For world-global state, store the component **on its own component entity** with
 ```ts
 world.set(Gravity, { y: -9.8 }); // world.component(Gravity).set(Gravity, {...})
 world.get(Gravity)?.y; // world.component(Gravity).get(Gravity)
+world.has(Gravity); // whether the definition carries a Gravity value; no registration
 ```
 
 `SingletonModule` enforces the constraint (`lib/vecs/src/modules/singleton.ts`); see
@@ -468,6 +469,7 @@ interface markers for polymorphic dispatch — is in the
 | `component(Class, ceid?)`            | Register or look up the `Component` entity for `Class`; optional explicit numeric id.              |
 | `component(name)`                    | Resolve an already-registered component entity by its `name`. Throws if absent or not a component. |
 | `get(Class)`                         | Singleton read: `component(Class).get(Class)`.                                                     |
+| `has(Class)`                         | Singleton presence check; returns false for an unregistered class without registering it.          |
 | `set(Class, props)`                  | Singleton write: `component(Class).set(Class, props)`.                                             |
 | `setExclusiveComponents(...classes)` | Declare one mutually exclusive group.                                                              |
 | `validate(c)` / `isValid(c)`         | Run the class's `validate` hooks; see [Component reflection](./reflection.md).                     |
