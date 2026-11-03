@@ -156,7 +156,7 @@ world.module(PhysicsModule, {
 const inputSystem = world
   .system("ApplyPlayerInput")
   .with(PlayerInput, Body)
-  .update(PlayerInput, (entity, input) => {
+  .update({ watch: PlayerInput }, (entity, input) => {
     if (input.jumpPressed) {
       entity.set(Impulse, { x: 0, y: 8 });
     }
@@ -165,7 +165,8 @@ const inputSystem = world
 const contactSystem = world
   .system("ReactToContacts")
   .phase(physicsPost)
-  .update(ContactEvents, (shapeEntity, events) => {
+  .with(ContactEvents)
+  .update({ watch: ContactEvents }, (shapeEntity, events) => {
     for (const event of events.begin) {
       // Runs after physics has published contact events.
       console.log("contact", shapeEntity.eid, event.other.eid);
@@ -313,7 +314,7 @@ Input should usually run before physics.
 const jump = world
   .system("Jump")
   .with(PlayerInput, Body)
-  .update(PlayerInput, (entity, input) => {
+  .update({ watch: PlayerInput }, (entity, input) => {
     if (input.jumpPressed) {
       entity.set(Impulse, { x: 0, y: 8 });
     }
@@ -348,7 +349,8 @@ Contact reactions should run after physics has published events.
 const damage = world
   .system("DamageOnHit")
   .phase("physics-post")
-  .update(ContactEvents, (shapeEntity, events) => {
+  .with(ContactEvents)
+  .update({ watch: ContactEvents }, (shapeEntity, events) => {
     for (const event of events.begin) {
       const body = shapeEntity.parent;
       const otherBody = event.other.parent;

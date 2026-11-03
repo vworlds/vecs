@@ -37,7 +37,7 @@ export class ImageModule extends Module<{ scene: Phaser.Scene; coords: CoordSpac
 
     world
       .system("phaser.render.image.size")
-      .with(Image, m.Texture)
+      .with(Image, m.Texture, Size)
       .phase(ON_STORE)
       .update({ watch: Size, onEnter: true, inject: [m.Texture] }, (_entity, size, [obj]) =>
         obj.setDisplaySize(coords.len(size.width), coords.len(size.height))

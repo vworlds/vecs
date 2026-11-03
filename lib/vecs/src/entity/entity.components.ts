@@ -101,6 +101,7 @@ export class Components extends Relationships {
     this.world._notifyComponentRemoved(meta.eid, this);
     this._components.delete(meta.eid);
     this.world._notifyComponentChanged(meta.eid, this);
+    this._routeRemoved(meta.eid, c);
     meta._detachCarrier(this);
     meta._traitRemove?.(this, c);
     meta._onRemove?.(this, c);
@@ -668,6 +669,7 @@ export class Components extends Relationships {
     if (!reflectsAdd()) {
       return;
     }
+    this._routeArrived(meta.eid, relationship);
     this.world._notifyComponentAdded(meta.eid, this);
   }
 
@@ -721,6 +723,7 @@ export class Components extends Relationships {
     this.world._notifyComponentRemoved(meta.eid, this);
     this._components.delete(meta.eid);
     this.world._notifyComponentChanged(meta.eid, this);
+    this._routeRemoved(meta.eid, relationship);
     meta._detachCarrier(this);
     const targets = relationship._takeTargets();
     for (const target of targets) {
@@ -825,6 +828,7 @@ export class Components extends Relationships {
       meta._onAdd?.(this, instance);
     }
     if (!existing) {
+      this._routeArrived(meta.eid, instance);
       this.world._notifyComponentAdded(meta.eid, this);
     }
   }

@@ -1019,7 +1019,7 @@ describe("Entity — relationship navigation", () => {
       .with({ target: [FriendOf, ThirdTarget] })
       .build();
     const updates = vi.fn();
-    w.query("relationship updates").with(FriendOf).update(FriendOf, updates).build();
+    w.query("relationship updates").with(FriendOf).update({ watch: FriendOf }, updates).build();
     const removed: Entity[] = [];
     const added: Entity[] = [];
     relationship

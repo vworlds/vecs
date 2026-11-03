@@ -36,7 +36,7 @@ export class BodyLifecycleModule extends Module {
         engine.entityByBodyIndex.set(bodyId.index1, entity.eid);
         engine.bodyEntities[bodyId.index1] = entity;
       })
-      .update(Body, (entity, body) => {
+      .update({ watch: Body }, (entity, body) => {
         const bodyId = body._bodyId;
         if (bodyId === undefined) {
           return;

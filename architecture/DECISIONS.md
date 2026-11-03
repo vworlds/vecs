@@ -31,3 +31,26 @@ Settled in [#437](https://github.com/vworlds/vecs/issues/437).
 identity, or the entity dies with it), or an orphaned companion is harmless. Otherwise own the
 companion explicitly. See the [design guide](../lib/vecs/docs/design-guide.md#component-traits-policy-on-component-entities)
 and [`With` in the relationships guide](../lib/vecs/docs/relationships.md#companions-with).
+
+## `update` only watches; `with` alone builds membership
+
+`update({ watch: C }, cb)` never touches the predicate: `with(...)` is the only way to require a
+component, the `update(C, cb)` shorthand is gone, and building a query or system that has an
+`update` but no `with` terms throws. This supersedes `c00c156` (2026-06-11, "refactor: simplify
+update predicates"), which made `update(C)` append `with(C)`. Settled in
+[#443](https://github.com/vworlds/vecs/issues/443), which absorbed
+[#492](https://github.com/vworlds/vecs/issues/492).
+
+**Why.**
+
+- A game that keeps its state in small optional components, as the
+  [design guide](../lib/vecs/docs/design-guide.md#3-components) recommends, needed one system per
+  watched component while a watch also required it. SpaceRocks ran about 24 server systems for 8
+  functions.
+- Removing the shorthand makes every call site say, through `with`, whether the watched component
+  is required.
+
+**How to apply.** Put `C` in `with` when the system should hold only entities that carry it; leave it
+out and watch with `onEnter`/`onRemove` when the system holds its `with` entities either way. Migrate
+older call sites with `scripts/codemods/update-explicit-with.mjs`, which keeps their meaning. See
+[`with` builds membership, `update` watches](../lib/vecs/docs/design-guide.md#with-builds-membership-update-watches).

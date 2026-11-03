@@ -109,10 +109,10 @@ describe("Implements", () => {
     world.component(Fruit).on("set", onSet[1]);
     world.component(Food).on("set", onSet[2]);
     world.component(Foreign).on("set", onSet[3]);
-    world.query("orange-updates").with(Orange).update(Orange, update[0]).build();
-    world.query("fruit-updates").with(Fruit).update(Fruit, update[1]).build();
-    world.query("food-updates").with(Food).update(Food, update[2]).build();
-    world.query("Foreign-updates").with(Foreign).update(Foreign, update[3]).build();
+    world.query("orange-updates").with(Orange).update({ watch: Orange }, update[0]).build();
+    world.query("fruit-updates").with(Fruit).update({ watch: Fruit }, update[1]).build();
+    world.query("food-updates").with(Food).update({ watch: Food }, update[2]).build();
+    world.query("Foreign-updates").with(Foreign).update({ watch: Foreign }, update[3]).build();
     update.forEach((fn) => fn.mockClear());
 
     entity.modified(Orange);

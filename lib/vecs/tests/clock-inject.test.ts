@@ -348,6 +348,7 @@ describe("system clock injection", () => {
         expectTypeOf(it).toEqualTypeOf<Iter>();
         expectTypeOf(values).toEqualTypeOf<[number, Position, number]>();
       })
+      .with(Position)
       .update(
         { watch: Position, inject: [Missing, Now, Position, Delta], cursor: Iter },
         (it, pos, values) => {
@@ -381,7 +382,7 @@ describe("system clock injection", () => {
     }).toThrow(message);
     expect(() => {
       // @ts-expect-error Standalone update has no system clock.
-      query.update({ watch: Position, inject: [Now] }, () => {});
+      query.with(Position).update({ watch: Position, inject: [Now] }, () => {});
     }).toThrow(message);
     expect(() => {
       // @ts-expect-error A synchronous forEach also has no processing tick.
