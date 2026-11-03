@@ -12,6 +12,7 @@ import {
   OneOf,
   OwnedTarget,
   Remove,
+  Requires,
   SilenceSource,
   Throw,
   Traversable,
@@ -28,6 +29,7 @@ export {
   OneOf,
   OwnedTarget,
   Remove,
+  Requires,
   SilenceSource,
   Throw,
   Traversable,
@@ -37,8 +39,8 @@ export {
 /**
  * Built-in world module that registers the `ChildOf` relationship and
  * maintains ownership and depth tracking policies for relationship traits.
- * Declares `Exclusive`, `Traversable`, `OwnedTarget`, `With`, `OneOf`,
- * `OnDelete`, and `OnDeleteTarget` with the {@link Trait} marker.
+ * Declares `Exclusive`, `Traversable`, `OwnedTarget`, `With`, `Requires`,
+ * `OneOf`, `OnDelete`, and `OnDeleteTarget` with the {@link Trait} marker.
  *
  * Registered automatically by every {@link World}. It gives `ChildOf` the
  * `(OnDeleteTarget, Delete)` cleanup policy, so destroying a parent
@@ -67,6 +69,10 @@ export {
  * rejects targets whose `ChildOf` parent is not the declared parent. `OneOf`
  * is irrevocable once attached.
  *
+ * `Requires` removes the companion when its bringer is removed from a live
+ * entity, unless the entity still carries another bringer
+ * ({@link isBroughtOn}). Both `With` and `Requires` are irrevocable.
+ *
  * `OwnedTarget` and `Traversable` are irrevocable once attached: both
  * `entity.remove(Trait)` and `entity.attach(newInstance)` throw, and the world
  * must be discarded after the throw. Teardown bypasses these guards —
@@ -91,6 +97,7 @@ export class RelationshipsModule extends Module {
     const silenceSource = world.component(SilenceSource);
     const traversableTrait = world.component(Traversable).add(Trait);
     const withTrait = world.component(With).add(Trait);
+    const requiresTrait = world.component(Requires).add(Trait);
     const oneOfTrait = world.component(OneOf).add(Trait);
 
     exclusive.meta.on("add", { trait: true }, (relationship): void => {
@@ -182,6 +189,33 @@ export class RelationshipsModule extends Module {
       }
     });
     this._forbidPairTraitRemoval(withTrait, "With");
+
+    requiresTrait.meta.on(
+      "targetAdd",
+      { trait: true },
+      (xEntity, _requiresRelationship, yEntity): void => {
+        const xMeta = xEntity.meta;
+        const yMeta = yEntity.meta;
+        if (xMeta.isRelationship || yMeta.isRelationship) {
+          throw new Error("Requires: the component and its target must both be plain components");
+        }
+        if (xMeta.usageCount > 0) {
+          throw new Error("Requires cannot be added while the target component is in use");
+        }
+        xMeta.on("add", { trait: true }, (entity) => entity.add(yEntity));
+        xMeta.on("remove", { trait: true }, (entity) => {
+          // An attach that replaces the bringer runs this handler with the bringer still present;
+          // destruction does not run trait remove handlers at all.
+          if (entity.componentBitmask.has(xMeta.eid)) {
+            return;
+          }
+          if (!isBroughtOn(yEntity, entity)) {
+            entity.remove(yEntity);
+          }
+        });
+      }
+    );
+    this._forbidPairTraitRemoval(requiresTrait, "Requires");
 
     oneOfTrait.meta.on("targetAdd", { trait: true }, (rel, _oneOf, parent): void => {
       if (!rel.meta.isRelationship) {
@@ -317,4 +351,37 @@ export class RelationshipsModule extends Module {
       throw new Error(`${name} cannot be removed once added`);
     });
   }
+}
+
+/**
+ * Whether `entity` carries a component that brings `companion` along through a
+ * plain `With` or `Requires` pair.
+ *
+ * The bringers are the companion's incoming `With` and `Requires` edges
+ * (`companion.children(With)` and `companion.children(Requires)`), the
+ * relationship reverse index every pair maintains, so declaring a pair needs
+ * no other bookkeeping and tearing it down forgets the bringer. The walk
+ * returns at the first bringer `entity` carries. A relationship companion is
+ * never brought this way: `With` brings it one edge at a time, so this returns
+ * `false` for it.
+ *
+ * @param companion - Component entity of the companion.
+ * @param entity - Entity to look at.
+ */
+export function isBroughtOn(companion: Entity, entity: Entity): boolean {
+  if (companion.meta.isRelationship) {
+    return false;
+  }
+  const bitmask = entity.componentBitmask;
+  for (const bringer of companion.children(With)) {
+    if (bitmask.has(bringer.eid)) {
+      return true;
+    }
+  }
+  for (const bringer of companion.children(Requires)) {
+    if (bitmask.has(bringer.eid)) {
+      return true;
+    }
+  }
+  return false;
 }

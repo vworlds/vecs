@@ -74,6 +74,8 @@ const EMPTY_ENTITIES: ReadonlySet<Entity> = new Set();
  * `enter`, `exit`, and `update` callbacks as the matched set changes. The
  * tracked set is exposed via {@link count}, {@link has}, iteration, and
  * {@link forEach}.
+ * A direct, unsorted component query sees staged membership during add hooks,
+ * before its `enter` callback fires; composite queries update on propagation.
  *
  * Callbacks fire **synchronously** when the world routes a command — so
  * mutations made inside one of these callbacks are themselves observed

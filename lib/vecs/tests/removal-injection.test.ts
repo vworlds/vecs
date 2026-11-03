@@ -14,13 +14,13 @@ abstract class Alias {
 class Link extends Relationship {}
 
 describe("removal injection", () => {
-  it("does not read or write the register when neither notification root exists", () => {
+  it("does not read or write the register when neither notification root is observed", () => {
     const world = new World();
     const removed: unknown[] = [];
     world.component(A).on("remove", (_e, instance) => removed.push(instance));
     const entity = world.entity().add(A);
     const instance = entity.get(A);
-    expect(world._componentTerms.get(world.entity(A).eid)).toBeUndefined();
+    expect(world.component(A).meta._term._observed).toBe(false);
     expect(world._worldTerm).toBeUndefined();
     for (const field of ["_removedEntity", "_removedCeid", "_removedInstance"]) {
       Object.defineProperty(world, field, {
@@ -56,7 +56,7 @@ describe("removal injection", () => {
         seen.push(a, e.get(A));
       })
       .build();
-    expect(world._componentTerms.get(world.entity(A).eid)).toBeUndefined();
+    expect(world.component(A).meta._term._observed).toBe(false);
     expect(world._worldTerm).not.toBeUndefined();
 
     entity.remove(A);
@@ -79,7 +79,7 @@ describe("removal injection", () => {
       .with(A)
       .exit((e) => e.remove(B))
       .build();
-    expect(world._componentTerms.get(world.entity(B).eid)).toBeUndefined();
+    expect(world.component(B).meta._term._observed).toBe(false);
     expect(world._worldTerm).toBeUndefined();
 
     entity.remove(A);

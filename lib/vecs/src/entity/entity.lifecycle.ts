@@ -130,26 +130,24 @@ export class Lifecycle extends Components {
   }
 
   private _applyOnDelete(this: Entity, entityMeta: ComponentMeta, selfCarry: number): void {
-    const carriers = entityMeta._carriers;
-    if (!carriers || carriers.size <= selfCarry) {
+    const carriers = entityMeta._term;
+    if (carriers.count <= selfCarry) {
       return;
     }
     const shouldDelete = entityMeta._onDelete === CleanupPolicy.Delete;
-    // forEachSafe tolerates deletion of the current carrier mid-loop: each
-    // `_destroy`/`_remove` below detaches only its own carrier from this meta
-    // (via `_detachCarrier`), and any further cascade is buffered onto the
-    // world's deletion scope and drained after this scan completes — so no
-    // other slot of `carriers` is mutated while we are iterating it.
-    carriers.forEachSafe((carrier) => {
+    // Live Set iteration skips carriers deleted by nested cascades and visits
+    // carriers added during cleanup. No snapshot is needed when a carrier
+    // detaches itself or destroys another carrier before we reach it.
+    for (const carrier of carriers) {
       if (carrier === this) {
-        return;
+        continue;
       }
       if (shouldDelete) {
         carrier._destroy();
       } else {
         carrier._remove(entityMeta);
       }
-    });
+    }
   }
 
   /**

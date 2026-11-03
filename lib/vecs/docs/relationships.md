@@ -73,13 +73,36 @@ contact events), and hooks that run while an entity or an edge target is being d
 
 `ChildOf` and `DependsOn` are also `Traversable`; all three built-ins above are `Exclusive`.
 
-## Companions: `With`
+## Companions: `With` and `Requires`
 
 `world.component(X).add(With, world.component(Y))` adds `Y`, or the same targets for edges, whenever
 `X` is added. It never removes `Y` when `X` leaves: `With` is inclusion, not requirement. See the
-[settled decision](../../../architecture/DECISIONS.md#with-adds-never-removes) and the owning
-trait pending in [#463](https://github.com/vworlds/vecs/issues/463), and the
+[settled decision](../../../architecture/DECISIONS.md#with-adds-never-removes) and the
 [design guide](./design-guide.md#component-traits-policy-on-component-entities) for when to use it.
+
+`world.component(X).add(Requires, world.component(Y))` is the owning counterpart for plain
+components: it adds `Y` with `X`, and removing `X` from a live entity removes `Y` unless another
+present component still brings it. The full rules are in
+[Component traits](./components.md#component-traits-policy-on-component-entities).
+
+Both pairs are ordinary edges on the component entities, so a companion's bringers are its incoming
+edges: `world.component(Y).children(With)` and `world.component(Y).children(Requires)`. Declaring a
+pair needs no other bookkeeping, and tearing it down forgets the bringer. `isBroughtOn(companion,
+entity)` walks those two sets and reports whether `entity` carries one of them, which is the check
+`Requires` and `ClientWorld` use:
+
+```ts
+import { isBroughtOn, Requires, World } from "@vworlds/vecs";
+
+class Motion {}
+class DeadReckoned {}
+
+const world = new World();
+const motion = world.component(Motion);
+world.component(DeadReckoned).add(Requires, motion);
+const body = world.entity().add(DeadReckoned);
+isBroughtOn(motion, body); // true
+```
 
 ## Diagram examples
 
@@ -475,6 +498,7 @@ payload gets its own ghost. List `ChildOf` or a custom relationship explicitly i
 | `world.component(R).add(OwnedTarget)`            | Adopt and destroy explicit targets; requires `Exclusive`.                                                                                                  |
 | `world.component(R).add(OnDeleteTarget, policy)` | `Remove` (default) per edge or `Delete` the source when a target dies.                                                                                     |
 | `world.component(R).add(Traversable)`            | Enable depth tracking for cascade ordering; requires `Exclusive`.                                                                                          |
+| `isBroughtOn(companion, entity)`                 | Whether `entity` carries a plain `With` or `Requires` bringer of `companion`, walking `companion.children(With)` and `children(Requires)`.                 |
 | `{ target: [R, q] }` / `{ parent: q }`           | Reactive existential DSL operators through relationship targets.                                                                                           |
 | `{ source: [R, q] }` / `{ children: q }`         | Filter-only DSL operators down the reverse index.                                                                                                          |
 | `{ target: [R, projection] }`                    | Inject projections from one current target; selection is unspecified for non-exclusive relations.                                                          |

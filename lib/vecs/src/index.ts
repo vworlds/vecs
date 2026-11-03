@@ -30,11 +30,13 @@ export {
   Delete,
   DependsOn,
   Exclusive,
+  isBroughtOn,
   OnDelete,
   OnDeleteTarget,
   OneOf,
   OwnedTarget,
   Remove,
+  Requires,
   SilenceSource,
   Throw,
 } from "./modules/relationships.js";
