@@ -27,14 +27,11 @@ const catalog = await loadAssets(scene, {
   onProgress: (value) => updateLoadingBar(value),
 });
 
-const world = await ClientWorld.connectDgram({
-  host: "localhost",
-  port: 8080,
-  worldName: "main",
+const world = new ClientWorld({
   networkComponents: phaserNetworkComponents,
 });
-
 world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64, catalog });
+await world.connectDgram({ host: "localhost", port: 8080, worldName: "main" });
 ```
 
 `loadAssets` removes the Phaser loader listeners it adds when the load completes or is
@@ -231,15 +228,12 @@ import { ClientWorld } from "@vworlds/vecs-client";
 import { phaserNetworkComponents } from "@vworlds/vecs-phaser";
 import { PhaserRenderModule, phaserInterpolators } from "@vworlds/vecs-phaser-client";
 
-const world = await ClientWorld.connectDgram({
-  host: "localhost",
-  port: 8080,
-  worldName: "main",
+const world = new ClientWorld({
   networkComponents: phaserNetworkComponents,
   interpolators: phaserInterpolators(),
 });
-
 world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64 });
+await world.connectDgram({ host: "localhost", port: 8080, worldName: "main" });
 ```
 
 Pass `phaserInterpolators({ interpolateRotation: false })` to snap rotation
@@ -286,16 +280,13 @@ import {
   phaserInterpolators,
 } from "@vworlds/vecs-phaser-client";
 
-const world = await ClientWorld.connectDgram({
-  host: "localhost",
-  port: 8080,
-  worldName: "main",
+const world = new ClientWorld({
   networkComponents: [...phaserNetworkComponents, ...phaserMotionComponents],
   interpolators: phaserInterpolators(),
 });
-
 world.module(DeadReckonedModule, { blendMs: 100, snapDistance: 1, snapAngle: 0.5 });
 world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64 });
+await world.connectDgram({ host: "localhost", port: 8080, worldName: "main" });
 ```
 
 A dead-reckoned body arrives with `Motion` and no `Position` or `Rotation`. `Motion` brings a
