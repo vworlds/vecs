@@ -18,6 +18,18 @@ callbacks fire every frame. Compare alternating builds with identical settings.
 `bench:release-check` includes timing and deterministic fingerprint rows for all
 three kinds.
 
+## Relationship edge updates
+
+Run `node --import ./bench/register-dist.mjs bench/edge-coalesce.ts` after building.
+It measures 1,000,000 add/remove pairs on one source with one synchronous watcher, after 100,000
+warmup pairs: immediate multi-target changes, deferred multi-target changes, and deferred
+exclusive replacements. `BENCH_DRAINS` and `BENCH_WARMUP_DRAINS` override those counts.
+Each `EDGE_RESULT` reports nanoseconds per pair/drain and update/edge-hook counts; edge hooks
+remain per edge even when deferred updates coalesce. Compare five alternating base/head rounds
+with identical loads using `BENCH_VECS_ROOT` for the base build.
+Pass `immediate`, `deferred` or `exclusive` as the final argument to isolate one mode for
+`node --cpu-prof`; omit it to run all three. Unknown modes fail rather than reporting an empty run.
+
 ## Dead-reckoning eligibility
 
 For the physics-backed dead-reckoning eligibility measurement, run

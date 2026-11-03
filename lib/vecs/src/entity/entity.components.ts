@@ -16,6 +16,9 @@ import { Relationships } from "./entity.relationships.js";
 import type { EID, Entity } from "./entity.js";
 
 export class Components extends Relationships {
+  /** @internal Lazily track whether a dirty relationship also had an explicit data write. */
+  protected _relationshipDataWrites?: Set<ComponentMeta>;
+
   /**
    * @internal Apply an `Attach` command: store the provided component instance,
    * replacing any previous instance for this type. Events are fired as if the
@@ -54,18 +57,57 @@ export class Components extends Relationships {
   }
 
   /**
-   * @internal Apply a `Modified` command: fire `onSet` and route modified
-   * events to every query that watches the component type.
+   * @internal Apply a pending modification and route events to watching queries.
+   * Data writes fire `onSet`; deferred relationships prepare that hook separately
+   * so its queued mutations can apply before routing. Edge-only updates never fire it.
    */
   public _modified(this: Entity, meta: ComponentMeta): void {
+    if (meta.isRelationship && this.world.deferred) {
+      this._modifiedRelationship(meta);
+      return;
+    }
     if (this._destroyed) {
       return;
     }
     const c = this._components.get(meta.eid);
     if (!c) {
+      if (meta.isRelationship) {
+        this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+      }
+      this._relationshipDataWrites?.delete(meta);
       return;
     }
     this._notifyComponentSet(meta, c, true);
+  }
+
+  /** @internal Apply an already-classified deferred relationship notification. */
+  public _modifiedRelationship(this: Entity, meta: ComponentMeta): void {
+    if (this._destroyed || !this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
+      return;
+    }
+    const relationship = this._components.get(meta.eid);
+    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+    if (!relationship) {
+      this._relationshipDataWrites?.delete(meta);
+      return;
+    }
+    this.world._notifyComponentChanged(meta.eid, this);
+    this._routeModified(meta.eid, relationship);
+  }
+
+  /** @internal Run an explicit data hook; return whether it could have queued mutations. */
+  public _prepareRelationshipUpdate(this: Entity, meta: ComponentMeta): boolean {
+    if (!this._relationshipDataWrites?.delete(meta)) {
+      return false;
+    }
+    const relationship = this._components.get(meta.eid);
+    if (!this._destroyed && relationship && this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
+      meta._onSet?.(this, relationship);
+      // Like ordinary modified, a recursive modified from onSet is coalesced.
+      this._relationshipDataWrites.delete(meta);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -169,6 +211,7 @@ export class Components extends Relationships {
         return;
       }
       if (this._assignRelationshipProps(relationship, props)) {
+        this._relationshipDataWrites?.delete(meta);
         this._notifyComponentSet(meta, relationship, true);
       }
       return;
@@ -195,6 +238,9 @@ export class Components extends Relationships {
    * resolves to an existing entity is accepted, but a ref that does not yet
    * resolve throws. Non-relationship components ignore `target` and throw when
    * one is supplied.
+   * Adding an existing edge, including an Exclusive relationship's current
+   * target, is silent: no hooks or notifications. Deferred edge changes on an
+   * existing relationship coalesce with {@link modified} after mutations apply.
    *
    * @param Class - Component class to instantiate.
    * @param target - Relationship target. Any {@link ComponentRef} that resolves
@@ -467,10 +513,11 @@ export class Components extends Relationships {
    * Mark a component type as having changed, queueing the corresponding `onSet` / `update`
    * notifications.
    *
-   * Repeated calls before the world routes the modified command are coalesced via
-   * the entity's dirty component bitset.
+   * Repeated calls before the world routes the pending notification are coalesced via
+   * the entity's dirty component bitset. Relationship edge changes in the same
+   * deferred drain join this update; it routes after queued mutations apply.
    *
-   * @param typeOrClass - Component class or numeric type id whose data changed.
+   * @param ref - Component reference whose data changed.
    * @returns This entity, for chaining.
    */
   public modified(this: Entity, ref: ComponentRef): this {
@@ -482,12 +529,19 @@ export class Components extends Relationships {
   /** @internal Mark a component changed, coalescing duplicate pending notifications. */
   protected _markModified(this: Entity, meta: ComponentMeta): this {
     this._throwIfInterface(meta, "modify");
+    if (meta.isRelationship && this.world.deferred) {
+      (this._relationshipDataWrites ??= new Set()).add(meta);
+    }
     if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       return this as unknown as this;
     }
     this._dirtyComponentBitmask.addBit(meta.bitPtr);
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta });
+      if (meta.isRelationship) {
+        this.world._enqueueRelationshipUpdate(this, meta, this.world._currentSource);
+      } else {
+        this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta });
+      }
     } else {
       this._modified(meta);
     }
@@ -527,6 +581,9 @@ export class Components extends Relationships {
    * {@link ComponentRef} that resolves to an existing entity is accepted, but
    * a ref that does not yet resolve throws. Omit `target` to remove every edge
    * of the relationship.
+   * Removing an absent edge or relationship is silent: no hooks or notifications.
+   * Removing a non-final edge coalesces with other deferred edge changes and
+   * {@link modified}; the final edge still routes exit, not update.
    *
    * @param Class - Component class to detach.
    * @param target - Relationship target; any {@link ComponentRef} that resolves
@@ -767,6 +824,7 @@ export class Components extends Relationships {
     relationship: Relationship
   ): void {
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+    this._relationshipDataWrites?.delete(meta);
     this.componentBitmask.deleteBit(meta.bitPtr);
     this._components.delete(meta.eid);
     this._notifySlotRemoved(meta, relationship);
