@@ -6,6 +6,7 @@ import {
   DependsOn,
   type Entity,
   Exclusive,
+  isBroughtOn,
   OnDelete,
   OnDeleteTarget,
   OwnedTarget,
@@ -586,12 +587,39 @@ describe("RelationshipsModule", () => {
       expect(e.has(Armor)).toBe(true);
     });
 
-    it("lists its bringers, and With's, on the companion's meta", () => {
+    it("finds its bringers, and With's, in the companion's incoming edges", () => {
       const { w, armor } = setup();
-      w.component(Visor).add(With, armor);
+      const helmet = w.component(Helmet);
+      const visor = w.component(Visor).add(With, armor);
+      const e = w.entity().add(Visor);
 
-      expect(armor.meta.bringers).toEqual([w.component(Helmet).meta, w.component(Visor).meta]);
-      expect(w.component(Visor).meta.bringers).toEqual([]);
+      expect([...armor.children(Requires)]).toEqual([helmet]);
+      expect([...armor.children(With)]).toEqual([visor]);
+      expect(isBroughtOn(armor, e)).toBe(true);
+      expect(isBroughtOn(armor, w.entity().add(Armor))).toBe(false);
+      expect(isBroughtOn(visor, e)).toBe(false);
+    });
+
+    it("forgets a bringer when its pair is torn down, with no bookkeeping of its own", () => {
+      const { w, armor } = setup();
+      const helmet = w.component(Helmet);
+      const visor = w.component(Visor).add(With, armor);
+
+      helmet.destroy();
+      visor.destroy();
+
+      expect(armor.children(Requires).size).toBe(0);
+      expect(armor.children(With).size).toBe(0);
+      expect(isBroughtOn(armor, w.entity().add(Armor))).toBe(false);
+    });
+
+    it("never counts relationship bringers", () => {
+      const w = new World();
+      const ownedBy = w.component(OwnedBy);
+      w.component(WornBy).add(With, ownedBy);
+      const e = w.entity().add(WornBy, w.entity());
+
+      expect(isBroughtOn(ownedBy, e)).toBe(false);
     });
 
     it("rejects relationships on either side", () => {

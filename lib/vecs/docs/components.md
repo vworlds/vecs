@@ -266,8 +266,9 @@ Do not assume all traits have the same lifecycle:
   the entity held before `X` arrived goes too. Destroying the entity does nothing extra, and an
   `attach` that replaces `X` keeps `Y`. Inside a system the removal of `Y` is queued when the
   removal of `X` applies, so removing and re-adding `X` in one flush leaves `Y` in place. Both must
-  be plain components, and the trait is irrevocable. The check scans `Y`'s `ComponentMeta.bringers`
-  with no per-entity bookkeeping. `ClientWorld` skips a network removal of `Y` while a `Requires`
+  be plain components, and the trait is irrevocable. The check walks `Y`'s incoming `With` and
+  `Requires` edges ([`isBroughtOn`](./relationships.md#companions-with-and-requires)) with no
+  per-entity bookkeeping. `ClientWorld` skips a network removal of `Y` while a `Requires`
   bringer is present, as for `With`.
 
 Treat traits as setup policy unless their documentation explicitly supports runtime changes. Before
@@ -509,5 +510,3 @@ applies. On top of it:
 | `onDelete`              | `CleanupPolicy` applied to carriers when the component entity is destroyed. Default `Throw`.  |
 | `onDeleteTarget`        | `CleanupPolicy` applied to sources when a relationship target is destroyed. Default `Remove`. |
 | `usageCount`            | Number of entities currently carrying this component.                                         |
-| `bringers`              | Plain components whose `With` or `Requires` pair names this one, in declaration order.        |
-| `isBroughtOn(entity)`   | Whether `entity` carries one of `bringers`. Allocates nothing.                                |

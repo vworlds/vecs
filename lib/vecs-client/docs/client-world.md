@@ -168,8 +168,9 @@ re-enters.
 
 The rule is judged once the diff has applied, against the entity as it then is:
 
-- A removal of a component that something can bring (its `ComponentMeta.bringers` is not empty) is
-  held back. Under `progress()` the `ClientWorld:Release` system, which runs right after
+- A removal of a plain component that something can bring (it has an incoming `With` or `Requires`
+  edge; see [`isBroughtOn`](../../vecs/docs/relationships.md#companions-with-and-requires)) is held
+  back. Under `progress()` the `ClientWorld:Release` system, which runs right after
   `ClientWorld:Apply` in `ON_LOAD`, settles the held removals once the flush after `Apply` has set
   and removed what the diff carries; `apply()` settles them at its end. So a bringer that the same
   diff sets counts as present, and one it removes does not, whatever the wire order.

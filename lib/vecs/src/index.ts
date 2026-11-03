@@ -30,6 +30,7 @@ export {
   Delete,
   DependsOn,
   Exclusive,
+  isBroughtOn,
   OnDelete,
   OnDeleteTarget,
   OneOf,

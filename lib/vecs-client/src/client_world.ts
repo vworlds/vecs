@@ -18,7 +18,6 @@ import {
 import {
   type ComponentInstance,
   type ComponentClass,
-  type ComponentMeta,
   type EID,
   type Entity,
   Events,
@@ -26,6 +25,8 @@ import {
   Query,
   ON_LOAD,
   Relationship,
+  Requires,
+  With,
 } from "@vworlds/vecs";
 import { Decoder, Encoder } from "@vworlds/vecs-wire";
 import {
@@ -151,7 +152,7 @@ export class ClientWorld extends NetworkWorld {
   // Network removals of brought components, which `_releaseHeld` settles once the diff has
   // applied: parallel entries of entity, component, and whether a present bringer keeps it.
   private readonly _heldEntities: Entity[] = [];
-  private readonly _heldMetas: ComponentMeta[] = [];
+  private readonly _heldComponents: Entity[] = [];
   private readonly _heldKept: boolean[] = [];
   private _ackTimer: ReturnType<typeof setInterval> | undefined;
   private _baselineApplied = false;
@@ -956,11 +957,14 @@ export class ClientWorld extends NetworkWorld {
     }
     // A component that others can bring through `With` or `Requires` waits for `_releaseHeld`,
     // which decides once the diff has applied: a bringer this diff sets is present by then, and one
-    // it removes is gone. A relationship has no bringers, so it is removed as sent.
-    const meta = this.component(registered.Class).meta;
-    if (meta.bringers.length > 0) {
+    // it removes is gone. A relationship is removed as sent: `With` brings it one edge at a time.
+    const component = this.component(registered.Class);
+    if (
+      !component.meta.isRelationship &&
+      component.children(With).size + component.children(Requires).size > 0
+    ) {
       this._heldEntities.push(entity);
-      this._heldMetas.push(meta);
+      this._heldComponents.push(component);
       this._heldKept.push(false);
       return;
     }
@@ -971,20 +975,21 @@ export class ClientWorld extends NetworkWorld {
    * Settle the network removals {@link ClientWorld._removeComponent} held back, after the diff
    * has applied: in `ClientWorld:Release` under `progress()`, at the end of {@link apply}
    * otherwise. The server removed each one, so it goes unless a present component brings it
-   * through `With` or `Requires`. A bringer that is itself held counts only if it is kept, so a
+   * through `With` or `Requires` (see `isBroughtOn`): the companion's incoming `With` and
+   * `Requires` edges. A bringer that is itself held counts only if it is kept, so a
    * chain of network bringers the diff removes together goes as a whole, and a cycle that nothing
-   * else brings goes too. Allocates nothing; the held entries are cleared on return.
+   * else brings goes too. Keeps no per-entity state; the held entries are cleared on return.
    */
   private _releaseHeld(): void {
     const entities = this._heldEntities;
-    const metas = this._heldMetas;
+    const components = this._heldComponents;
     const kept = this._heldKept;
     try {
       let changed = true;
       while (changed) {
         changed = false;
         for (let i = 0; i < entities.length; i++) {
-          if (!kept[i] && this._keepsHeld(entities[i]!, metas[i]!)) {
+          if (!kept[i] && this._keepsHeld(entities[i]!, components[i]!)) {
             kept[i] = true;
             changed = true;
           }
@@ -993,22 +998,28 @@ export class ClientWorld extends NetworkWorld {
       for (let i = 0; i < entities.length; i++) {
         const entity = entities[i]!;
         if (!kept[i] && !entity.destroyed) {
-          entity.remove(metas[i]!.eid);
+          entity.remove(components[i]!);
         }
       }
     } finally {
       entities.length = 0;
-      metas.length = 0;
+      components.length = 0;
       kept.length = 0;
     }
   }
 
-  // Whether a present bringer keeps `meta` on `entity`: one that is not held, or one held and kept.
-  private _keepsHeld(entity: Entity, meta: ComponentMeta): boolean {
-    const bringers = meta.bringers;
-    for (let b = 0; b < bringers.length; b++) {
-      const bringer = bringers[b]!;
-      if (!entity.has(bringer.eid)) {
+  // `isBroughtOn`, except that a held bringer counts only if it is kept.
+  private _keepsHeld(entity: Entity, component: Entity): boolean {
+    return (
+      this._keptBy(entity, component.children(With)) ||
+      this._keptBy(entity, component.children(Requires))
+    );
+  }
+
+  // Whether one of `bringers` is on `entity` and is either not held or held and kept.
+  private _keptBy(entity: Entity, bringers: ReadonlySet<Entity>): boolean {
+    for (const bringer of bringers) {
+      if (!entity.componentBitmask.has(bringer.eid)) {
         continue;
       }
       const held = this._heldIndex(entity, bringer);
@@ -1019,10 +1030,10 @@ export class ClientWorld extends NetworkWorld {
     return false;
   }
 
-  // The index of the held removal of `meta` from `entity`, or -1.
-  private _heldIndex(entity: Entity, meta: ComponentMeta): number {
+  // The index of the held removal of `component` from `entity`, or -1.
+  private _heldIndex(entity: Entity, component: Entity): number {
     for (let i = 0; i < this._heldEntities.length; i++) {
-      if (this._heldEntities[i] === entity && this._heldMetas[i] === meta) {
+      if (this._heldEntities[i] === entity && this._heldComponents[i] === component) {
         return i;
       }
     }

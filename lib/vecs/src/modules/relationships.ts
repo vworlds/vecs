@@ -69,11 +69,9 @@ export {
  * rejects targets whose `ChildOf` parent is not the declared parent. `OneOf`
  * is irrevocable once attached.
  *
- * `With` and `Requires` record each plain bringer on its companion's meta
- * ({@link ComponentMeta.bringers}). `Requires` removes the companion when its
- * bringer is removed from a live entity, unless the entity still carries
- * another bringer; the check scans that list and allocates nothing. Both are
- * irrevocable.
+ * `Requires` removes the companion when its bringer is removed from a live
+ * entity, unless the entity still carries another bringer
+ * ({@link isBroughtOn}). Both `With` and `Requires` are irrevocable.
  *
  * `OwnedTarget` and `Traversable` are irrevocable once attached: both
  * `entity.remove(Trait)` and `entity.attach(newInstance)` throw, and the world
@@ -188,11 +186,9 @@ export class RelationshipsModule extends Module {
         );
       } else {
         xMeta.on("add", { trait: true }, (entity) => entity.add(yEntity));
-        (yMeta._bringers ??= []).push(xMeta);
       }
     });
     this._forbidPairTraitRemoval(withTrait, "With");
-    this._forgetBringerOnTeardown(withTrait);
 
     requiresTrait.meta.on(
       "targetAdd",
@@ -213,15 +209,13 @@ export class RelationshipsModule extends Module {
           if (entity.componentBitmask.has(xMeta.eid)) {
             return;
           }
-          if (!yMeta.isBroughtOn(entity)) {
+          if (!isBroughtOn(yEntity, entity)) {
             entity.remove(yEntity);
           }
         });
-        (yMeta._bringers ??= []).push(xMeta);
       }
     );
     this._forbidPairTraitRemoval(requiresTrait, "Requires");
-    this._forgetBringerOnTeardown(requiresTrait);
 
     oneOfTrait.meta.on("targetAdd", { trait: true }, (rel, _oneOf, parent): void => {
       if (!rel.meta.isRelationship) {
@@ -339,22 +333,6 @@ export class RelationshipsModule extends Module {
   }
 
   /**
-   * Drop a bringer from its companion's {@link ComponentMeta.bringers} when
-   * teardown removes its `With` or `Requires` edge, so a reused eid never
-   * counts as a bringer. Install after {@link _forbidPairTraitRemoval}, whose
-   * throw stops any other removal before it reaches this handler.
-   */
-  private _forgetBringerOnTeardown(trait: Entity): void {
-    trait.meta.on("targetRemove", { trait: true }, (carrier, _trait, target): void => {
-      const bringers = target.meta._bringers;
-      const index = bringers?.findIndex((meta) => meta.eid === carrier.eid) ?? -1;
-      if (index >= 0) {
-        bringers!.splice(index, 1);
-      }
-    });
-  }
-
-  /**
    * Make a pair-form trait irrevocable: removing an edge of `trait` throws
    * once attached.
    *
@@ -373,4 +351,37 @@ export class RelationshipsModule extends Module {
       throw new Error(`${name} cannot be removed once added`);
     });
   }
+}
+
+/**
+ * Whether `entity` carries a component that brings `companion` along through a
+ * plain `With` or `Requires` pair.
+ *
+ * The bringers are the companion's incoming `With` and `Requires` edges
+ * (`companion.children(With)` and `companion.children(Requires)`), the
+ * relationship reverse index every pair maintains, so declaring a pair needs
+ * no other bookkeeping and tearing it down forgets the bringer. The walk
+ * returns at the first bringer `entity` carries. A relationship companion is
+ * never brought this way: `With` brings it one edge at a time, so this returns
+ * `false` for it.
+ *
+ * @param companion - Component entity of the companion.
+ * @param entity - Entity to look at.
+ */
+export function isBroughtOn(companion: Entity, entity: Entity): boolean {
+  if (companion.meta.isRelationship) {
+    return false;
+  }
+  const bitmask = entity.componentBitmask;
+  for (const bringer of companion.children(With)) {
+    if (bitmask.has(bringer.eid)) {
+      return true;
+    }
+  }
+  for (const bringer of companion.children(Requires)) {
+    if (bitmask.has(bringer.eid)) {
+      return true;
+    }
+  }
+  return false;
 }
