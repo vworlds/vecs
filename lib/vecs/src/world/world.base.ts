@@ -1,4 +1,5 @@
-import type { Entity } from "../entity/index.js";
+import type { EID, Entity } from "../entity/index.js";
+import type { ComponentInstance } from "../component_meta.js";
 import { type IdPoolConfig } from "../util/id_pool.js";
 
 export interface WorldOptions {
@@ -6,6 +7,15 @@ export interface WorldOptions {
 }
 
 export class Base {
+  /** @internal Removed slot available only to injection during synchronous exit routing. */
+  public _removedEntity: Entity | undefined = undefined;
+
+  /** @internal Component id of the synchronous removal in flight. */
+  public _removedCeid: EID | undefined = undefined;
+
+  /** @internal Removed instance, read only after an injection storage miss. */
+  public _removedInstance: ComponentInstance | undefined = undefined;
+
   /** @internal Suspend cleanup policies only during dispose's infrastructure pass. */
 
   /**
