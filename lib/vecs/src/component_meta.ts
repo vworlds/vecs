@@ -1,5 +1,5 @@
 import { BitPtr } from "./util/bitset.js";
-import { DenseSet } from "./util/dense_set.js";
+import type { ComponentTerm } from "./terms/component_term.js";
 import type { EID, Entity, EntityClass } from "./entity/index.js";
 import type { ValidationResult } from "./reflection/defaults.js";
 
@@ -415,34 +415,22 @@ export class ComponentMeta {
   public _normalizeIsDefault = false;
 
   /**
-   * @internal Reverse index of entities currently carrying this component eid.
-   *
-   * Lazily allocated on first attach and never reset to `undefined` afterward,
-   * so a component eid that churns between 0 and 1 carriers does not thrash
-   * the `DenseSet` allocation. `usageCount` reads `_carriers.size` directly.
+   * @internal Sole carrier index, shared with component-presence queries.
+   * Created with the meta, even when no query names this component.
    */
-  public _carriers: DenseSet<Entity> | undefined = undefined;
+  public readonly _term: ComponentTerm;
 
-  constructor(Class: ComponentType, ceid: EID) {
+  constructor(Class: ComponentType, ceid: EID, term: ComponentTerm) {
     this.Class = Class;
     this.eid = ceid;
     this.bitPtr = new BitPtr(ceid);
     this.isRelationship = Class.prototype instanceof Relationship;
+    this._term = term;
   }
 
-  /** Number of entities currently carrying this component eid. */
+  /** Number of entities currently carrying this component eid, including during add hooks. */
   public get usageCount(): number {
-    return this._carriers?.size ?? 0;
-  }
-
-  /** @internal Record `entity` as a carrier of this component eid. */
-  public _attachCarrier(entity: Entity): void {
-    (this._carriers ??= new DenseSet<Entity>()).add(entity);
-  }
-
-  /** @internal Stop tracking `entity` as a carrier of this component eid. */
-  public _detachCarrier(entity: Entity): void {
-    this._carriers?.delete(entity);
+    return this._term.count;
   }
 
   /**

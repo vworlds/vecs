@@ -4,6 +4,7 @@ import { Filter } from "../filter.js";
 import { Query } from "../query/index.js";
 import {
   getCachedTerm,
+  getComponentTerm,
   getTerm,
   notifyComponentAdded,
   notifyComponentChanged,
@@ -109,6 +110,11 @@ export class Queries extends Storage {
   /** Return the shared materialized term for a reactive query DSL expression. */
   public getTerm(this: World, q: QueryDSL): Term {
     return getTerm(this, q);
+  }
+
+  /** @internal Create the sole carrier index when a component meta is registered. */
+  public _getComponentTerm(this: World, ceid: EID): ComponentTerm {
+    return getComponentTerm(this, ceid);
   }
 
   /** @internal Return a cached term without creating one. */
