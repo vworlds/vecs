@@ -273,7 +273,7 @@ export class Components extends Relationships {
       }
       const targetEntity = this.world.entity(target);
       if (this.world.deferred) {
-        this._enqueueEdge({
+        this.world._enqueue({
           kind: CommandKind.AddTarget,
           entity: this,
           meta: componentMeta,
@@ -614,7 +614,7 @@ export class Components extends Relationships {
       }
       const targetEntity = this.world.entity(target);
       if (this.world.deferred) {
-        this._enqueueEdge({
+        this.world._enqueue({
           kind: CommandKind.RemoveTarget,
           entity: this,
           meta: componentMeta,
@@ -626,12 +626,11 @@ export class Components extends Relationships {
       return;
     }
     if (this.world.deferred) {
-      const cmd = { kind: CommandKind.Remove, entity: this, meta: componentMeta } as const;
-      if (componentMeta.isRelationship) {
-        this._enqueueEdge(cmd);
-      } else {
-        this.world._enqueue(cmd);
-      }
+      this.world._enqueue({
+        kind: CommandKind.Remove,
+        entity: this,
+        meta: componentMeta,
+      });
     } else {
       this._remove(componentMeta);
     }

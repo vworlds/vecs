@@ -10,6 +10,11 @@ export class Deferred extends Queries {
   protected _deferredDepth = 0;
   /** @internal `true` while {@link _processCommandQueue} is iterating, to avoid re-entrant drains. */
   protected _draining = false;
+  /**
+   * @internal Index of the first command in {@link _commandQueue} not yet taken
+   * by the drain: `0` outside a drain, one past the executing command during it.
+   */
+  protected _commandHead = 0;
 
   /**
    * @internal Buffered cleanup actions scheduled by `Entity._cleanupIncoming`.
@@ -30,6 +35,20 @@ export class Deferred extends Queries {
   /** `true` while the world is in deferred mode. */
   public get deferred(): boolean {
     return this._deferredDepth > 0 || this._draining;
+  }
+
+  /**
+   * @internal Queued commands that have not applied yet, from
+   * {@link _queuedCommandStart} to the end. Read-only; used by pending-aware
+   * relationship reads.
+   */
+  public get _queuedCommands(): readonly Command[] {
+    return this._commandQueue;
+  }
+
+  /** @internal Index of the first not-yet-applied command in {@link _queuedCommands}. */
+  public get _queuedCommandStart(): number {
+    return this._commandHead;
   }
 
   /** @internal Append a command to the deferred-mode queue. */
@@ -93,7 +112,6 @@ export class Deferred extends Queries {
         cmd.entity._modified(cmd.meta);
         return;
       case CommandKind.Remove:
-        cmd.entity._consumePendingEdge(cmd);
         cmd.entity._remove(cmd.meta);
         return;
       case CommandKind.Destroy:
@@ -103,11 +121,9 @@ export class Deferred extends Queries {
         cmd.entity._attach(cmd.meta, cmd.component);
         return;
       case CommandKind.AddTarget:
-        cmd.entity._consumePendingEdge(cmd);
         cmd.entity._addTarget(cmd.meta, cmd.target);
         return;
       case CommandKind.RemoveTarget:
-        cmd.entity._consumePendingEdge(cmd);
         cmd.entity._removeTarget(cmd.meta, cmd.target);
         return;
     }
@@ -123,13 +139,15 @@ export class Deferred extends Queries {
     }
     this._draining = true;
     try {
-      let i = 0;
       let nextUpdate = 0;
-      while (i < this._commandQueue.length || nextUpdate < this._relationshipUpdateLength) {
+      while (
+        this._commandHead < this._commandQueue.length ||
+        nextUpdate < this._relationshipUpdateLength
+      ) {
         // Even an explicit modified(R) preceding an edge must observe the final
         // edge set. Drain mutations (including hook-enqueued commands) first.
-        while (i < this._commandQueue.length) {
-          this._executeCommand(this._commandQueue[i++]!);
+        while (this._commandHead < this._commandQueue.length) {
+          this._executeCommand(this._commandQueue[this._commandHead++]!);
         }
         const entity =
           nextUpdate < this._relationshipUpdateLength
@@ -138,7 +156,10 @@ export class Deferred extends Queries {
         if (entity) {
           const meta = this._relationshipUpdates[nextUpdate + 1] as ComponentMeta;
           this._routingSource = this._relationshipUpdates[nextUpdate + 2] as Entity | undefined;
-          if (entity._prepareRelationshipUpdate(meta) && i < this._commandQueue.length) {
+          if (
+            entity._prepareRelationshipUpdate(meta) &&
+            this._commandHead < this._commandQueue.length
+          ) {
             continue;
           }
           nextUpdate += 3;
@@ -153,6 +174,7 @@ export class Deferred extends Queries {
       }
       this._relationshipUpdateLength = 0;
     } finally {
+      this._commandHead = 0;
       this._routingSource = undefined;
       this._draining = false;
     }

@@ -1,4 +1,8 @@
-/** Price deferred `add(R, target)`: enqueue alone, and enqueue plus drain, per edge. */
+/**
+ * Price deferred `add(R, target)` (enqueue alone, and enqueue plus drain, per
+ * edge) and one pending-aware `hasTarget` read over 0, 100 and 1,000 queued
+ * commands.
+ */
 import { performance } from "node:perf_hooks";
 import { Exclusive, Relationship, World } from "@vworlds/vecs";
 
@@ -13,13 +17,15 @@ if (![sources, rounds, warmup].every((n) => Number.isSafeInteger(n) && n > 0)) {
 }
 const CELLS = 16;
 
-const modes = ["exclusive", "many"] as const;
+const modes = ["exclusive", "many", "read"] as const;
+const READ_QUEUES = [0, 100, 1_000];
+const READS = 1_000;
 const selected = process.argv[2];
 if (
   process.argv.length > 3 ||
   (selected !== undefined && !modes.some((mode) => mode === selected))
 ) {
-  throw new Error("usage: pending-edges.ts [exclusive|many]");
+  throw new Error("usage: pending-edges.ts [exclusive|many|read]");
 }
 
 function median(values: number[]): number {
@@ -29,6 +35,10 @@ function median(values: number[]): number {
 
 for (const mode of modes) {
   if (selected !== undefined && mode !== selected) {
+    continue;
+  }
+  if (mode === "read") {
+    measureReads();
     continue;
   }
   const world = new World();
@@ -75,5 +85,67 @@ for (const mode of modes) {
       enqueueDrainNsPerEdge: median(total),
     })}`
   );
+  world.dispose();
+}
+
+/**
+ * One `hasTarget(R, t, { pending: true })` and one `targets(R, { pending: true })`
+ * with the reader's own edge queued first and then `queued` commands from other
+ * entities: the worst case for the backward `hasTarget` scan.
+ */
+function measureReads(): void {
+  const world = new World();
+  world.component(Tag);
+  const target = world.entity();
+  const reader = world.entity();
+  const others = Array.from({ length: Math.max(...READ_QUEUES) }, () => world.entity());
+  for (const queued of READ_QUEUES) {
+    const hasTargetNs: number[] = [];
+    const targetsNs: number[] = [];
+    let hits = 0;
+    for (let round = 0; round < warmup + rounds; round++) {
+      world.beginDefer();
+      // Queue the reader's edge first so both reads walk every later command.
+      reader.add(Tag, target);
+      for (let i = 0; i < queued; i++) {
+        others[i].add(Tag, target);
+      }
+      const start = performance.now();
+      for (let i = 0; i < READS; i++) {
+        if (reader.hasTarget(Tag, target, { pending: true })) {
+          hits++;
+        }
+      }
+      const middle = performance.now();
+      for (let i = 0; i < READS; i++) {
+        hits += reader.targets(Tag, { pending: true }).length;
+      }
+      const end = performance.now();
+      world.endDefer();
+      world.defer(() => {
+        reader.remove(Tag);
+        for (let i = 0; i < queued; i++) {
+          others[i].remove(Tag);
+        }
+      });
+      if (round >= warmup) {
+        hasTargetNs.push(((middle - start) * 1e6) / READS);
+        targetsNs.push(((end - middle) * 1e6) / READS);
+      }
+    }
+    if (hits !== 2 * (warmup + rounds) * READS || reader.has(Tag)) {
+      throw new Error(`Pending read missed the queued edge with ${queued} queued commands`);
+    }
+    console.log(
+      `PENDING_EDGES_RESULT ${JSON.stringify({
+        mode: "read",
+        queued,
+        rounds,
+        warmup,
+        hasTargetNsPerCall: median(hasTargetNs),
+        targetsNsPerCall: median(targetsNs),
+      })}`
+    );
+  }
   world.dispose();
 }

@@ -1,4 +1,4 @@
-import { CommandKind, type EdgeCommand } from "../command.js";
+import { CommandKind, type Command } from "../command.js";
 import { Relationship, type ComponentMeta, type ComponentRef } from "../component_meta.js";
 import { IterableArrayMap } from "../util/array_map.js";
 import { DenseSet } from "../util/dense_set.js";
@@ -15,6 +15,10 @@ export interface TargetReadOptions {
    * reported, and a destroyed entity reports none. Outside deferred mode nothing
    * is queued, so the result equals the committed read. Defaults to `false`:
    * committed edges only.
+   *
+   * The read scans the world's not-yet-applied commands, so it costs time
+   * proportional to the commands queued in the current scope; writes pay
+   * nothing for it. Use it for occasional reads, not per-entity hot loops.
    */
   pending?: boolean;
 }
@@ -82,29 +86,6 @@ export class Relationships extends Queries {
     return this._incoming?.get(relEid);
   }
 
-  /**
-   * @internal Mark one queued edge command applied. Called by the world just
-   * before it executes the command, so hooks fired by the command see it as
-   * committed rather than pending.
-   */
-  public _consumePendingEdge(cmd: EdgeCommand): void {
-    const pending = this._pendingEdges;
-    if (pending?.commands[pending.head] !== cmd) {
-      return;
-    }
-    pending.commands[pending.head] = undefined;
-    if (++pending.head === pending.size) {
-      pending.head = pending.size = 0;
-    }
-  }
-
-  /** @internal Queue an edge command and record it for pending-aware reads. */
-  protected _enqueueEdge(this: Entity, cmd: EdgeCommand): void {
-    this.world._enqueue(cmd);
-    const pending = (this._pendingEdges ??= { commands: [], head: 0, size: 0 });
-    pending.commands[pending.size++] = cmd;
-  }
-
   /** @internal */
   protected _addIncoming(this: Entity, target: Entity | undefined, relEid: EID): void {
     if (!target || target._destroyed) {
@@ -150,31 +131,29 @@ export class Relationships extends Queries {
     this._routeModified(meta.eid, relationship);
   }
 
-  /** Replay the queued edge commands over the committed `targets` snapshot. */
+  /** Replay this entity's not-yet-applied edge commands over the committed `targets` snapshot. */
   private _pendingTargets(meta: ComponentMeta, targets: Entity[]): readonly Entity[] {
     if (this._destroyed) {
       return [];
     }
-    const pending = this._pendingEdges;
-    if (pending) {
-      for (let i = pending.head; i < pending.size; i++) {
-        const cmd = pending.commands[i]!;
-        if (cmd.meta !== meta) {
-          continue;
+    const queue = this.world._queuedCommands;
+    for (let i = this.world._queuedCommandStart; i < queue.length; i++) {
+      const cmd = queue[i]!;
+      if (!this._isEdgeCommandFor(cmd, meta)) {
+        continue;
+      }
+      if (cmd.kind === CommandKind.Remove) {
+        targets.length = 0;
+      } else if (cmd.kind === CommandKind.RemoveTarget) {
+        const index = targets.indexOf(cmd.target);
+        if (index !== -1) {
+          targets.splice(index, 1);
         }
-        if (cmd.kind === CommandKind.Remove) {
+      } else if (!cmd.target._destroyed && !targets.includes(cmd.target)) {
+        if (meta.relationshipExclusive) {
           targets.length = 0;
-        } else if (cmd.kind === CommandKind.RemoveTarget) {
-          const index = targets.indexOf(cmd.target);
-          if (index !== -1) {
-            targets.splice(index, 1);
-          }
-        } else if (!cmd.target._destroyed && !targets.includes(cmd.target)) {
-          if (meta.relationshipExclusive) {
-            targets.length = 0;
-          }
-          targets.push(cmd.target);
         }
+        targets.push(cmd.target);
       }
     }
     return targets.some((target) => target._destroyed)
@@ -182,18 +161,15 @@ export class Relationships extends Queries {
       : targets;
   }
 
-  /** Answer from the newest queued edge command that decides `target`, else `committed`. */
+  /** Answer from the newest not-yet-applied edge command that decides `target`, else `committed`. */
   private _hasPendingTarget(meta: ComponentMeta, target: Entity, committed: boolean): boolean {
     if (this._destroyed || target._destroyed) {
       return false;
     }
-    const pending = this._pendingEdges;
-    if (!pending) {
-      return committed;
-    }
-    for (let i = pending.size - 1; i >= pending.head; i--) {
-      const cmd = pending.commands[i]!;
-      if (cmd.meta !== meta) {
+    const queue = this.world._queuedCommands;
+    for (let i = queue.length - 1; i >= this.world._queuedCommandStart; i--) {
+      const cmd = queue[i]!;
+      if (!this._isEdgeCommandFor(cmd, meta)) {
         continue;
       }
       if (cmd.kind === CommandKind.Remove) {
@@ -211,5 +187,22 @@ export class Relationships extends Queries {
       }
     }
     return committed;
+  }
+
+  /** Whether `cmd` adds or removes an edge of `meta`, or removes `meta`, on this entity. */
+  private _isEdgeCommandFor(
+    cmd: Command,
+    meta: ComponentMeta
+  ): cmd is Extract<
+    Command,
+    { kind: CommandKind.AddTarget | CommandKind.RemoveTarget | CommandKind.Remove }
+  > {
+    return (
+      (cmd.kind === CommandKind.AddTarget ||
+        cmd.kind === CommandKind.RemoveTarget ||
+        cmd.kind === CommandKind.Remove) &&
+      cmd.entity === (this as unknown) &&
+      cmd.meta === meta
+    );
   }
 }

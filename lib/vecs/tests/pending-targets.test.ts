@@ -184,6 +184,26 @@ describe("pending-aware targets / hasTarget", () => {
     expect(source.targets(Rejected)).toEqual([b]);
   });
 
+  it("does not replay commands the drain has already applied", () => {
+    const { w, source, a } = setup();
+    class Grounded {}
+    w.component(Grounded);
+    w.setExclusiveComponents(Rejected, Grounded);
+    const probe = w.entity();
+    const seen = probeDuringDrain(w, () => [
+      source.targets(Rejected, { pending: true }),
+      source.hasTarget(Rejected, a, { pending: true }),
+    ]);
+    w.defer(() => {
+      source.add(Rejected, a);
+      // Applies after the edge and evicts Rejected without an edge command.
+      source.add(Grounded);
+      probe.set(Probe, {});
+    });
+    expect(seen).toEqual([[[], false]]);
+    expect(source.has(Rejected)).toBe(false);
+  });
+
   it("sees edges queued in outer and nested scopes until the outermost scope drains", () => {
     const { w, source, a, b } = setup();
     w.beginDefer();

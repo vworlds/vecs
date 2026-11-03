@@ -254,10 +254,14 @@ on top of the committed edges:
 - A target that is already destroyed is not reported, and a destroyed entity reports no targets.
 - Outside a deferred scope nothing is queued, so the pending read equals the committed read.
 
-The option is opt-in so the committed-state rule stays the default. When you call `add` or `remove`
-on a relationship, vecs records the queued edge command on the source entity and forgets it as the
-command applies (`lib/vecs/src/entity/entity.relationships.ts`). A pending read looks only at that
-entity's own queued edges, never the world's queue, and callers that omit the option pay nothing.
+The option is opt-in so the committed-state rule stays the default. vecs keeps no extra state for
+it: a pending read scans the world's command queue from the first command not yet applied
+(`lib/vecs/src/entity/entity.relationships.ts`), so `add` and `remove` cost the same as without the
+feature and only the caller pays. That cost is proportional to the number of commands queued in the
+current scope, by every entity, about 1.6 ns per queued command on the reference host
+([`bench/pending-edges.ts`](../../../bench/README.md#deferred-edges-and-pending-reads)). Use it for
+occasional reads, such as one decision per AI interval, not inside a per-entity hot loop over a
+large scope.
 
 Reach for it instead of a shadow structure that mirrors edges for one drain. SpaceRocks' AI rejects
 its blocked attack target and picks a new one in the same system. Because the `AiRejected` edge it

@@ -30,18 +30,19 @@ with identical loads using `BENCH_VECS_ROOT` for the base build.
 Pass `immediate`, `deferred` or `exclusive` as the final argument to isolate one mode for
 `node --cpu-prof`; omit it to run all three. Unknown modes fail rather than reporting an empty run.
 
-## Deferred edge bookkeeping
+## Deferred edges and pending reads
 
-Run `node --import ./bench/register-dist.mjs bench/pending-edges.ts` after building. It prices
-deferred `add(R, target)` per edge for 1,000 sources in one deferred scope: once with only the
-enqueue timed, and once including the drain. The `exclusive` mode retargets an `Exclusive`
-relationship across 16 cells; the `many` mode adds one fresh edge to a many-target relationship
-and removes it outside the timed window. Each enqueue records the command for pending-aware reads
-(`targets(R, { pending: true })`), so this benchmark bounds that cost. `PENDING_EDGES_RESULT`
-reports the median nanoseconds per edge after 750 warmup rounds of 3,000 measured rounds;
-`BENCH_SOURCES`, `BENCH_ROUNDS` and `BENCH_WARMUP_ROUNDS` override them. Pass `exclusive` or
-`many` to run one mode. Compare five alternating base/head rounds using `BENCH_VECS_ROOT` for the
-base build.
+Run `node --import ./bench/register-dist.mjs bench/pending-edges.ts` after building. Its
+`exclusive` and `many` modes price deferred `add(R, target)` per edge for 1,000 sources in one
+deferred scope: once with only the enqueue timed, and once including the drain. `exclusive`
+retargets an `Exclusive` relationship across 16 cells; `many` adds one fresh edge to a many-target
+relationship and removes it outside the timed window. The `read` mode prices one
+`hasTarget(R, t, { pending: true })` and one `targets(R, { pending: true })` with the reader's edge
+queued first and 0, 100 and 1,000 other commands after it, the worst case for the queue scan.
+`PENDING_EDGES_RESULT` reports median nanoseconds per edge or per read after 750 warmup rounds of
+3,000 measured rounds; `BENCH_SOURCES`, `BENCH_ROUNDS` and `BENCH_WARMUP_ROUNDS` override them.
+Pass `exclusive`, `many` or `read` to run one mode. Compare five alternating base/head rounds using
+`BENCH_VECS_ROOT` for the base build.
 
 ## Dead-reckoning eligibility
 
