@@ -8,10 +8,9 @@ evidence. Planning belongs in [`ROADMAP.md`](./ROADMAP.md), shipped work in
 
 `With` is inclusion, not requirement. Adding the bringer adds the companion; removing the bringer
 leaves the companion in place. A companion that must leave with its bringer uses the owning
-pair-form trait (`Requires`, working name, pending in
-[#463](https://github.com/vworlds/vecs/issues/463) under
-[#428](https://github.com/vworlds/vecs/issues/428)) or an explicit `remove` hook on the bringer.
-Settled in [#437](https://github.com/vworlds/vecs/issues/437).
+pair-form trait `Requires` ([#463](https://github.com/vworlds/vecs/issues/463) under
+[#428](https://github.com/vworlds/vecs/issues/428)). Settled in
+[#437](https://github.com/vworlds/vecs/issues/437).
 
 **Why.**
 
@@ -22,15 +21,15 @@ Settled in [#437](https://github.com/vworlds/vecs/issues/437).
   "included" (current behavior) from "required" (removal cascade) because different uses want
   different behavior.
 - The owning form is needed per pair, not per bringer. In-tree,
-  `lib/vecs-phaser-server/src/dead_reckoned.ts` hand-writes the removal half for three of the
-  five components `DeadReckoned` brings, and deliberately not for `PhysicsRotation`.
+  `lib/vecs-phaser-server/src/dead_reckoned.ts` hand-wrote the removal half for three of the
+  five components `DeadReckoned` brought, and deliberately not for `PhysicsRotation`.
 - `ClientWorld.apply` already relies on the add-only meaning: a network removal of a component that
   another present component brings is skipped.
 
 **How to apply.** Use `With` when the bringer is never removed from a live entity (it is the entity's
-identity, or the entity dies with it), or an orphaned companion is harmless. Otherwise own the
-companion explicitly. See the [design guide](../lib/vecs/docs/design-guide.md#component-traits-policy-on-component-entities)
-and [`With` in the relationships guide](../lib/vecs/docs/relationships.md#companions-with).
+identity, or the entity dies with it), or an orphaned companion is harmless. Otherwise declare the
+pair with `Requires`. See the [design guide](../lib/vecs/docs/design-guide.md#component-traits-policy-on-component-entities)
+and [`With` and `Requires` in the relationships guide](../lib/vecs/docs/relationships.md#companions-with-and-requires).
 
 ## `update` only watches; `with` alone builds membership
 
