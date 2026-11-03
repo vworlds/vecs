@@ -74,10 +74,9 @@ export {
  * trait ones — so `clearAllEntities` can still tear down worlds with these
  * traits configured.
  *
- * The trait handlers register through `ComponentMeta._onTrait` into internal
- * slots that run before the application's handlers of the same event.
- * `World.dispose` clears their `remove` / `targetRemove` slots before tearing
- * down infrastructure.
+ * The trait handlers live in internal per-event slots that run before the
+ * application's handlers of the same event. `World.dispose` clears their
+ * `remove` / `targetRemove` slots before tearing down infrastructure.
  *
  * Depth is computed by walking `entity.target(relEid)` to the root. When an
  * entity's depth changes, every descendant is recursively recomputed.
@@ -94,105 +93,155 @@ export class RelationshipsModule extends Module {
     const withTrait = world.component(With).add(Trait);
     const oneOfTrait = world.component(OneOf).add(Trait);
 
-    exclusive.meta._onTrait("add", (relationship): void => {
-      if (!relationship.meta.isRelationship) {
-        throw new Error("Exclusive can only be added to a Relationship component");
-      }
-      if (relationship.meta.usageCount > 0) {
-        throw new Error("Exclusive cannot be added or removed while the relationship is in use");
-      }
-      relationship.meta.relationshipExclusive = true;
-    });
-    exclusive.meta._onTrait("remove", (relationship): void => {
-      if (relationship.has(OwnedTarget) || relationship.has(Traversable)) {
-        throw new Error("Exclusive cannot be removed while a dependent relationship trait exists");
-      }
-      if (relationship.meta.usageCount > 0) {
-        throw new Error("Exclusive cannot be added or removed while the relationship is in use");
-      }
-      relationship.meta.relationshipExclusive = false;
-    });
-
-    ownedTarget.meta._onTrait("add", (rel): void => {
-      if (!rel.meta.isRelationship) {
-        throw new Error("OwnedTarget can only be added to a Relationship component");
-      }
-      if (rel === childOf) {
-        throw new Error("OwnedTarget cannot be added to ChildOf");
-      }
-      if (!rel.has(Exclusive)) {
-        throw new Error("OwnedTarget requires Exclusive");
-      }
-      rel.meta._onTrait("targetAdd", (source, _relationship, target) =>
-        target.add(ChildOf, source)
-      );
-      rel.meta._onTrait("targetRemove", (_source, _relationship, target) => target.destroy());
-    });
-    ownedTarget.meta._onTrait("remove", (): void => {
-      throw new Error("OwnedTarget cannot be removed once added");
-    });
-
-    traversableTrait.meta._onTrait("add", (rel, component): void => {
-      if (!rel.meta.isRelationship) {
-        throw new Error("Traversable can only be added to a Relationship component");
-      }
-      if (!rel.has(Exclusive)) {
-        throw new Error("Traversable requires Exclusive");
-      }
-      const traversable = component as Traversable;
-      const relEid = rel.eid;
-      rel.meta._onTrait("targetAdd", (entity) => {
-        this._cascadeUpdate(entity, relEid, traversable);
-      });
-      rel.meta._onTrait("targetRemove", (entity) => {
-        traversable.depths.delete(entity);
-        for (const child of entity._childrenByEid(relEid) ?? []) {
-          this._cascadeUpdate(child, relEid, traversable);
+    exclusive.meta.on(
+      "add",
+      (relationship): void => {
+        if (!relationship.meta.isRelationship) {
+          throw new Error("Exclusive can only be added to a Relationship component");
         }
-      });
-
-      world.entities.forEach((entity) => {
-        if (entity.has(relEid)) {
-          this._cascadeUpdate(entity, relEid, traversable);
+        if (relationship.meta.usageCount > 0) {
+          throw new Error("Exclusive cannot be added or removed while the relationship is in use");
         }
-      });
-    });
-    traversableTrait.meta._onTrait("remove", (): void => {
-      throw new Error("Traversable cannot be removed once added");
-    });
+        relationship.meta.relationshipExclusive = true;
+      },
+      { trait: true }
+    );
+    exclusive.meta.on(
+      "remove",
+      (relationship): void => {
+        if (relationship.has(OwnedTarget) || relationship.has(Traversable)) {
+          throw new Error(
+            "Exclusive cannot be removed while a dependent relationship trait exists"
+          );
+        }
+        if (relationship.meta.usageCount > 0) {
+          throw new Error("Exclusive cannot be added or removed while the relationship is in use");
+        }
+        relationship.meta.relationshipExclusive = false;
+      },
+      { trait: true }
+    );
 
-    withTrait.meta._onTrait("targetAdd", (xEntity, _withRelationship, yEntity): void => {
-      const xMeta = xEntity.meta;
-      const yMeta = yEntity.meta;
-      if (xMeta.isRelationship !== yMeta.isRelationship) {
-        throw new Error(
-          "With: the component and its target must both be relationships or both be plain components"
+    ownedTarget.meta.on(
+      "add",
+      (rel): void => {
+        if (!rel.meta.isRelationship) {
+          throw new Error("OwnedTarget can only be added to a Relationship component");
+        }
+        if (rel === childOf) {
+          throw new Error("OwnedTarget cannot be added to ChildOf");
+        }
+        if (!rel.has(Exclusive)) {
+          throw new Error("OwnedTarget requires Exclusive");
+        }
+        rel.meta.on("targetAdd", (source, _relationship, target) => target.add(ChildOf, source), {
+          trait: true,
+        });
+        rel.meta.on("targetRemove", (_source, _relationship, target) => target.destroy(), {
+          trait: true,
+        });
+      },
+      { trait: true }
+    );
+    ownedTarget.meta.on(
+      "remove",
+      (): void => {
+        throw new Error("OwnedTarget cannot be removed once added");
+      },
+      { trait: true }
+    );
+
+    traversableTrait.meta.on(
+      "add",
+      (rel, component): void => {
+        if (!rel.meta.isRelationship) {
+          throw new Error("Traversable can only be added to a Relationship component");
+        }
+        if (!rel.has(Exclusive)) {
+          throw new Error("Traversable requires Exclusive");
+        }
+        const traversable = component as Traversable;
+        const relEid = rel.eid;
+        rel.meta.on(
+          "targetAdd",
+          (entity) => {
+            this._cascadeUpdate(entity, relEid, traversable);
+          },
+          { trait: true }
         );
-      }
-      if (xMeta.usageCount > 0) {
-        throw new Error("With cannot be added while the target component is in use");
-      }
-      if (xMeta.isRelationship) {
-        xMeta._onTrait("targetAdd", (source, _rel, target) => source.add(yEntity, target));
-      } else {
-        xMeta._onTrait("add", (entity) => entity.add(yEntity));
-      }
-    });
+        rel.meta.on(
+          "targetRemove",
+          (entity) => {
+            traversable.depths.delete(entity);
+            for (const child of entity._childrenByEid(relEid) ?? []) {
+              this._cascadeUpdate(child, relEid, traversable);
+            }
+          },
+          { trait: true }
+        );
+
+        world.entities.forEach((entity) => {
+          if (entity.has(relEid)) {
+            this._cascadeUpdate(entity, relEid, traversable);
+          }
+        });
+      },
+      { trait: true }
+    );
+    traversableTrait.meta.on(
+      "remove",
+      (): void => {
+        throw new Error("Traversable cannot be removed once added");
+      },
+      { trait: true }
+    );
+
+    withTrait.meta.on(
+      "targetAdd",
+      (xEntity, _withRelationship, yEntity): void => {
+        const xMeta = xEntity.meta;
+        const yMeta = yEntity.meta;
+        if (xMeta.isRelationship !== yMeta.isRelationship) {
+          throw new Error(
+            "With: the component and its target must both be relationships or both be plain components"
+          );
+        }
+        if (xMeta.usageCount > 0) {
+          throw new Error("With cannot be added while the target component is in use");
+        }
+        if (xMeta.isRelationship) {
+          xMeta.on("targetAdd", (source, _rel, target) => source.add(yEntity, target), {
+            trait: true,
+          });
+        } else {
+          xMeta.on("add", (entity) => entity.add(yEntity), { trait: true });
+        }
+      },
+      { trait: true }
+    );
     this._forbidPairTraitRemoval(withTrait, "With");
 
-    oneOfTrait.meta._onTrait("targetAdd", (rel, _oneOf, parent): void => {
-      if (!rel.meta.isRelationship) {
-        throw new Error("OneOf can only be added to a Relationship component");
-      }
-      if (rel.meta.usageCount > 0) {
-        throw new Error("OneOf cannot be added while the relationship is in use");
-      }
-      rel.meta._onTrait("targetAdd", (_source, _relationship, target) => {
-        if (target.parent !== parent) {
-          throw new Error(`OneOf: target ${target.eid} is not a child of entity ${parent.eid}`);
+    oneOfTrait.meta.on(
+      "targetAdd",
+      (rel, _oneOf, parent): void => {
+        if (!rel.meta.isRelationship) {
+          throw new Error("OneOf can only be added to a Relationship component");
         }
-      });
-    });
+        if (rel.meta.usageCount > 0) {
+          throw new Error("OneOf cannot be added while the relationship is in use");
+        }
+        rel.meta.on(
+          "targetAdd",
+          (_source, _relationship, target) => {
+            if (target.parent !== parent) {
+              throw new Error(`OneOf: target ${target.eid} is not a child of entity ${parent.eid}`);
+            }
+          },
+          { trait: true }
+        );
+      },
+      { trait: true }
+    );
     this._forbidPairTraitRemoval(oneOfTrait, "OneOf");
 
     childOf.add(Exclusive).add(Traversable);
@@ -223,24 +272,40 @@ export class RelationshipsModule extends Module {
     onDeleteTrait.add(Exclusive).add(OneOf, onDeleteTrait);
     onDeleteTargetTrait.add(Exclusive).add(OneOf, onDeleteTrait);
 
-    onDeleteTrait.meta._onTrait("targetAdd", (component, _onDelete, policy): void => {
-      component.meta._onDelete = policies.get(policy)!;
-    });
-    onDeleteTrait.meta._onTrait("targetRemove", (component): void => {
-      component.meta._onDelete = CleanupPolicy.Throw;
-    });
-    onDeleteTargetTrait.meta._onTrait("targetAdd", (rel, _onDeleteTarget, policy): void => {
-      if (!rel.meta.isRelationship) {
-        throw new Error("OnDeleteTarget can only be added to a Relationship component");
-      }
-      if (policy === throwPolicy) {
-        throw new Error("OnDeleteTarget accepts Remove or Delete, not Throw");
-      }
-      rel.meta._onDeleteTarget = policies.get(policy)!;
-    });
-    onDeleteTargetTrait.meta._onTrait("targetRemove", (rel): void => {
-      rel.meta._onDeleteTarget = CleanupPolicy.Remove;
-    });
+    onDeleteTrait.meta.on(
+      "targetAdd",
+      (component, _onDelete, policy): void => {
+        component.meta._onDelete = policies.get(policy)!;
+      },
+      { trait: true }
+    );
+    onDeleteTrait.meta.on(
+      "targetRemove",
+      (component): void => {
+        component.meta._onDelete = CleanupPolicy.Throw;
+      },
+      { trait: true }
+    );
+    onDeleteTargetTrait.meta.on(
+      "targetAdd",
+      (rel, _onDeleteTarget, policy): void => {
+        if (!rel.meta.isRelationship) {
+          throw new Error("OnDeleteTarget can only be added to a Relationship component");
+        }
+        if (policy === throwPolicy) {
+          throw new Error("OnDeleteTarget accepts Remove or Delete, not Throw");
+        }
+        rel.meta._onDeleteTarget = policies.get(policy)!;
+      },
+      { trait: true }
+    );
+    onDeleteTargetTrait.meta.on(
+      "targetRemove",
+      (rel): void => {
+        rel.meta._onDeleteTarget = CleanupPolicy.Remove;
+      },
+      { trait: true }
+    );
   }
 
   private _cascadeUpdate(
@@ -303,11 +368,15 @@ export class RelationshipsModule extends Module {
    * teardown contract in the class JSDoc.
    */
   private _forbidPairTraitRemoval(trait: Entity, name: string): void {
-    trait.meta._onTrait("targetRemove", (carrier, _trait, target): void => {
-      if (carrier.destroyed || target.destroyed) {
-        return;
-      }
-      throw new Error(`${name} cannot be removed once added`);
-    });
+    trait.meta.on(
+      "targetRemove",
+      (carrier, _trait, target): void => {
+        if (carrier.destroyed || target.destroyed) {
+          return;
+        }
+        throw new Error(`${name} cannot be removed once added`);
+      },
+      { trait: true }
+    );
   }
 }

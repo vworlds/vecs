@@ -207,8 +207,10 @@ describe("Entity — components", () => {
     const w = new World();
     const calls: [string, Position][] = [];
     const position = w.component(Position);
-    position.meta._onTrait("add", (_e, c) => calls.push(["trait add", c as Position]));
-    position.meta._onTrait("remove", (_e, c) => calls.push(["trait remove", c as Position]));
+    position.meta.on("add", (_e, c) => calls.push(["trait add", c as Position]), { trait: true });
+    position.meta.on("remove", (_e, c) => calls.push(["trait remove", c as Position]), {
+      trait: true,
+    });
     position
       .on("remove", (_e, c) => calls.push(["remove", c]))
       .on("set", (_e, c) => calls.push(["set", c]));

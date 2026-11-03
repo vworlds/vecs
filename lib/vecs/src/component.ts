@@ -6,6 +6,8 @@ import {
   type HookEvent,
   type HookEventMap,
   type HookHandler,
+  type TraitEvent,
+  type TraitHookOptions,
   type NormalizeHandler,
   type TargetHandler,
   type ValidateHandler,
@@ -122,8 +124,22 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
    * relationship instance type (for the `target*` events). See
    * {@link ComponentMeta.on} for full semantics.
    */
-  public override on<E extends HookEvent>(event: E, handler: ComponentEventMap<T>[E]): this {
-    return super.on(event, handler as HookEventMap[E]);
+  public override on<E extends HookEvent>(event: E, handler: ComponentEventMap<T>[E]): this;
+  /** @internal Register a relationship-trait handler. See {@link ComponentMeta.on}. */
+  public override on<E extends TraitEvent>(
+    event: E,
+    handler: ComponentEventMap<T>[E],
+    options: TraitHookOptions
+  ): this;
+  public override on<E extends HookEvent>(
+    event: E,
+    handler: ComponentEventMap<T>[E],
+    options?: TraitHookOptions
+  ): this {
+    if (options === undefined) {
+      return super.on(event, handler as HookEventMap[E]);
+    }
+    return super.on(event as TraitEvent, handler as HookEventMap[TraitEvent], options);
   }
 
   /** Remove a previously-registered handler by reference. See {@link ComponentMeta.off}. */

@@ -7,6 +7,8 @@ import {
   type ComponentType,
   type HookEvent,
   type HookEventMap,
+  type TraitEvent,
+  type TraitHookOptions,
   type TargetHandler,
 } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
@@ -903,8 +905,23 @@ export class Components extends Relationships {
    * See {@link ComponentMeta.on} for the event list and semantics. Returns this
    * entity for chaining.
    */
-  public on<E extends HookEvent>(event: E, handler: HookEventMap[E]): this {
-    this.meta.on(event, handler);
+  public on<E extends HookEvent>(event: E, handler: HookEventMap[E]): this;
+  /** @internal Register a relationship-trait handler. See {@link ComponentMeta.on}. */
+  public on<E extends TraitEvent>(
+    event: E,
+    handler: HookEventMap[E],
+    options: TraitHookOptions
+  ): this;
+  public on<E extends HookEvent>(
+    event: E,
+    handler: HookEventMap[E],
+    options?: TraitHookOptions
+  ): this {
+    if (options === undefined) {
+      this.meta.on(event, handler);
+    } else {
+      this.meta.on(event as TraitEvent, handler as HookEventMap[TraitEvent], options);
+    }
     return this;
   }
 

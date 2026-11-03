@@ -182,11 +182,22 @@ export interface HookEventMap {
 export type HookEvent = keyof HookEventMap;
 
 /**
- * Events a relationship trait registers through `ComponentMeta._onTrait`.
+ * Events a relationship trait registers with `on(event, handler, { trait: true })`.
  *
  * @internal
  */
 export type TraitEvent = "add" | "remove" | "targetAdd" | "targetRemove";
+
+/**
+ * Options of the internal `on` overload that registers a relationship-trait
+ * handler.
+ *
+ * @internal
+ */
+export interface TraitHookOptions {
+  /** Install the handler in the event's trait slot, ahead of application handlers. */
+  trait: true;
+}
 
 /**
  * Multi-handler metadata attached to a wrapper function when two or more
@@ -406,7 +417,7 @@ export class ComponentMeta {
   /**
    * @internal Relationship-trait handlers fired before {@link _onAdd}, kept in
    * their own slot so dispatch calls the application slot directly. Registered
-   * with {@link _onTrait}.
+   * with `on(event, handler, { trait: true })`.
    */
   public _traitAdd: HookSlot<HookHandler> = undefined;
   /** @internal Relationship-trait handlers fired before {@link _onRemove}; see {@link _traitAdd}. */
@@ -471,7 +482,27 @@ export class ComponentMeta {
    * @param handler - Handler whose signature is constrained by `event`.
    * @returns This meta, for chaining.
    */
-  public on<E extends HookEvent>(event: E, handler: HookEventMap[E]): this {
+  public on<E extends HookEvent>(event: E, handler: HookEventMap[E]): this;
+  /**
+   * @internal Register a relationship-trait handler. `{ trait: true }` installs
+   * it in the event's trait slot: trait handlers of one event run in
+   * registration order, before every application handler of that event, and
+   * `World.dispose` clears the `remove` / `targetRemove` ones.
+   */
+  public on<E extends TraitEvent>(
+    event: E,
+    handler: HookEventMap[E],
+    options: TraitHookOptions
+  ): this;
+  public on<E extends HookEvent>(
+    event: E,
+    handler: HookEventMap[E],
+    options?: TraitHookOptions
+  ): this {
+    if (options !== undefined) {
+      this._installTraitHook(event as TraitEvent, handler);
+      return this;
+    }
     switch (event) {
       case "add":
         this._onAdd = _installHook(this._onAdd, handler as HookHandler, false);
@@ -553,11 +584,8 @@ export class ComponentMeta {
     return this;
   }
 
-  /**
-   * @internal Register a relationship-trait handler. Trait handlers of one event
-   * run in registration order, before every application handler of that event.
-   */
-  public _onTrait<E extends TraitEvent>(event: E, handler: HookEventMap[E]): this {
+  /** Install a relationship-trait handler into the trait slot of `event`. */
+  private _installTraitHook(event: TraitEvent, handler: HookEventMap[TraitEvent]): void {
     switch (event) {
       case "add":
         this._traitAdd = _installHook(this._traitAdd, handler as HookHandler, false);
@@ -582,7 +610,6 @@ export class ComponentMeta {
         throw new Error(`Unknown trait hook event: ${String(_exhaustive)}`);
       }
     }
-    return this;
   }
 
   private _requireRelationship(event: HookEvent): void {
