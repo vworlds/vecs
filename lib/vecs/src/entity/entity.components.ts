@@ -1,13 +1,15 @@
 import { CommandKind } from "../command.js";
 import {
   ComponentMeta,
-  _slotHandlers,
   type ComponentClass,
   type ComponentInstance,
   type ComponentRef,
   type ComponentType,
   type HookEvent,
   type HookEventMap,
+  type TraitEvent,
+  type TraitHookOptions,
+  type TargetHandler,
 } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
 import { Relationships } from "./entity.relationships.js";
@@ -17,7 +19,9 @@ export class Components extends Relationships {
   /**
    * @internal Apply an `Attach` command: store the provided component instance,
    * replacing any previous instance for this type. Events are fired as if the
-   * caller had performed a `set` operation.
+   * caller had performed a `set` operation. Replacing a different instance
+   * first runs the relationship traits' `remove` handlers for the old one and
+   * their `add` handlers for the new one; application handlers see only `set`.
    */
   public _attach(this: Entity, meta: ComponentMeta, component: ComponentInstance): void {
     if (meta._pendingEnsures?.get(this) === component) {
@@ -31,11 +35,11 @@ export class Components extends Relationships {
     }
     const existing = this._components.get(meta.eid);
     if (existing !== undefined && existing !== component) {
-      meta._onPolicyRemove?.(this, existing);
+      meta._traitRemove?.(this, existing);
     }
     this._storeComponent(meta, component, existing === undefined);
     if (existing !== undefined && existing !== component) {
-      meta._onPolicyAdd?.(this, component);
+      meta._traitAdd?.(this, component);
     }
     this._notifyComponentSet(meta, component, existing !== undefined);
   }
@@ -115,9 +119,9 @@ export class Components extends Relationships {
       this._routeRemoved(meta.eid, instance);
     }
     meta._detachCarrier(this);
-    // Destroy deliberately skips policyRemove (e.g. SilenceSource); see RelationshipsModule.
+    // Destroy deliberately skips trait remove handlers (e.g. SilenceSource); see RelationshipsModule.
     if (!keepStorage) {
-      meta._onPolicyRemove?.(this, instance);
+      meta._traitRemove?.(this, instance);
     }
     meta._onRemove?.(this, instance);
   }
@@ -623,7 +627,7 @@ export class Components extends Relationships {
    * instance of `meta`'s class, assign `data` onto it, and store it on this
    * entity. Every metadata semantic is applied exactly once, in this order:
    * exclusivity eviction of conflicting components, interface-alias eviction
-   * and storage, the framework `policyAdd` hook, the public `add` hook, and
+   * and storage, the `add` hooks (relationship traits' first), and
    * query-entry notification.
    *
    * This is the single constructor-and-copy implementation in vecs. Ordinary
@@ -868,7 +872,7 @@ export class Components extends Relationships {
       meta._attachCarrier(this);
     }
     if (isAdd && !existing) {
-      meta._onPolicyAdd?.(this, instance);
+      meta._traitAdd?.(this, instance);
       meta._onAdd?.(this, instance);
     }
     if (!existing) {
@@ -898,12 +902,20 @@ export class Components extends Relationships {
     target: Entity,
     isCurrent: () => boolean
   ): boolean {
-    // Policy handlers run first; each may mutate the relationship (e.g. an
-    // OwnedTarget policy parents the target). If one makes the edge no longer
-    // current, abort remaining policies and the public hook.
-    if (meta._onTargetPolicyAdd !== undefined) {
-      for (const h of _slotHandlers(meta._onTargetPolicyAdd)) {
-        h(this, relationship, target);
+    // Trait handlers run first; each may mutate the relationship (e.g. an
+    // OwnedTarget handler parents the target). If one makes the edge no longer
+    // current, skip the remaining trait handlers and the application handlers.
+    const traits = meta._traitTargetAdd;
+    if (traits !== undefined) {
+      if ("handlers" in traits) {
+        for (const h of traits.handlers as TargetHandler[]) {
+          h(this, relationship, target);
+          if (!isCurrent()) {
+            return false;
+          }
+        }
+      } else {
+        traits(this, relationship, target);
         if (!isCurrent()) {
           return false;
         }
@@ -920,9 +932,17 @@ export class Components extends Relationships {
     target: Entity,
     isCurrent: () => boolean
   ): boolean {
-    if (meta._onTargetPolicyRemove !== undefined) {
-      for (const h of _slotHandlers(meta._onTargetPolicyRemove)) {
-        h(this, relationship, target);
+    const traits = meta._traitTargetRemove;
+    if (traits !== undefined) {
+      if ("handlers" in traits) {
+        for (const h of traits.handlers as TargetHandler[]) {
+          h(this, relationship, target);
+          if (!isCurrent()) {
+            return false;
+          }
+        }
+      } else {
+        traits(this, relationship, target);
         if (!isCurrent()) {
           return false;
         }
@@ -937,8 +957,19 @@ export class Components extends Relationships {
    * See {@link ComponentMeta.on} for the event list and semantics. Returns this
    * entity for chaining.
    */
-  public on<E extends HookEvent>(event: E, handler: HookEventMap[E], insert = false): this {
-    this.meta.on(event, handler, insert);
+  public on<E extends HookEvent>(event: E, handler: HookEventMap[E]): this;
+  /** @internal Register a relationship-trait handler. See {@link ComponentMeta.on}. */
+  public on<E extends TraitEvent>(
+    event: E,
+    options: TraitHookOptions,
+    handler: HookEventMap[E]
+  ): this;
+  public on<E extends HookEvent>(
+    event: E,
+    handlerOrOptions: HookEventMap[E] | TraitHookOptions,
+    maybeHandler?: HookEventMap[E]
+  ): this {
+    this.meta._on(event, handlerOrOptions, maybeHandler);
     return this;
   }
 
