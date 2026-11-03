@@ -358,7 +358,7 @@ Details: [Queries and filters](./queries-and-filters.md#the-cost-of-not-and-with
 
 **Repeated writes in one tick.** Vecs never merges `update` events, so a callback fires once per
 routed write. `entity.modified(C)` and `entity.getMut(C)` coalesce through the entity's dirty bit:
-repeated calls before the queued command drains give one `update`. Relationship edge adds and
+repeated calls before the pending notification routes give one `update`. Relationship edge adds and
 removals while the relationship remains present join `modified(R)` in one update per drain, in
 either order. The update routes after queued mutations apply, so even synchronous watchers see
 the committed edge set. First-edge entry, last-edge exit and per-edge hooks are not coalesced.

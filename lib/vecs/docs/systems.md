@@ -207,12 +207,12 @@ Each routed write is one `update` event, and a system's inbox replays its events
 without merging any (`lib/vecs/src/system.ts`, `_pushUpdate` and the drain loop in
 `_runDeferred`). What differs is how many events a write routes:
 
-| Write                              | Events routed for `C` in one drain window                                                        |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `entity.set(C, …)` × n             | n: every call queues its own command and fires its own `onSet` and `update`                      |
-| `entity.modified(C)` × n           | 1: the first call sets the dirty bit, the command clears it when it runs, later calls are no-ops |
-| `entity.getMut(C, cb)` × n         | 1: it marks modified through the same dirty bit                                                  |
-| Edge adds/removals + `modified(R)` | 1 for a relationship that remains present: all join the dirty bit, in either order               |
+| Write                              | Events routed for `C` in one drain window                                            |
+| ---------------------------------- | ------------------------------------------------------------------------------------ |
+| `entity.set(C, …)` × n             | n: every call queues its own command and fires its own `onSet` and `update`          |
+| `entity.modified(C)` × n           | 1: the first call sets the dirty bit; the pending notification clears it when routed |
+| `entity.getMut(C, cb)` × n         | 1: it marks modified through the same dirty bit                                      |
+| Edge adds/removals + `modified(R)` | 1 for a relationship that remains present: all join the dirty bit, in either order   |
 
 Coalescing needs a queued command, so it applies to calls made while commands are deferred (inside
 system callbacks); outside them `modified` applies immediately. Relationship updates wait until

@@ -505,7 +505,7 @@ export class Components extends Relationships {
    * Mark a component type as having changed, queueing the corresponding `onSet` / `update`
    * notifications.
    *
-   * Repeated calls before the world routes the modified command are coalesced via
+   * Repeated calls before the world routes the pending notification are coalesced via
    * the entity's dirty component bitset. Relationship edge changes in the same
    * deferred drain join this update; it routes after queued mutations apply.
    *
