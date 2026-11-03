@@ -3,14 +3,19 @@ import { Component } from "./component.js";
 export type ModuleConfig<T extends Module<any>> = T extends Module<infer Config> ? Config : never;
 
 /**
- * Base class for built-in world modules.
+ * Base class for world modules.
  *
- * A `Module` is a special component entity that is registered by the world at
- * construction time and performs one-time initialisation (registering
+ * A `Module` is a special component entity registered by {@link World.module}
+ * that performs one-time initialisation (registering
  * components, setting up hooks, etc.) via its {@link init} method.
  *
  * User code does not instantiate `Module` subclasses directly; they are
- * created and initialised by the world internally.
+ * created and initialised by the world internally. It carries itself as its
+ * class's `Singleton` value: `world.get(MyModule)` returns that same module.
+ * Module values are `DontSnapshot`. Release resources acquired in {@link init}
+ * through `on("remove", ...)` or a static `vecs_remove(entity, mod)` hook.
+ * {@link World.dispose} removes module values in reverse installation order
+ * after application cleanup and before infrastructure destruction.
  */
 export abstract class Module<Config extends object | undefined = undefined> extends Component {
   declare protected readonly moduleConfig?: Config;
