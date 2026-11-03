@@ -22,7 +22,7 @@ describe("writes on a dying entity", () => {
       const update = vi.fn();
       for (const Class of [Present, Missing]) {
         world.component(Class).on("add", onAdd).on("set", onSet);
-        world.system(`watch ${Class.name}`).update(Class, update);
+        world.system(`watch ${Class.name}`).with(Class).update({ watch: Class }, update);
       }
       const callback = vi.fn();
       const write = vi.fn((entity: Entity) => {

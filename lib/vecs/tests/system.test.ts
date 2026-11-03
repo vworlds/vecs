@@ -84,7 +84,7 @@ describe("System — enter / exit / update", () => {
   it("update fires on entity.modified(C)", () => {
     const { w } = setup();
     const cb = vi.fn();
-    w.system("test").with(Position).update(Position, cb);
+    w.system("test").with(Position).update({ watch: Position }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // entity entered
@@ -97,7 +97,7 @@ describe("System — enter / exit / update", () => {
   it("update does not fire on entity enter by default", () => {
     const { w } = setup();
     const cb = vi.fn();
-    w.system("test").with(Position).update(Position, cb);
+    w.system("test").with(Position).update({ watch: Position }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // entity entered without enqueueing update
@@ -139,7 +139,7 @@ describe("System — enter / exit / update", () => {
   it("update without an explicit query requires its component", () => {
     const { w } = setup();
     const cb = vi.fn();
-    w.system("test").update({ watch: Position, onEnter: true }, cb);
+    w.system("test").with(Position).update({ watch: Position, onEnter: true }, cb);
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     w.progress(0, 0); // enter
@@ -216,7 +216,7 @@ describe("System — enter / exit / update", () => {
     const sys = w
       .system("test")
       .with(Position)
-      .update(Position, () => {});
+      .update({ watch: Position }, () => {});
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);
@@ -433,7 +433,8 @@ describe("System — query interaction with update watchlist", () => {
     const { w } = setup();
     const cb = vi.fn();
     w.system("test")
-      .update(Position, () => {})
+      .with(Position)
+      .update({ watch: Position }, () => {})
       .with(Velocity)
       .enter(cb);
 
@@ -919,7 +920,7 @@ describe("System — enable / disable", () => {
   it("disable() stops update callback from firing", () => {
     const { w } = setup();
     const cb = vi.fn();
-    const sys = w.system("test").with(Position).update(Position, cb);
+    const sys = w.system("test").with(Position).update({ watch: Position }, cb);
     const e = w.entity();
     e.add(Position);
     w.progress(0, 0);

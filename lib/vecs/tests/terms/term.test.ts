@@ -772,7 +772,7 @@ describe("Term — integration with existing Query public API", () => {
   it("Query update callbacks fire via slim update channel", () => {
     const { w, tick } = setupWithTick();
     const update = vi.fn();
-    w.query("test").with(Position).update(Position, update);
+    w.query("test").with(Position).update({ watch: Position }, update);
 
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
@@ -797,7 +797,7 @@ describe("Term — integration with existing Query public API", () => {
   it("System update fires on modified()", () => {
     const { w } = setupWithTick();
     const update = vi.fn();
-    w.system("test").with(Position).update(Position, update);
+    w.system("test").with(Position).update({ watch: Position }, update);
 
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
@@ -915,8 +915,8 @@ describe("Term — update channel bypasses the tree", () => {
     const updateVel = vi.fn();
     w.query("test")
       .with(Position, Velocity)
-      .update(Position, updatePos)
-      .update(Velocity, updateVel)
+      .update({ watch: Position }, updatePos)
+      .update({ watch: Velocity }, updateVel)
       .build();
 
     const e = w.entity();
@@ -935,7 +935,7 @@ describe("Term — update channel bypasses the tree", () => {
   it("modified(C) does not fire for components not on the watchlist", () => {
     const { w, tick } = setupWithTick();
     const updateVel = vi.fn();
-    w.query("test").with(Position, Velocity).update(Velocity, updateVel).build();
+    w.query("test").with(Position, Velocity).update({ watch: Velocity }, updateVel).build();
 
     const e = w.entity();
     e.add(Position);
@@ -954,7 +954,7 @@ describe("Term — update channel bypasses the tree", () => {
     enter.mockClear();
 
     const updateCb = vi.fn();
-    w.query("test").with(Position).update(Position, updateCb).build();
+    w.query("test").with(Position).update({ watch: Position }, updateCb).build();
 
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
@@ -976,7 +976,8 @@ describe("Term — update channel bypasses the tree", () => {
     const cb = vi.fn();
     w.query("not-vel")
       .with({ all: [Position, { not: Velocity }] })
-      .update(Position, cb)
+      .with(Position)
+      .update({ watch: Position }, cb)
       .build();
 
     const e = w.entity();
@@ -1171,8 +1172,8 @@ describe("Term — targeted-update regression", () => {
     const posOnlyUpdate = vi.fn();
     const velOnlyUpdate = vi.fn();
 
-    w.query("posOnly").with(Position).update(Position, posOnlyUpdate).build();
-    w.query("velOnly").with(Velocity).update(Velocity, velOnlyUpdate).build();
+    w.query("posOnly").with(Position).update({ watch: Position }, posOnlyUpdate).build();
+    w.query("velOnly").with(Velocity).update({ watch: Velocity }, velOnlyUpdate).build();
 
     const e = w.entity();
     e.add(Position);

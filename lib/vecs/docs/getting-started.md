@@ -89,7 +89,7 @@ world
   .system("Reap")
   .phase(ON_VALIDATE)
   .with(Health)
-  .update(Health, (entity, health) => {
+  .update({ watch: Health }, (entity, health) => {
     if (health.hp <= 0) {
       entity.destroy();
     }
@@ -191,7 +191,7 @@ world
   .system("Reap")
   .phase(ON_VALIDATE)
   .with(Health)
-  .update(Health, (entity, health) => {
+  .update({ watch: Health }, (entity, health) => {
     if (health.hp <= 0) {
       entity.destroy();
     }

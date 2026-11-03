@@ -75,7 +75,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     w.system("Read")
       .with(Position)
       .ignoreSource([Physics])
-      .update(Position, () => readCb());
+      .update({ watch: Position }, () => readCb());
     const write = w
       .system("Write")
       .with(Position)
@@ -106,7 +106,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     w.system("Read")
       .with(Position)
       .ignoreSource([Physics])
-      .update(Position, () => readCb());
+      .update({ watch: Position }, () => readCb());
     // Not tagged Physics -> outside the silenced domain.
     w.system("Other")
       .with(Position)
@@ -150,7 +150,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .system("Read")
       .with(Position)
       .ignoreSource([Physics])
-      .update(Position, () => {});
+      .update({ watch: Position }, () => {});
 
     const silenceEntity = read.entity.target(SilenceSource)!;
     const silenceQuery = silenceEntity.get(Query)!;
@@ -169,7 +169,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .query("ReadQ")
       .with(Position)
       .ignoreSource([Physics])
-      .update(Position, () => cb());
+      .update({ watch: Position }, () => cb());
 
     const writer = w.system("Writer").run(() => {
       const e = w.entity();
@@ -200,7 +200,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
       .query("ReadQ")
       .with(Position)
       .ignoreSource([Physics])
-      .update(Position, () => {});
+      .update({ watch: Position }, () => {});
 
     const silenceEntity = rq.entity.target(SilenceSource)!;
     const silenceQuery = silenceEntity.get(Query)!;
@@ -220,7 +220,7 @@ describe("Query.ignoreSource — silencing feedback loops", () => {
     w.system("Read")
       .with(Position)
       .ignoreSource(domain)
-      .update(Position, () => cb());
+      .update({ watch: Position }, () => cb());
 
     const writer = w
       .system("Writer")

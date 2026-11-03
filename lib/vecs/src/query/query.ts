@@ -115,8 +115,10 @@ export class Query<
   public _tracking = false;
   /** @internal Bitmask of component eids this query reacts to via `update`. */
   public _watchlistBitmask: Bitset = new Bitset();
-  /** @internal Update callback eids opted into entry-time dispatch. */
+  /** @internal Update callback eids opted into entry-time and arrival dispatch. */
   public _onEnterUpdateEids: EID[] = [];
+  /** @internal Update callback eids whose removal from a member dispatches `update`. */
+  public _onRemoveUpdateEids: EID[] = [];
   /**
    * @internal `true` when {@link _notifyModified} only queues an event and never
    * runs a callback synchronously (systems). Lets entities route `modified`
@@ -563,27 +565,29 @@ export class Query<
   /**
    * Register one update callback for a watched component.
    *
-   * `update(ComponentClass, callback)` keeps the common component-only form.
-   * Use `update({ watch, inject, cursor }, callback)` when the callback
-   * needs injected components or an {@link Iter} cursor.
+   * `update({ watch, inject, cursor }, callback)` watches `watch` on the
+   * entities this query already matches. It never changes membership: build the
+   * predicate with {@link with}, which is the only way to require a component.
+   * Building a query or system that registers an update callback but has no
+   * `with` terms throws.
    * System callbacks may also inject `Now` and `Delta`, both non-optional numbers
    * from the processing tick. Standalone query callbacks cannot inject clocks.
    *
-   * `update` also adds the watched component to the query predicate, so the
-   * callback only observes entities that carry it. The callback fires when the
-   * component is set or marked modified on a matched entity. Pass
-   * `{ watch: ComponentClass, onEnter: true }` when the callback should also fire
-   * when a matched entity enters with the watched component already present.
-   * Calling `update` more than once for the same component on one query or
-   * system is rejected instead of replacing the previous callback.
+   * The callback fires when the watched component is set or marked modified on a
+   * member. Pass `onEnter: true` to also fire when the value first becomes
+   * visible to the callback: when an entity enters with the component present,
+   * or when the component is added to an existing member. Pass `onRemove: true`
+   * to fire with the removed instance when the component is removed from an
+   * entity that stays a member; the callback then sees `e.has(watch)` as false.
+   * When the watched component is also in the predicate, removing it makes the
+   * entity exit instead, and only `exit` fires. The callback's component argument
+   * is never undefined, and `ignoreSource` silences arrival, change and removal
+   * alike. Calling `update` more than once for the same component on one query
+   * or system is rejected instead of replacing the previous callback.
    *
-   * @throws When this query has already been built, when `ComponentClass`
-   *   already has an update callback on this query.
+   * @throws When this query has already been built, when the options form is
+   *   not used, or when `watch` already has an update callback on this query.
    */
-  public update<C extends ComponentType>(
-    ComponentClass: C,
-    callback: (e: Entity, c: InstanceType<C>) => void
-  ): this;
   public update<C extends ComponentType, const J extends readonly (ComponentInjectElement | K)[]>(
     options: EntityCursorOption & UpdateCallbackOptions<C, J> & { inject: readonly [...J] },
     callback: (e: Entity, c: InstanceType<C>, injected: MaybeResolvedInjectTuple<J, R>) => void
@@ -601,15 +605,15 @@ export class Query<
     callback: (it: Iter, c: InstanceType<C>) => void
   ): this;
   public update<C extends ComponentType>(
-    arg0: C | UpdateCallbackOptions<C, readonly (ComponentInjectElement | K)[]>,
+    arg0: UpdateCallbackOptions<C, readonly (ComponentInjectElement | K)[]>,
     callback: (e: Entity, c: InstanceType<C>) => void
   ): this;
   public update<C extends ComponentType>(
-    arg0: C | UpdateCallbackOptions<C, InjectTuple>,
+    arg0: UpdateCallbackOptions<C, InjectTuple>,
     arg1: (...args: any[]) => void
   ): this {
     this._assertConfigurable();
-    const { componentEid, callback, onEnter } = makeUpdateRegistration(
+    const { componentEid, callback, onEnter, onRemove } = makeUpdateRegistration(
       this.world,
       arg0,
       arg1,
@@ -626,7 +630,10 @@ export class Query<
     if (onEnter) {
       this._onEnterUpdateEids.push(componentEid);
     }
-    return this.with(componentEid) as unknown as this;
+    if (onRemove) {
+      this._onRemoveUpdateEids.push(componentEid);
+    }
+    return this;
   }
 
   /* -------------------------------------------------------------------------
@@ -651,6 +658,13 @@ export class Query<
   public _build(): this {
     if (this.built) {
       return this;
+    }
+    if (this._dsl === undefined && this._componentUpdateCallbacks.size > 0) {
+      const message =
+        `query '${this.name}' registers update callbacks but has no with(...) terms; ` +
+        "update only watches, so add with(...) to say which entities it matches";
+      this.destroy();
+      throw new Error(message);
     }
     if (!this._isBuildable()) {
       this.destroy();
@@ -735,6 +749,18 @@ export class Query<
     }
     // Silenced writes return above, so they cannot leak through group membership.
     this._grouping?.refresh(e, ceid);
+  }
+
+  /**
+   * @internal Route a watched component's arrival on, or removal from, a
+   * member entity to its `update` callback when the watch opted in with
+   * `onEnter` or `onRemove`.
+   */
+  public _notifyPresence(e: Entity, ceid: EID, c: ComponentInstance, removed: boolean): void {
+    const eids = removed ? this._onRemoveUpdateEids : this._onEnterUpdateEids;
+    if (eids.includes(ceid)) {
+      this._notifyModified(e, ceid, c);
+    }
   }
 
   public onTermEvent(kind: TermEventKind, entity: Entity): void {

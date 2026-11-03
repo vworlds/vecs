@@ -519,7 +519,7 @@ Systems can react normally with Vecs update handlers.
 world
   .system("DamagePlayers")
   .with({ all: [{ parent: Player }, ContactEvents] })
-  .update(ContactEvents, (shapeEntity, events) => {
+  .update({ watch: ContactEvents }, (shapeEntity, events) => {
     for (const event of events.begin) {
       // event.other is the other shape entity
     }
