@@ -336,11 +336,11 @@ Feature modules register the components they own and the systems that implement 
 5. `ForcesModule`: `Force`, `Torque`, `Impulse`, `AngularImpulse`, impulse hooks, force gather, and impulse drain.
 6. `KinematicModule`: `KinematicTargetPosition`, `KinematicTargetRotation`, plus kinematic target driving.
 7. `EventsModule`: `ContactEvents`, `SensorEvents`, `HitEvents`.
-8. `JointsModule`: `JointBodyA`, `JointBodyB`, `Joint`, `RevoluteJoint`, `DistanceJoint`, `PrismaticJoint`, `WheelJoint`, `WeldJoint`, `FilterJoint`, `MotorJoint`, `JointFrame`, `JointMotor`, `JointLimit`, `JointLinearSpring`, `JointAngularSpring`, `JointSettings`, exclusive relationship metadata and the `CleanupPolicy.Delete` policy for both body slots, joint `Implements` metadata, plus joint lifecycle and feature sync systems.
+8. `JointsModule`: `JointBodyA`, `JointBodyB`, `Joint`, `RevoluteJoint`, `DistanceJoint`, `PrismaticJoint`, `WheelJoint`, `WeldJoint`, `FilterJoint`, `MotorJoint`, `JointFrame`, `JointMotor`, `JointLimit`, `JointLinearSpring`, `JointAngularSpring`, `JointSettings`, exclusive relationship metadata and the `(OnDeleteTarget, Delete)` policy for both body slots, joint `Implements` metadata, plus joint lifecycle and feature sync systems.
 
 `ChildOf` is built into Vecs — referenced, never registered.
 
-`Shape` metadata: `SingleShape` implements `Shape`; `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement `SingleShape`; `Chain` implements `Shape` directly. Joint metadata: `RevoluteJoint`, `DistanceJoint`, `PrismaticJoint`, `WheelJoint`, `WeldJoint`, `FilterJoint`, and `MotorJoint` implement `Joint`. `JointsModule` configures `JointBodyA` and `JointBodyB` as `Exclusive` relationship slots, so adding either relationship with a different body replaces that slot's target. This relationship cardinality is separate from the mutual exclusivity of joint-type components. Both relationships set `onDeleteTarget = CleanupPolicy.Delete` (destroying a body destroys the joint entity along with it — see Settled decisions).
+`Shape` metadata: `SingleShape` implements `Shape`; `Box`, `Circle`, `Capsule`, `Segment`, and `Polygon` implement `SingleShape`; `Chain` implements `Shape` directly. Joint metadata: `RevoluteJoint`, `DistanceJoint`, `PrismaticJoint`, `WheelJoint`, `WeldJoint`, `FilterJoint`, and `MotorJoint` implement `Joint`. `JointsModule` configures `JointBodyA` and `JointBodyB` as `Exclusive` relationship slots, so adding either relationship with a different body replaces that slot's target. This relationship cardinality is separate from the mutual exclusivity of joint-type components. Both relationships carry `(OnDeleteTarget, Delete)` (destroying a body destroys the joint entity along with it — see Settled decisions).
 
 ### Internal Engine Attachment
 
@@ -411,7 +411,7 @@ Query: `Body`.
 
 - `.enter` — read `Body`, `Position`, `Rotation`, `LinearVelocity`, `AngularVelocity`, optional tunables. Fill a `b2DefaultBodyDef()`. Call `b2CreateBody(worldId, def)`. Store the `b2BodyId` on `Body._bodyId`, register `engine.entityByBodyIndex.set(bodyId.index1, entity.eid)`, and store the entity in `engine.bodyEntities[bodyId.index1]`. Clear both reverse slots in cleanup before Box2D can reuse the index.
 - `PhysicsBodyTeardown` query `.exit` — immediately queue the injected body's handle and clear `Body._bodyId`. The reaper destroys it after shapes and chains and clears its reverse-index slot before Box2D can reuse it.
-- `.update(Body, …)` — `type` change → `b2Body_SetType`; `enabled` → `b2Body_Enable` / `Disable`; `bullet` → `b2Body_SetBullet`. `allowFastRotation` remains create-time only in vecs-physics.
+- `.update({ watch: Body }, …)` — `type` change → `b2Body_SetType`; `enabled` → `b2Body_Enable` / `Disable`; `bullet` → `b2Body_SetBullet`. `allowFastRotation` remains create-time only in vecs-physics.
 
 ### `PhysicsShapeLifecycle` (`physics-pre`)
 
@@ -419,8 +419,8 @@ Query: `{ all: [SingleShape, { parent: Body }] }`. `Box`, `Circle`, `Capsule`, `
 
 - `.enter` — resolve parent body from the injected parent `Body._bodyId`. Build a `b2ShapeDef` from `Material` / `CollisionFilter` / `Sensor` / event opt-in flags / `ShapePosition` / `ShapeRotation`. Dispatch by geometry type (table below). Store the `b2ShapeId` on `SingleShape._shapeId` and register `engine.entityByShapeIndex.set(shapeId.index1, entity.eid)`.
 - `PhysicsShapeTeardown` query `.exit` — immediately injects `[SingleShape, { target: [ChildOf, Entity] }]`, queues the shape handle, and marks parent mass dirty. The reaper clears the reverse-index slot and destroys the shape in cleanup.
-- `.update(SingleShape, …)` — destroy + recreate the shape, except `Capsule`/`Segment` updates with degenerate (near-zero-length) endpoints are ignored, preserving the existing valid shape (Box2D parity).
-- `.update(ChildOf, …)` — reparenting between bodies = destroy under old parent, recreate under new.
+- `.update({ watch: SingleShape }, …)` — destroy + recreate the shape, except `Capsule`/`Segment` updates with degenerate (near-zero-length) endpoints are ignored, preserving the existing valid shape (Box2D parity).
+- `.update({ watch: ChildOf }, …)` — reparenting between bodies = destroy under old parent, recreate under new.
 
 | Geometry      | Call                                                                                  |
 | ------------- | ------------------------------------------------------------------------------------- |
@@ -436,15 +436,15 @@ Query: `{ all: [Chain, { parent: Body }] }`. Chain lifecycle is split from singl
 
 - `.enter` — resolve parent body, build a `b2ChainDef` from filter/material/sensor-event opt-in, transform each `Chain.points` entry by `ShapePosition` and `ShapeRotation`, call `b2CreateChain`, store `Chain._chainId`, then call `b2Chain_GetSegments` and register each returned segment `index1` in `engine.entityByShapeIndex` pointing to the chain entity.
 - `PhysicsChainTeardown` query `.exit` — immediately injects `[Chain, { target: [ChildOf, Entity] }]`, clears every registered segment index, queues the chain for cleanup, and clears `_chainId` on the live component if present.
-- `.update(Chain, …)` and `.update(ChildOf, …)` — destroy + recreate the chain.
+- `.update({ watch: Chain }, …)` and `.update({ watch: ChildOf }, …)` — destroy + recreate the chain.
 
 Chains participate in sensor events only. `b2ChainDef` exposes `enableSensorEvents` but not contact or hit event flags, so `ContactEvents`/`HitEvents` runtime toggles intentionally ignore chains. Sensor opt-in changes recreate the chain because Box2D has no per-chain runtime sensor-event setter.
 
 ### `PhysicsMaterialFilterSync` (`physics-pre`)
 
-- Single-shape `.update(Material, …)` → `b2Shape_SetDensity(id, d, true)`, `b2Shape_SetFriction`, `b2Shape_SetRestitution`. Changes to `rollingResistance`, `tangentSpeed`, or `userMaterialId` retain the shape-recreation path.
-- Single-shape `.update(CollisionFilter, …)` → build a `b2Filter` (32-bit fields widen to Box2D's 64-bit by zero-padding upper bits) and call `b2Shape_SetFilter`.
-- Single-shape `.update(Sensor, …)` — destroy + recreate the shape with `def.isSensor = true/false`. (Runtime solid↔sensor toggle has no in-place Box2D setter; recreate is the v1 path.)
+- Single-shape `.update({ watch: Material }, …)` → `b2Shape_SetDensity(id, d, true)`, `b2Shape_SetFriction`, `b2Shape_SetRestitution`. Changes to `rollingResistance`, `tangentSpeed`, or `userMaterialId` retain the shape-recreation path.
+- Single-shape `.update({ watch: CollisionFilter }, …)` → build a `b2Filter` (32-bit fields widen to Box2D's 64-bit by zero-padding upper bits) and call `b2Shape_SetFilter`.
+- Single-shape `.update({ watch: Sensor }, …)` — destroy + recreate the shape with `def.isSensor = true/false`. (Runtime solid↔sensor toggle has no in-place Box2D setter; recreate is the v1 path.)
 - Chain `Material`, `CollisionFilter`, and `Sensor` updates recreate the chain because Box2D does not expose in-place setters for chain material/filter/sensor state.
 
 ### `PhysicsEventOptInSync` (`physics-pre`)
@@ -455,16 +455,16 @@ Chains are excluded from those b2Shape setters. When `SensorEvents` or `Detectab
 
 ### `PhysicsShapePoseSync` (`physics-pre`)
 
-`.update(ShapePosition / ShapeRotation, …)` — destroy + recreate the single shape or chain under the body with the new local pose. Chains transform every point by the local pose before `b2CreateChain`. box2d3-wasm shapes do not expose a runtime local-pose setter; recreate is the cheap path.
+`.update({ watch: ShapePosition / ShapeRotation }, …)` — destroy + recreate the single shape or chain under the body with the new local pose. Chains transform every point by the local pose before `b2CreateChain`. box2d3-wasm shapes do not expose a runtime local-pose setter; recreate is the cheap path.
 
 ### `PhysicsPoseSyncIn` (`physics-pre`)
 
 Treats user pose/velocity writes as teleports. Engine write-backs (from `PhysicsPoseSyncOut`, a tagged physics system) are filtered out by `ignoreSource([PhysicsSystemTag])`.
 
-- `.update(Position, …)` → `_b2x_Body_SetPosition(index1, rev, x, y)` (preserves current rotation)
-- `.update(Rotation, …)` → `_b2x_Body_SetAngle(index1, rev, angle)` (preserves current position, uses `b2MakeRot`)
-- `.update(LinearVelocity, …)` → `_b2x_Body_SetLinearVelocity(index1, rev, x, y)`
-- `.update(AngularVelocity, …)` → `_b2x_Body_SetAngularVelocity(index1, rev, value)`
+- `.update({ watch: Position }, …)` → `_b2x_Body_SetPosition(index1, rev, x, y)` (preserves current rotation)
+- `.update({ watch: Rotation }, …)` → `_b2x_Body_SetAngle(index1, rev, angle)` (preserves current position, uses `b2MakeRot`)
+- `.update({ watch: LinearVelocity }, …)` → `_b2x_Body_SetLinearVelocity(index1, rev, x, y)`
+- `.update({ watch: AngularVelocity }, …)` → `_b2x_Body_SetAngularVelocity(index1, rev, value)`
 
 Entry-time initialization is **not** silenced, so a body still initializes through a tagged source. Confirmed in `tests/lifecycle/ignore_source.test.ts`.
 
@@ -572,7 +572,7 @@ For every entity in `engine.impulseEntitiesThisStep`, directly zero `Impulse.x/y
 
 - **Add geometry under a `Body`-parent**: `world.entity().add(ChildOf, body).set(Box, {…})` → `.enter` → `b2CreateXxxShape`. If the parent lacks `Body`, the query does not match and nothing is created; debug reports `shape-without-parent-body`.
 - **Change geometry component**: same component with props changed → in-place setter where box2d3-wasm exposes one (filter, density, friction, restitution), otherwise destroy + recreate (dimensions, local pose). Geometry type swap (Box → Circle) → exclusivity removes the old (`.exit` destroys), adds the new (`.enter` creates).
-- **Remove / reparent**: `.exit` destroys; `.update(ChildOf, …)` reparents by destroy + recreate under the new body.
+- **Remove / reparent**: `.exit` destroys; `.update({ watch: ChildOf }, …)` reparents by destroy + recreate under the new body.
 - **Chains**: `Chain` produces a `b2ChainId` representing N internal segments. The chain handle lives on `Chain._chainId`, and each segment `index1` is stored in `Chain._segmentIndices` and registered in `engine.entityByShapeIndex` for sensor-event resolution.
 
 ## Force, torque, impulse handling
@@ -606,23 +606,23 @@ The parity baseline (`tests/parity/cross_platform.test.ts`) is WASM-build-determ
 
 ## Vecs dependencies
 
-| Capability                      | Vecs API                                                                        | Used by                                                       |
-| ------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Relationships (`ChildOf`)       | `add(ChildOf, target)`, `{ parent: … }`, `{ target: [ChildOf, …] }`             | Shape↔body wiring, reparenting, force-target resolution.      |
-| Relationships (joints)          | `JointBodyA`/`JointBodyB` (`{ target: [Rel, [Body]] }`), `CleanupPolicy.Delete` | Two-body joint refs; destroying a body destroys the joint.    |
-| World singleton                 | `world.component(C).add(Singleton)`; `world.get(C)`                             | `PhysicsEngine` holder.                                       |
-| Relationship fan-out reactivity | `TargetTerm` re-evaluates sources on target membership                          | Order-independent body/shape/joint creation.                  |
-| System update silencing         | `System.ignoreSource(QueryDSL \| Query)`                                        | Pose-sync feedback suppression via `PhysicsSystemTag` marker. |
-| Interface/exclusivity           | `Implements` with a shared marker (`Shape`, `Joint`)                            | Polymorphic geometry/joint query + mutual exclusivity.        |
-| Component hooks                 | `world.component(C).on("add" \| "set" \| "remove", ...)`                        | Impulse accumulation; event opt-in toggles.                   |
+| Capability                      | Vecs API                                                                            | Used by                                                       |
+| ------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Relationships (`ChildOf`)       | `add(ChildOf, target)`, `{ parent: … }`, `{ target: [ChildOf, …] }`                 | Shape↔body wiring, reparenting, force-target resolution.      |
+| Relationships (joints)          | `JointBodyA`/`JointBodyB` (`{ target: [Rel, [Body]] }`), `(OnDeleteTarget, Delete)` | Two-body joint refs; destroying a body destroys the joint.    |
+| World singleton                 | `world.component(C).add(Singleton)`; `world.get(C)`                                 | `PhysicsEngine` holder.                                       |
+| Relationship fan-out reactivity | `TargetTerm` re-evaluates sources on target membership                              | Order-independent body/shape/joint creation.                  |
+| System update silencing         | `System.ignoreSource(QueryDSL \| Query)`                                            | Pose-sync feedback suppression via `PhysicsSystemTag` marker. |
+| Interface/exclusivity           | `Implements` with a shared marker (`Shape`, `Joint`)                                | Polymorphic geometry/joint query + mutual exclusivity.        |
+| Component hooks                 | `world.component(C).on("add" \| "set" \| "remove", ...)`                            | Impulse accumulation; event opt-in toggles.                   |
 
 ## Settled decisions
 
 - **Internal engine:** world-scoped `Singleton` component (`PhysicsEngine`).
 - **World disposal boundary:** Vecs destroys infrastructure and singleton data synchronously after application cleanup. Disposal is forbidden inside `progress()`, `defer`, a command drain or an entity's destroy; refusal leaves the world usable. Ordinary synchronous top-level mutation hooks are allowed. No core tick, drain or destroy-cascade boundary carries disposal machinery. ClientWorld alone holds disconnect events until its outermost progress/apply call finishes, letting handlers dispose at top level. `PhysicsCoreModule`, loaded by `PhysicsModule`, registers a `PhysicsEngine` remove hook that calls `b2DestroyWorld` and `MoveExporter.dispose()` once. Pending reaper handles go with the world, without individual destruction. Contact/hit remove hooks and the immediate sensor teardown query skip WASM writes after engine release, independent of infrastructure order. Other immediate teardown queries only update JS bookkeeping. At release, `worldId` and packed `world` become throwing properties; live reads remain plain fields without a step-path check. See [Disposing a world](../../vecs/docs/entities.md#disposing-a-world) and the [physics disposal guide](../docs/getting-started.md#disposing-a-physics-world).
 - **Forward handles on components:** `Body._bodyId`, `SingleShape._shapeId`, `Chain._chainId`, `Chain._segmentIndices`, and `Joint._jointId` (`@internal`). Reverse lookups via `index1`-keyed `ArrayMap`s on `PhysicsEngine`.
-- **Joints:** a joint is its own entity with two exclusive body relationship slots (`JointBodyA`/`JointBodyB`, configured by `JointsModule` with `CleanupPolicy.Delete`), one exclusive joint-type component (`Joint` umbrella via `Implements`), an optional shared `JointFrame`, and optional feature components (`JointMotor`/`JointLimit`/`JointLinearSpring`/`JointAngularSpring`) whose **presence is the enable flag**. Adding a different body to either relationship replaces that slot's target; this relationship cardinality is independent of joint-type component exclusivity. The handle lives on the `Joint` base. `PhysicsJointLifecycle` builds the def with the box2d3-wasm local-frame API (anchors via `def.base.localFrameA.p.Set(...)`, reference angle via `localFrameA.q.SetAngle(...)`; no allocation beyond the def handle); feature sync systems apply in-place setters and call `b2Joint_WakeBodies`. `PhysicsReaper` drains `pendingJointDestroys` (before bodies) guarded by `b2Joint_IsValid`.
-- **Joint cascade-delete:** destroying a connected body destroys the joint entity. `JointsModule` sets `onDeleteTarget = CleanupPolicy.Delete` on `JointBodyA` and `JointBodyB`, matching Box2D (which destroys a body's joints with the body), so a game never has to cascade joint cleanup by hand. The Box2D side needs no extra guard: the joint's lifecycle exit queues its handle on `pendingJointDestroys`, which `PhysicsReaper` drains before `pendingBodyDestroys`, so `b2DestroyJoint` runs while the joint is still valid and `b2DestroyBody` then finds none left to cascade; the `b2Joint_IsValid` guard stays as a safety net. Removing `Body` from a connected body (without destroying its entity) is not a cascade: the joint stops matching `jointWithBothBodies`, its constraint is torn down, and the joint entity stays and rebuilds when `Body` returns. This replaces the earlier "detach, not cascade-delete" decision, which left a bodiless joint entity behind (#229).
+- **Joints:** a joint is its own entity with two exclusive body relationship slots (`JointBodyA`/`JointBodyB`, configured by `JointsModule` with `(OnDeleteTarget, Delete)`), one exclusive joint-type component (`Joint` umbrella via `Implements`), an optional shared `JointFrame`, and optional feature components (`JointMotor`/`JointLimit`/`JointLinearSpring`/`JointAngularSpring`) whose **presence is the enable flag**. Adding a different body to either relationship replaces that slot's target; this relationship cardinality is independent of joint-type component exclusivity. The handle lives on the `Joint` base. `PhysicsJointLifecycle` builds the def with the box2d3-wasm local-frame API (anchors via `def.base.localFrameA.p.Set(...)`, reference angle via `localFrameA.q.SetAngle(...)`; no allocation beyond the def handle); feature sync systems apply in-place setters and call `b2Joint_WakeBodies`. `PhysicsReaper` drains `pendingJointDestroys` (before bodies) guarded by `b2Joint_IsValid`.
+- **Joint cascade-delete:** destroying a connected body destroys the joint entity. `JointsModule` adds `(OnDeleteTarget, Delete)` to `JointBodyA` and `JointBodyB`, matching Box2D (which destroys a body's joints with the body), so a game never has to cascade joint cleanup by hand. The Box2D side needs no extra guard: the joint's lifecycle exit queues its handle on `pendingJointDestroys`, which `PhysicsReaper` drains before `pendingBodyDestroys`, so `b2DestroyJoint` runs while the joint is still valid and `b2DestroyBody` then finds none left to cascade; the `b2Joint_IsValid` guard stays as a safety net. Removing `Body` from a connected body (without destroying its entity) is not a cascade: the joint stops matching `jointWithBothBodies`, its constraint is torn down, and the joint entity stays and rebuilds when `Body` returns. This replaces the earlier "detach, not cascade-delete" decision, which left a bodiless joint entity behind (#229).
 - **Component registration order** as above; wire type ids deterministic.
 - **System reactivity:** systems for everything except `Impulse` / `AngularImpulse`, which use synchronous `onSet` hooks.
 - **Parent/child:** Vecs `ChildOf` relationship.

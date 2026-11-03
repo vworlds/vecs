@@ -18,14 +18,17 @@ const playerShape = world
   .add(ContactEvents);
 ```
 
-If `playerShape` touches another shape, `vecs-physics` updates its `ContactEvents` component and marks it modified. Vecs systems can listen with `.update(ContactEvents, ...)`.
+If `playerShape` touches another shape, `vecs-physics` updates its `ContactEvents` component and marks it modified. Vecs systems can listen with `.with(ContactEvents).update({ watch: ContactEvents }, ...)`.
 
 ```ts
-world.system("LogContacts").update(ContactEvents, (shapeEntity, events) => {
-  for (const event of events.begin) {
-    console.log("started touching", event.other.eid);
-  }
-});
+world
+  .system("LogContacts")
+  .with(ContactEvents)
+  .update({ watch: ContactEvents }, (shapeEntity, events) => {
+    for (const event of events.begin) {
+      console.log("started touching", event.other.eid);
+    }
+  });
 ```
 
 ## Event Components
@@ -125,11 +128,14 @@ const crate = world.entity().set(Position, { x: 0, y: 3 }).set(Body, { type: Bod
 
 world.entity().add(ChildOf, crate).set(Box, { hx: 0.5, hy: 0.5 }).add(ContactEvents);
 
-world.system("CrateContacts").update(ContactEvents, (shape, events) => {
-  for (const event of events.begin) {
-    console.log(`shape ${shape.eid} touched shape ${event.other.eid}`);
-  }
-});
+world
+  .system("CrateContacts")
+  .with(ContactEvents)
+  .update({ watch: ContactEvents }, (shape, events) => {
+    for (const event of events.begin) {
+      console.log(`shape ${shape.eid} touched shape ${event.other.eid}`);
+    }
+  });
 ```
 
 If both shapes have `ContactEvents`, both receive their own event. If only one shape has `ContactEvents`, only that shape receives the event.
@@ -203,7 +209,7 @@ world.entity().add(ChildOf, player).set(Circle, { radius: 0.5 }).add(Detectable)
 world
   .system("CheckpointTriggers")
   .with({ all: [Checkpoint, SensorEvents] })
-  .update(SensorEvents, (checkpointShape, events) => {
+  .update({ watch: SensorEvents }, (checkpointShape, events) => {
     for (const event of events.begin) {
       const otherBody = event.other.parent;
       if (otherBody?.get(Player)) {
@@ -253,7 +259,7 @@ class Health {
 world
   .system("ImpactDamage")
   .with({ all: [{ parent: Health }, HitEvents] })
-  .update(HitEvents, (shape, events) => {
+  .update({ watch: HitEvents }, (shape, events) => {
     const body = shape.parent;
     const health = body?.getMut(Health);
     if (!health) return;
@@ -292,7 +298,7 @@ All contact-listening shapes:
 world
   .system("AllContactListeners")
   .with(ContactEvents)
-  .update(ContactEvents, (shape, events) => {
+  .update({ watch: ContactEvents }, (shape, events) => {
     // shape has ContactEvents
   });
 ```
@@ -303,7 +309,7 @@ Only contact-listening shapes whose parent body is a player:
 world
   .system("PlayerContacts")
   .with({ all: [{ parent: Player }, ContactEvents] })
-  .update(ContactEvents, (shape, events) => {
+  .update({ watch: ContactEvents }, (shape, events) => {
     // shape belongs to a body with Player
   });
 ```
@@ -314,7 +320,7 @@ Only sensor shapes:
 world
   .system("SensorListeners")
   .with(Sensor, SensorEvents)
-  .update(SensorEvents, (shape, events) => {
+  .update({ watch: SensorEvents }, (shape, events) => {
     // shape is a sensor and receives sensor events
   });
 ```

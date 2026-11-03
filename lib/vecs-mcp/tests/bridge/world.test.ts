@@ -92,9 +92,19 @@ it("classifies all built-ins by declaration, independently of their usage", () =
     [["Trait", "ComponentDef", "Identity"], "component", false],
     [["ChildOf", "DependsOn", "SilenceSource"], "relationship", false],
     [["Exclusive", "Traversable", "OwnedTarget", "Singleton", "Implements"], "component", true],
-    [["With", "OneOf", "OnSnapshot"], "relationship", true],
+    [["With", "OneOf", "OnSnapshot", "OnDelete", "OnDeleteTarget"], "relationship", true],
     [
-      ["ClonePublic", "DontSnapshot", "CustomSnapshot", "Phase", "Query", "System"],
+      [
+        "ClonePublic",
+        "DontSnapshot",
+        "CustomSnapshot",
+        "Throw",
+        "Remove",
+        "Delete",
+        "Phase",
+        "Query",
+        "System",
+      ],
       "component",
       false,
     ],
@@ -104,6 +114,17 @@ it("classifies all built-ins by declaration, independently of their usage", () =
       expect(rows.get(name), name).toMatchObject({ name, kind, trait });
     }
   }
+  for (const name of groups[0][0]) {
+    expect(rows.get(name)?.traits).toContainEqual({ name: "Singleton" });
+    expect(rows.get(name)?.traits).toContainEqual({
+      name: "OnSnapshot",
+      targets: ["DontSnapshot"],
+    });
+  }
+  expect(rows.get("ChildOf")?.traits).toContainEqual({
+    name: "OnDeleteTarget",
+    targets: ["Delete"],
+  });
   world.dispose();
 });
 
@@ -263,6 +284,24 @@ it("projects own entity components without scanning the registry and reads incom
   expect(
     (local.command("vecs_entity", { entity: a.eid }) as { relationships: object }).relationships
   ).toHaveProperty("LateLink", { targets: [], children: [b.eid] });
+  world.dispose();
+});
+
+it("serializes a relationship data field named target beside its edges", () => {
+  class Aim extends v.Relationship {
+    target = "";
+  }
+  const world = new World();
+  world.component(Aim);
+  const a = world.entity("a");
+  const b = world.entity("b").add(Aim, a).set(Aim, { target: "north" });
+  const local = new LocalWorld(world);
+  const result = local.command("vecs_entity", { entity: b.eid }) as {
+    components: Record<string, unknown>;
+    relationships: Record<string, unknown>;
+  };
+  expect(result.components.Aim).toEqual({ target: "north" });
+  expect(result.relationships.Aim).toEqual({ targets: [a.eid], children: [] });
   world.dispose();
 });
 

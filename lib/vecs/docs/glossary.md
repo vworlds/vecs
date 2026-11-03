@@ -18,9 +18,9 @@ archetypes and watchlists, and exported for bit-flag component fields.
 relationship, via `{ with: ..., cascade: Rel }`.
 [Relationships](./relationships.md#traversal-order-traversable-and-cascade).
 
-**Cleanup policy** — what happens to dependent entities on destruction: `onDelete` (component
-entity destroyed → carriers throw/strip/die) and `onDeleteTarget` (relationship target destroyed →
-sources strip/die). [Components](./components.md#cleanup-policies-destroying-a-component-entity),
+**Cleanup policy** — what happens to dependent entities on destruction, declared with two traits:
+`OnDelete` (component entity destroyed → carriers throw/strip/die) and `OnDeleteTarget`
+(relationship target destroyed → sources strip/die). [Components](./components.md#cleanup-policies-destroying-a-component-entity),
 [Relationships](./relationships.md#cleanup-when-a-target-dies).
 
 **Companion (wrapper) component** — a local, non-networked component holding a non-ECS resource

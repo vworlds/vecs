@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { CommandKind } from "../src/command.js";
-import { CleanupPolicy, Exclusive, Relationship, World } from "../src/index.js";
+import { Delete, Exclusive, OnDelete, Relationship, Remove, World } from "../src/index.js";
 
 class Position {
   x = 0;
@@ -355,7 +355,7 @@ describe("Deferred mode — Query dispatches enter/exit/update immediately", () 
   it("Query.update callback fires immediately on c.modified()", () => {
     const { w } = setup();
     const update = vi.fn();
-    w.query("q").with(Position).update(Position, update).build();
+    w.query("q").with(Position).update({ watch: Position }, update).build();
     const e = w.entity();
     const pos = e.add(Position).get(Position)!;
     update.mockClear();
@@ -503,7 +503,7 @@ describe("World.defer(fn)", () => {
     {
       const w = new World();
       const componentEntity = w.component(DeferredRemove);
-      componentEntity.meta.onDelete = CleanupPolicy.Remove;
+      componentEntity.add(OnDelete, Remove);
       w.component(Velocity);
       const carrier = w.entity().add(DeferredRemove);
       const sentinel = w.entity();
@@ -522,7 +522,7 @@ describe("World.defer(fn)", () => {
     {
       const w = new World();
       const componentEntity = w.component(DeferredDelete);
-      componentEntity.meta.onDelete = CleanupPolicy.Delete;
+      componentEntity.add(OnDelete, Delete);
       w.component(Velocity);
       const carrier = w.entity().add(DeferredDelete);
       const sentinel = w.entity();

@@ -103,17 +103,27 @@ export class Components extends Entities {
    *
    * This is a convenience shorthand for `world.component(Class).get(Class)`.
    * Use it when you store world-global state as a component on the component
-   * entity itself (the Singleton pattern).
+   * entity itself (the Singleton pattern). For an installed module, returns
+   * the module instance itself.
    *
    * @param Class - Registered component class.
    * @returns The component instance stored on the component entity, or
    *   `undefined` when none has been set.
    */
-  public get<C extends ComponentClass>(
+  public get<C extends ComponentType>(
     this: World,
     Class: C
   ): Readonly<InstanceType<C>> | undefined {
     return this.component(Class).get(Class);
+  }
+
+  /**
+   * Check whether `Class` has a singleton value on its definition entity.
+   * Does not register an unknown class. Installed modules carry themselves,
+   * so `world.has(MyModule)` is true until their singleton value is removed.
+   */
+  public has(this: World, Class: ComponentType): boolean {
+    return this.getEntity(Class)?.has(Class) ?? false;
   }
 
   /**

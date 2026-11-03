@@ -1,11 +1,75 @@
 import { describe, expect, it } from "vitest";
-import { Module, World } from "../src/index.js";
+import {
+  DontSnapshot,
+  IdentityModule,
+  Module,
+  OnSnapshot,
+  Singleton,
+  SingletonModule,
+  World,
+} from "../src/index.js";
 
 class Position {
   x = 0;
 }
 
 describe("World.module", () => {
+  it("checks singleton presence without registering unknown classes", () => {
+    const world = new World();
+    expect(world.has(Position)).toBe(false);
+    expect(world.getEntity(Position)).toBeUndefined();
+    world.component(Position);
+    expect(world.has(Position)).toBe(false);
+    world.set(Position, { x: 3 });
+    expect(world.has(Position)).toBe(true);
+    world.component(Position).remove(Position);
+    expect(world.has(Position)).toBe(false);
+  });
+
+  it("stores the module itself as its singleton value before init", () => {
+    class Feature extends Module {
+      public init(): void {
+        expect(this.world.get(Feature)).toBe(this);
+        expect(this.world.has(Feature)).toBe(true);
+      }
+    }
+    const world = new World();
+    const feature = world.module(Feature);
+    expect(feature.has(Singleton)).toBe(true);
+    expect(world.get(Feature)).toBe(feature);
+    expect(world.module(Feature)).toBe(feature);
+    expect(() => world.entity().attach(feature)).toThrow(/singleton/);
+    for (const Class of [IdentityModule, SingletonModule]) {
+      expect(world.get(Class)).toBe(world.module(Class));
+      expect(world.module(Class).has(Singleton)).toBe(true);
+    }
+  });
+
+  it("excludes module instances from snapshots and leaves destination modules intact", () => {
+    class Feature extends Module {
+      public init(): void {}
+    }
+    const source = new World();
+    source.component(Position);
+    const root = source.entity();
+    const feature = source.module(Feature).childOf(root);
+    const child = source.entity().set(Position, { x: 7 }).childOf(feature);
+    const snapshot = source.snapshotSubtree(root);
+    expect(snapshot.entities.flatMap((record) => record.components.map((c) => c.Class))).toEqual([
+      Singleton,
+      Position,
+    ]);
+    expect(feature.target(OnSnapshot)).toBe(source.component(DontSnapshot));
+    expect(() => source.snapshotSubtree(root, { components: [Feature] })).toThrow(/DontSnapshot/);
+    const destination = new World();
+    destination.component(Position);
+    const installed = destination.module(Feature);
+    const restored = source.restoreSubtree(destination, snapshot);
+    expect(destination.get(Feature)).toBe(installed);
+    expect(restored.entities.get(feature.eid)?.has(Feature)).toBe(false);
+    expect(restored.entities.get(child.eid)?.get(Position)?.x).toBe(7);
+  });
+
   it("creates a typed module entity and registers metadata for the module class", () => {
     class TestModule extends Module {
       public initCalls = 0;

@@ -34,6 +34,9 @@ world.module(PoseSyncModule);
 module on first call — drawing its entity id from the `module` pool (900–999 by default, or pass
 an explicit `eid`) — and invokes `init(config)` exactly once. Subsequent calls return the existing
 module instance; passing a config again after the first registration throws.
+The definition carries the module itself as its `Singleton` value: `world.get(M)` returns
+`world.module(M)`, and `world.has(M)` reports whether that value is present. Module classes
+declare `DontSnapshot`; live module instances are never captured or restored as data.
 Install new modules outside `progress()` and `defer`; installation also throws during a command
 drain, before registering anything. Looking up an already installed module works in any of those
 contexts. Lazy loading from a system or hook is the application's job: schedule it after
@@ -145,19 +148,56 @@ network, Phaser and application modules. Registration outside a scope leaves a r
 re-registration keeps the existing parent: there is no list of duplicate registrars and no record of
 which module added a trait edge. Explicit reparenting changes ownership, not a historical audit.
 
+## Releasing resources
+
+Release resources acquired in `init` with the module's own `remove` hook. You do not need
+a sentinel entity solely to observe world teardown (such as SpaceRocks' RadialMenu pattern).
+For a class-owned recipe, declare a static hook:
+
+```ts
+import { type Entity, Module } from "@vworlds/vecs";
+
+class RefreshModule extends Module {
+  private timer?: ReturnType<typeof setInterval>;
+
+  public init(): void {
+    this.timer = setInterval(() => console.log("refresh"), 1000);
+  }
+
+  public static vecs_remove(_entity: Entity, mod: RefreshModule): void {
+    clearInterval(mod.timer);
+  }
+}
+```
+
+Alternatively, register an instance hook inside `init`, for example
+`this.on("remove", () => clearInterval(this.timer))`, or register one on
+the result of `world.module(RefreshModule)`. Both arguments identify that same module.
+If you register both static and instance hooks, both run.
+
+[`world.dispose()`](./entities.md#disposing-a-world) first settles application cleanup,
+then removes module singleton values in reverse installation order: later siblings and nested
+children precede their installing parents. Earlier modules' values, systems, queries and other
+infrastructure singletons are still available to the hook. A throwing hook propagates out of
+disposal and leaves the world partial. Repeated disposal does not run the hooks again.
+Modules without hooks need no special handling.
+
+Removing a module singleton manually is not a supported module-unloading API: it does not
+define what should happen to entities created by that module.
+
 ## Built-in modules
 
 Every `World` constructor installs these (`lib/vecs/src/world/world.ts`); you interact with their
 _components_, not with the module objects:
 
-| Module                | Provides                                                                                                                                                                                                                                                 |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IdentityModule`      | The `Identity` name component and the name → entity index behind `world.entity("name")` / `entity.name`.                                                                                                                                                 |
-| `ImplementsModule`    | Marks `Implements` with `Trait` and maintains its [interface aliases](./components.md#interface-aliases-with-implements) and transitive closure.                                                                                                         |
-| `SingletonModule`     | Marks `Singleton` with `Trait` and enforces its [one-carrier constraint](./components.md#singletons-and-world-global-data).                                                                                                                              |
-| `RelationshipsModule` | Marks `Exclusive`, `Traversable`, `OwnedTarget`, `With`, and `OneOf` with `Trait`; configures built-in exclusivity, [owned targets](./relationships.md#owned-targets), and [depth tracking](./relationships.md#traversal-order-traversable-and-cascade). |
-| `SnapshotModule`      | Marks `OnSnapshot` with `Trait`, registers its policy targets, and excludes world-bound types and local schema markers from [subtree snapshots](./snapshots.md).                                                                                         |
-| `PipelineModule`      | Creates the eight [built-in phases](./execution-model.md#phases-the-pipeline-spine) and installs the default pipeline query.                                                                                                                             |
+| Module                | Provides                                                                                                                                                                                                                                                                                                                                                                   |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IdentityModule`      | The `Identity` name component and the name → entity index behind `world.entity("name")` / `entity.name`.                                                                                                                                                                                                                                                                   |
+| `ImplementsModule`    | Marks `Implements` with `Trait` and maintains its [interface aliases](./components.md#interface-aliases-with-implements) and transitive closure.                                                                                                                                                                                                                           |
+| `SingletonModule`     | Marks `Singleton` with `Trait` and enforces its [one-carrier constraint](./components.md#singletons-and-world-global-data).                                                                                                                                                                                                                                                |
+| `RelationshipsModule` | Marks `Exclusive`, `Traversable`, `OwnedTarget`, `With`, `OneOf`, `OnDelete`, and `OnDeleteTarget` with `Trait`; configures built-in exclusivity, [owned targets](./relationships.md#owned-targets), [depth tracking](./relationships.md#traversal-order-traversable-and-cascade), and [cleanup policies](./components.md#cleanup-policies-destroying-a-component-entity). |
+| `SnapshotModule`      | Marks `OnSnapshot` with `Trait`, registers its policy targets, and excludes world-bound types and local schema markers from [subtree snapshots](./snapshots.md).                                                                                                                                                                                                           |
+| `PipelineModule`      | Creates the eight [built-in phases](./execution-model.md#phases-the-pipeline-spine) and installs the default pipeline query.                                                                                                                                                                                                                                               |
 
 All are exported, so a custom world setup can reuse them.
 

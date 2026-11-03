@@ -214,7 +214,7 @@ This lets normal Vecs systems react after physics:
 world
   .system("ReactToContacts")
   .with(ContactEvents)
-  .update(ContactEvents, (shape, events) => {
+  .update({ watch: ContactEvents }, (shape, events) => {
     for (const event of events.begin) {
       // event.other is the other shape entity
     }

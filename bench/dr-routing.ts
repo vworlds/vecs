@@ -21,15 +21,15 @@ function measure(excluded: boolean): number {
     for (let i = 0; i < 8; i++) {
       world
         .system(`unrelated-${i}`)
-        .with(Pose)
-        .update(Other, () => {});
+        .with(Pose, Other)
+        .update({ watch: Other }, () => {});
     }
     if (excluded) {
       world
         .system("excluded")
         .with(Pose)
         .without(Moving)
-        .update(Pose, () => {
+        .update({ watch: Pose }, () => {
           throw new Error("moving entity must not receive a pose callback");
         });
     }

@@ -109,6 +109,10 @@ export class Components extends Relationships {
     } else {
       this._components.delete(meta.eid);
       this._notifySlotRemoved(meta, instance);
+      // `update({ watch, onRemove: true })` routes after the component is gone,
+      // receiving the instance directly (no register read). See the
+      // `update` reference: it fires only when the entity stays a member.
+      this._routeRemoved(meta.eid, instance);
     }
     meta._detachCarrier(this);
     // Destroy deliberately skips policyRemove (e.g. SilenceSource); see RelationshipsModule.
@@ -709,6 +713,7 @@ export class Components extends Relationships {
     if (!reflectsAdd()) {
       return;
     }
+    this._routeArrived(meta.eid, relationship);
     this.world._notifyComponentAdded(meta.eid, this);
   }
 
@@ -761,6 +766,8 @@ export class Components extends Relationships {
     this.componentBitmask.deleteBit(meta.bitPtr);
     this._components.delete(meta.eid);
     this._notifySlotRemoved(meta, relationship);
+    // Same `onRemove` watch routing as `_detachSlot`, after the delete above.
+    this._routeRemoved(meta.eid, relationship);
     meta._detachCarrier(this);
     const targets = relationship._takeTargets();
     for (const target of targets) {
@@ -788,17 +795,15 @@ export class Components extends Relationships {
     meta._attachCarrier(this);
   }
 
-  /** Assign relationship data while ignoring all target-storage spellings. */
+  /** Assign relationship data; target storage is symbol-keyed and never among `props`' entries. */
   private _assignRelationshipProps(
     relationship: Relationship,
     props: Partial<ComponentInstance>
   ): boolean {
     let assigned = false;
     for (const [key, value] of Object.entries(props)) {
-      if (key !== "target" && key !== "targets" && key !== "_targets") {
-        (relationship as unknown as Record<string, unknown>)[key] = value;
-        assigned = true;
-      }
+      (relationship as unknown as Record<string, unknown>)[key] = value;
+      assigned = true;
     }
     return assigned;
   }
@@ -867,6 +872,7 @@ export class Components extends Relationships {
       meta._onAdd?.(this, instance);
     }
     if (!existing) {
+      this._routeArrived(meta.eid, instance);
       this.world._notifyComponentAdded(meta.eid, this);
     }
   }

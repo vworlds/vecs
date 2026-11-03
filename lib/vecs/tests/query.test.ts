@@ -113,10 +113,12 @@ describe("Query — typing", () => {
     assertType<IsEqual<typeof typedRepeatedQuery, Query<[typeof Position, typeof Velocity]>>>();
 
     if (false) {
-      typedQuery.update({ watch: Position, onEnter: true, inject: [Velocity] }, (_e, p, [v]) => {
-        assertType<IsEqual<typeof p, Position>>();
-        assertType<IsEqual<typeof v, Velocity>>();
-      });
+      typedQuery
+        .with(Position)
+        .update({ watch: Position, onEnter: true, inject: [Velocity] }, (_e, p, [v]) => {
+          assertType<IsEqual<typeof p, Position>>();
+          assertType<IsEqual<typeof v, Velocity>>();
+        });
     }
 
     const typedGrouped = typedRequired.groupBy([Position], (_e, [p]) => {
@@ -273,7 +275,7 @@ describe("Query — update predicate", () => {
     tick();
 
     const update = vi.fn();
-    const q = w.query("updated").update(Position, update).build();
+    const q = w.query("updated").with(Position).update({ watch: Position }, update).build();
 
     expect(q.belongs(e)).toBe(true);
     expect(q.has(e)).toBe(true);
@@ -291,7 +293,11 @@ describe("Query — update predicate", () => {
     tick();
 
     const update = vi.fn();
-    const q = w.query("updated").update({ watch: Position, onEnter: true }, update).build();
+    const q = w
+      .query("updated")
+      .with(Position)
+      .update({ watch: Position, onEnter: true }, update)
+      .build();
 
     expect(q.belongs(e)).toBe(true);
     expect(q.has(e)).toBe(true);
@@ -309,8 +315,10 @@ describe("Query — update predicate", () => {
     const velocityUpdate = vi.fn();
     const q = w
       .query("updated")
-      .update(Position, positionUpdate)
-      .update(Velocity, velocityUpdate)
+      .with(Position)
+      .update({ watch: Position }, positionUpdate)
+      .with(Velocity)
+      .update({ watch: Velocity }, velocityUpdate)
       .build();
 
     expect(q.has(e)).toBe(true);
@@ -330,7 +338,11 @@ describe("Query — update predicate", () => {
   it("update() narrows an existing predicate to require the watched component", () => {
     const { w, tick } = setup();
     const update = vi.fn();
-    const q = w.query("updated").with(Position).update(Velocity, update).build();
+    const q = w
+      .query("updated")
+      .with(Position, Velocity)
+      .update({ watch: Velocity }, update)
+      .build();
 
     const positionOnly = w.entity().add(Position);
     tick();
@@ -349,9 +361,12 @@ describe("Query — update predicate", () => {
 
   it("throws when update() is registered twice for the same component", () => {
     const { w } = setup();
-    const q = w.query("updated").update(Position, () => {});
+    const q = w
+      .query("updated")
+      .with(Position)
+      .update({ watch: Position }, () => {});
 
-    expect(() => q.update(Position, () => {})).toThrow(
+    expect(() => q.with(Position).update({ watch: Position }, () => {})).toThrow(
       "query 'updated' already has an update callback for component Position"
     );
   });
@@ -390,7 +405,7 @@ describe("Query — changed flag", () => {
     const q = w
       .query("changed")
       .with(Position)
-      .update(Position, () => {})
+      .update({ watch: Position }, () => {})
       .build();
     const e = w.entity();
     e.add(Position);
@@ -485,10 +500,14 @@ describe("Query — update routing to watchers", () => {
     const positions: [Entity, unknown][] = [];
     const velocities: [Entity, unknown][] = [];
     const others = vi.fn();
-    w.system("positions").update(Position, (e, c) => positions.push([e, c]));
-    w.system("velocities").update(Velocity, (e, c) => velocities.push([e, c]));
-    w.system("sprites").update(Sprite, others);
-    w.system("containers").update(Container, others);
+    w.system("positions")
+      .with(Position)
+      .update({ watch: Position }, (e, c) => positions.push([e, c]));
+    w.system("velocities")
+      .with(Velocity)
+      .update({ watch: Velocity }, (e, c) => velocities.push([e, c]));
+    w.system("sprites").with(Sprite).update({ watch: Sprite }, others);
+    w.system("containers").with(Container).update({ watch: Container }, others);
     const e = w.entity().add(Position).add(Velocity).add(Sprite).add(Container);
     tick();
 
@@ -512,9 +531,13 @@ describe("Query — update routing to watchers", () => {
     const { w, tick } = setup();
     const destroyed = vi.fn();
     const later = vi.fn();
-    const system = w.system("destroyed").update(Position, destroyed);
-    w.system("sprites").update(Sprite, () => {});
-    w.system("containers").update(Container, () => {});
+    const system = w.system("destroyed").with(Position).update({ watch: Position }, destroyed);
+    w.system("sprites")
+      .with(Sprite)
+      .update({ watch: Sprite }, () => {});
+    w.system("containers")
+      .with(Container)
+      .update({ watch: Container }, () => {});
     const e = w.entity().add(Position).add(Sprite).add(Container);
     tick();
 
@@ -523,7 +546,7 @@ describe("Query — update routing to watchers", () => {
     tick();
     expect(destroyed).not.toHaveBeenCalled();
 
-    w.system("later").update(Position, later);
+    w.system("later").with(Position).update({ watch: Position }, later);
     tick();
     e.set(Position, { x: 2 });
     tick();
@@ -536,9 +559,15 @@ describe("Query — update routing to watchers", () => {
     const { w, tick } = setup();
     w.component(FriendOf).add(Exclusive);
     const retargets: Entity[] = [];
-    w.system("friends").update(FriendOf, (e) => retargets.push(e.target(FriendOf)!));
-    w.system("sprites").update(Sprite, () => {});
-    w.system("containers").update(Container, () => {});
+    w.system("friends")
+      .with(FriendOf)
+      .update({ watch: FriendOf }, (e) => retargets.push(e.target(FriendOf)!));
+    w.system("sprites")
+      .with(Sprite)
+      .update({ watch: Sprite }, () => {});
+    w.system("containers")
+      .with(Container)
+      .update({ watch: Container }, () => {});
     const first = w.entity();
     const second = w.entity();
     const e = w.entity().add(Sprite).add(Container).add(FriendOf, first);
@@ -556,17 +585,20 @@ describe("Query — update routing to watchers", () => {
     // The entity belongs to more watching queries than watch Position, and the
     // query it joins mid-walk was built first.
     w.query("sprites")
-      .update(Sprite, () => {})
+      .with(Sprite)
+      .update({ watch: Sprite }, () => {})
       .build();
     w.query("containers")
-      .update(Container, () => {})
+      .with(Container)
+      .update({ watch: Container }, () => {})
       .build();
     w.query("joined")
-      .with(Velocity)
-      .update(Position, () => log.push("joined"))
+      .with(Velocity, Position)
+      .update({ watch: Position }, () => log.push("joined"))
       .build();
     w.query("first")
-      .update(Position, (e) => {
+      .with(Position)
+      .update({ watch: Position }, (e) => {
         log.push("first");
         e.add(Velocity);
       })
