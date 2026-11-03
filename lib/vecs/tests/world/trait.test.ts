@@ -20,6 +20,7 @@ import {
   Query,
   RelationshipsModule,
   Remove,
+  Requires,
   Singleton,
   SingletonModule,
   SnapshotModule,
@@ -76,7 +77,7 @@ describe("Trait", () => {
     expect(reference.parent).toBeUndefined();
   });
 
-  it("marks exactly the ten built-in policy definitions in a fresh world", () => {
+  it("marks exactly the eleven built-in policy definitions in a fresh world", () => {
     const world = new World();
     const expected = new Set<Entity>(
       [
@@ -84,6 +85,7 @@ describe("Trait", () => {
         Traversable,
         OwnedTarget,
         With,
+        Requires,
         OneOf,
         OnDelete,
         OnDeleteTarget,
