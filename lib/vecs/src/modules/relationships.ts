@@ -70,8 +70,13 @@ export {
  * `OwnedTarget` and `Traversable` are irrevocable once attached: both
  * `entity.remove(Trait)` and `entity.attach(newInstance)` throw, and the world
  * must be discarded after the throw. Teardown bypasses these guards —
- * `Entity._destroy` does not fire `_onPolicyRemove` — so `clearAllEntities`
- * can still tear down worlds with these traits configured.
+ * `Entity._destroy` fires only the application `remove` handlers, not the
+ * trait ones — so `clearAllEntities` can still tear down worlds with these
+ * traits configured.
+ *
+ * The trait handlers live in internal per-event slots that run before the
+ * application's handlers of the same event. `World.dispose` clears their
+ * `remove` / `targetRemove` slots before tearing down infrastructure.
  *
  * Depth is computed by walking `entity.target(relEid)` to the root. When an
  * entity's depth changes, every descendant is recursively recomputed.
@@ -88,7 +93,7 @@ export class RelationshipsModule extends Module {
     const withTrait = world.component(With).add(Trait);
     const oneOfTrait = world.component(OneOf).add(Trait);
 
-    exclusive.meta.on("policyAdd", (relationship): void => {
+    exclusive.meta.on("add", { trait: true }, (relationship): void => {
       if (!relationship.meta.isRelationship) {
         throw new Error("Exclusive can only be added to a Relationship component");
       }
@@ -97,7 +102,7 @@ export class RelationshipsModule extends Module {
       }
       relationship.meta.relationshipExclusive = true;
     });
-    exclusive.meta.on("policyRemove", (relationship): void => {
+    exclusive.meta.on("remove", { trait: true }, (relationship): void => {
       if (relationship.has(OwnedTarget) || relationship.has(Traversable)) {
         throw new Error("Exclusive cannot be removed while a dependent relationship trait exists");
       }
@@ -107,7 +112,7 @@ export class RelationshipsModule extends Module {
       relationship.meta.relationshipExclusive = false;
     });
 
-    ownedTarget.meta.on("policyAdd", (rel): void => {
+    ownedTarget.meta.on("add", { trait: true }, (rel): void => {
       if (!rel.meta.isRelationship) {
         throw new Error("OwnedTarget can only be added to a Relationship component");
       }
@@ -117,16 +122,18 @@ export class RelationshipsModule extends Module {
       if (!rel.has(Exclusive)) {
         throw new Error("OwnedTarget requires Exclusive");
       }
-      rel.meta.on("targetPolicyAdd", (source, _relationship, target) =>
+      rel.meta.on("targetAdd", { trait: true }, (source, _relationship, target) =>
         target.add(ChildOf, source)
       );
-      rel.meta.on("targetPolicyRemove", (_source, _relationship, target) => target.destroy());
+      rel.meta.on("targetRemove", { trait: true }, (_source, _relationship, target) =>
+        target.destroy()
+      );
     });
-    ownedTarget.meta.on("policyRemove", (): void => {
+    ownedTarget.meta.on("remove", { trait: true }, (): void => {
       throw new Error("OwnedTarget cannot be removed once added");
     });
 
-    traversableTrait.meta.on("policyAdd", (rel, component): void => {
+    traversableTrait.meta.on("add", { trait: true }, (rel, component): void => {
       if (!rel.meta.isRelationship) {
         throw new Error("Traversable can only be added to a Relationship component");
       }
@@ -135,10 +142,10 @@ export class RelationshipsModule extends Module {
       }
       const traversable = component as Traversable;
       const relEid = rel.eid;
-      rel.meta.on("targetPolicyAdd", (entity) => {
+      rel.meta.on("targetAdd", { trait: true }, (entity) => {
         this._cascadeUpdate(entity, relEid, traversable);
       });
-      rel.meta.on("targetPolicyRemove", (entity) => {
+      rel.meta.on("targetRemove", { trait: true }, (entity) => {
         traversable.depths.delete(entity);
         for (const child of entity._childrenByEid(relEid) ?? []) {
           this._cascadeUpdate(child, relEid, traversable);
@@ -151,11 +158,11 @@ export class RelationshipsModule extends Module {
         }
       });
     });
-    traversableTrait.meta.on("policyRemove", (): void => {
+    traversableTrait.meta.on("remove", { trait: true }, (): void => {
       throw new Error("Traversable cannot be removed once added");
     });
 
-    withTrait.meta.on("targetPolicyAdd", (xEntity, _withRelationship, yEntity): void => {
+    withTrait.meta.on("targetAdd", { trait: true }, (xEntity, _withRelationship, yEntity): void => {
       const xMeta = xEntity.meta;
       const yMeta = yEntity.meta;
       if (xMeta.isRelationship !== yMeta.isRelationship) {
@@ -167,21 +174,23 @@ export class RelationshipsModule extends Module {
         throw new Error("With cannot be added while the target component is in use");
       }
       if (xMeta.isRelationship) {
-        xMeta.on("targetPolicyAdd", (source, _rel, target) => source.add(yEntity, target));
+        xMeta.on("targetAdd", { trait: true }, (source, _rel, target) =>
+          source.add(yEntity, target)
+        );
       } else {
-        xMeta.on("policyAdd", (entity) => entity.add(yEntity));
+        xMeta.on("add", { trait: true }, (entity) => entity.add(yEntity));
       }
     });
     this._forbidPairTraitRemoval(withTrait, "With");
 
-    oneOfTrait.meta.on("targetPolicyAdd", (rel, _oneOf, parent): void => {
+    oneOfTrait.meta.on("targetAdd", { trait: true }, (rel, _oneOf, parent): void => {
       if (!rel.meta.isRelationship) {
         throw new Error("OneOf can only be added to a Relationship component");
       }
       if (rel.meta.usageCount > 0) {
         throw new Error("OneOf cannot be added while the relationship is in use");
       }
-      rel.meta.on("targetPolicyAdd", (_source, _relationship, target) => {
+      rel.meta.on("targetAdd", { trait: true }, (_source, _relationship, target) => {
         if (target.parent !== parent) {
           throw new Error(`OneOf: target ${target.eid} is not a child of entity ${parent.eid}`);
         }
@@ -217,22 +226,26 @@ export class RelationshipsModule extends Module {
     onDeleteTrait.add(Exclusive).add(OneOf, onDeleteTrait);
     onDeleteTargetTrait.add(Exclusive).add(OneOf, onDeleteTrait);
 
-    onDeleteTrait.meta.on("targetPolicyAdd", (component, _onDelete, policy): void => {
+    onDeleteTrait.meta.on("targetAdd", { trait: true }, (component, _onDelete, policy): void => {
       component.meta._onDelete = policies.get(policy)!;
     });
-    onDeleteTrait.meta.on("targetPolicyRemove", (component): void => {
+    onDeleteTrait.meta.on("targetRemove", { trait: true }, (component): void => {
       component.meta._onDelete = CleanupPolicy.Throw;
     });
-    onDeleteTargetTrait.meta.on("targetPolicyAdd", (rel, _onDeleteTarget, policy): void => {
-      if (!rel.meta.isRelationship) {
-        throw new Error("OnDeleteTarget can only be added to a Relationship component");
+    onDeleteTargetTrait.meta.on(
+      "targetAdd",
+      { trait: true },
+      (rel, _onDeleteTarget, policy): void => {
+        if (!rel.meta.isRelationship) {
+          throw new Error("OnDeleteTarget can only be added to a Relationship component");
+        }
+        if (policy === throwPolicy) {
+          throw new Error("OnDeleteTarget accepts Remove or Delete, not Throw");
+        }
+        rel.meta._onDeleteTarget = policies.get(policy)!;
       }
-      if (policy === throwPolicy) {
-        throw new Error("OnDeleteTarget accepts Remove or Delete, not Throw");
-      }
-      rel.meta._onDeleteTarget = policies.get(policy)!;
-    });
-    onDeleteTargetTrait.meta.on("targetPolicyRemove", (rel): void => {
+    );
+    onDeleteTargetTrait.meta.on("targetRemove", { trait: true }, (rel): void => {
       rel.meta._onDeleteTarget = CleanupPolicy.Remove;
     });
   }
@@ -289,7 +302,7 @@ export class RelationshipsModule extends Module {
    * Make a pair-form trait irrevocable: removing an edge of `trait` throws
    * once attached.
    *
-   * Teardown fires `targetPolicyRemove` from two paths: `_detachRelationship`
+   * Teardown fires `targetRemove` from two paths: `_detachRelationship`
    * on the trait carrier (after `carrier._destroyed = true`) and the cleanup
    * cascade when the pair target is destroyed (buffered via `_cleanupIncoming`
    * → `_removeTarget`, where the carrier is still alive but the target is
@@ -297,7 +310,7 @@ export class RelationshipsModule extends Module {
    * teardown contract in the class JSDoc.
    */
   private _forbidPairTraitRemoval(trait: Entity, name: string): void {
-    trait.meta.on("targetPolicyRemove", (carrier, _trait, target): void => {
+    trait.meta.on("targetRemove", { trait: true }, (carrier, _trait, target): void => {
       if (carrier.destroyed || target.destroyed) {
         return;
       }

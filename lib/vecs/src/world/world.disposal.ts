@@ -142,16 +142,17 @@ export class Disposal extends Transfers {
   }
 
   /**
-   * Strip every entity's key-side trait policy handlers and set its cleanup policies to `Remove`, so
-   * the infrastructure pass neither cascades nor throws. Covers every registered entity, not just class-registered components: named entities can be
-   * component keys too. Public hooks stay. The world is being
-   * destroyed, so the metas are not restored.
+   * Clear every entity's key-side relationship-trait `remove` / `targetRemove` handlers and set
+   * its cleanup policies to `Remove`, so the infrastructure pass neither cascades nor throws.
+   * Covers every registered entity, not just class-registered components: named entities can be
+   * component keys too. Application hooks stay. The world is being destroyed, so the metas are
+   * not restored.
    */
   private _neutraliseCleanup(this: World): void {
     for (const entity of this._entities.values()) {
       const meta = entity.meta;
-      meta._onPolicyRemove = undefined;
-      meta._onTargetPolicyRemove = undefined;
+      meta._traitRemove = undefined;
+      meta._traitTargetRemove = undefined;
       meta._onDelete = CleanupPolicy.Remove;
       meta._onDeleteTarget = CleanupPolicy.Remove;
     }

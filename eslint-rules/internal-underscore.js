@@ -1,6 +1,7 @@
 /**
  * Enforces that private/@internal class members are prefixed with `_`, and
  * that `_`-prefixed class members are either private, protected, or @internal.
+ * Overload signatures are exempt: the implementation they belong to is checked.
  */
 const rule = {
   meta: {
@@ -31,6 +32,11 @@ const rule = {
       if (node.computed || !nameNode || nameNode.type !== "Identifier") return;
       // The constructor is exempt — it is never renamed.
       if (nameNode.name === "constructor") return;
+      // An overload signature takes its name from the implementation, which is
+      // checked on its own, so an @internal overload of a public method passes.
+      if (node.type === "MethodDefinition" && node.value.type === "TSEmptyBodyFunctionExpression") {
+        return;
+      }
 
       const name = nameNode.name;
       const isPrivate = node.accessibility === "private";
