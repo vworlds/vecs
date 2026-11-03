@@ -174,6 +174,37 @@ describe("ClientWorld.connectDgram", () => {
     world.dispose();
   });
 
+  it("does not miss an abort raised synchronously while connect starts", async () => {
+    const controller = new AbortController();
+    const reason = new Error("cancelled during transport startup");
+    const connect = vi.spyOn(ConnectGatedSocket.prototype, "connect").mockImplementationOnce(() => {
+      controller.abort(reason);
+      return new Promise<void>(() => undefined);
+    });
+    const world = new ClientWorld(worldOptions);
+    let outcome: unknown = "pending";
+    const pending = world.connectDgram({ ...connectOptions, signal: controller.signal }).then(
+      () => {
+        outcome = "connected";
+      },
+      (error: unknown) => {
+        outcome = error;
+      }
+    );
+    try {
+      await vi.waitFor(() => expect(outcome).toBe(reason), { timeout: 1000 });
+      await pending;
+      expect(sockets[0]!.closeCalls).toBe(1);
+      expect(world.connected).toBe(false);
+      expect(world.disposed).toBe(false);
+      await world.connectDgram(connectOptions);
+      expect(world.connected).toBe(true);
+    } finally {
+      connect.mockRestore();
+      world.dispose();
+    }
+  });
+
   it("rejects without creating a socket while connected or connecting", async () => {
     const world = new ClientWorld(worldOptions);
     const pending = world.connectDgram(connectOptions);
