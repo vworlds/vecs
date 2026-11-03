@@ -215,8 +215,8 @@ not remove `Position`, and a `Position` the entity already holds is left as it i
 inclusion, not requirement (see the [settled decision](../../../architecture/DECISIONS.md#with-adds-never-removes)).
 Reach for it when the bringer is never removed from a live entity (it is the entity's identity, or
 the entity dies with it), or when an orphaned companion is harmless. Otherwise own the companion
-explicitly: remove it in the bringer's `remove` hook, or use the owning trait once it ships
-([#463](https://github.com/vworlds/vecs/issues/463)). A networked
+explicitly: declare `Requires`, or hand-write a `remove` hook only for a pair `Requires` cannot
+express. A networked
 client has one more rule, because the server decides what a client replicates but the client decides
 what it derives. **`ClientWorld.apply` skips a network removal of a component that another
 component present on the entity brings through `With` or `Requires`**, so a server can swap the
@@ -1004,7 +1004,8 @@ system after whatever produces the entity/companion.
 - **`With` never removes its companion.** Removing a bringer that can leave a live entity orphans
   the companion, and a `.without(Bringer)` query still matches the entity because the companion
   stays. Use `With` only when the bringer is never removed or an orphan is harmless; otherwise
-  remove the companion in the bringer's `remove` hook (see §3 and the
+  own the companion with `Requires`, or a hand-written `remove` hook for what `Requires` cannot
+  express (see §3 and the
   [settled decision](../../../architecture/DECISIONS.md#with-adds-never-removes)).
 - **A callback that always uses a component should inject it, not `get` it.** `entity.get(C)` is for
   a component that is conditionally needed and rarely required (see §4).
