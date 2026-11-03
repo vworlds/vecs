@@ -12,8 +12,10 @@ import { Term } from "./term.js";
  * `notifyComponent*` helpers in `build.ts`.
  *
  * - **Membership** events (`componentAdded` / `componentRemoved`) propagate
- *   via the standard `_add`/`_delete` path and fan out to all consumers as
- *   enter/exit events.
+ *   through staged insertion / entry propagation and `_delete`, fanning out
+ *   to all consumers as enter/exit events. Insertion precedes add hooks;
+ *   propagation follows them, so direct leaf queries can see the new member
+ *   inside a hook before its enter callback fires.
  * - **Data-only** changes (`componentChanged`) emit only a refresh hint via
  *   `_emitRefresh`, which wakes predicate terms watching this component
  *   without triggering a membership re-evaluation in terms that do not care
@@ -27,12 +29,23 @@ export class ComponentTerm extends Term {
     onDestroy: (term: Term) => void
   ) {
     super(world, key, "component", true, onDestroy);
-    this._initializeFromWorld();
+    // Registration creates the leaf before the first attachment. All later
+    // membership changes drive it, so no world scan is necessary.
   }
 
-  /** Called by `build.ts` when the component is added to `entity`. */
+  /** @internal Whether removal must preserve an injection register for term consumers. */
+  public get _observed(): boolean {
+    return this._consumers.size > 0;
+  }
+
+  /** @internal Record storage membership before add hooks, without notifying consumers. */
+  public _stageAdded(entity: Entity): void {
+    this._entities.add(entity);
+  }
+
+  /** Called by `build.ts` after add hooks to propagate the already-stored membership. */
   public componentAdded(entity: Entity): void {
-    this._add(entity);
+    this._propagateAdded(entity);
   }
 
   /**

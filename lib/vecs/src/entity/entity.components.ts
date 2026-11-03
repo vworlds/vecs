@@ -118,7 +118,6 @@ export class Components extends Relationships {
       // `update` reference: it fires only when the entity stays a member.
       this._routeRemoved(meta.eid, instance);
     }
-    meta._detachCarrier(this);
     // Destroy deliberately skips trait remove handlers (e.g. SilenceSource); see RelationshipsModule.
     if (!keepStorage) {
       meta._traitRemove?.(this, instance);
@@ -133,8 +132,9 @@ export class Components extends Relationships {
     instance: ComponentInstance
   ): void {
     const world = this.world;
-    const componentTerm = world._componentTerms.get(meta.eid);
-    if (componentTerm === undefined && world._worldTerm === undefined) {
+    const componentTerm = meta._term;
+    if (!componentTerm._observed && world._worldTerm === undefined) {
+      world._notifyComponentRemoved(meta.eid, this, componentTerm);
       return;
     }
     const previousEntity = world._removedEntity;
@@ -143,7 +143,7 @@ export class Components extends Relationships {
     world._removedEntity = this;
     world._removedCeid = meta.eid;
     world._removedInstance = instance;
-    world._notifyComponentRemoved(meta.eid, this, componentTerm ?? null);
+    world._notifyComponentRemoved(meta.eid, this, componentTerm);
     world._removedEntity = previousEntity;
     world._removedCeid = previousCeid;
     world._removedInstance = previousInstance;
@@ -772,7 +772,6 @@ export class Components extends Relationships {
     this._notifySlotRemoved(meta, relationship);
     // Same `onRemove` watch routing as `_detachSlot`, after the delete above.
     this._routeRemoved(meta.eid, relationship);
-    meta._detachCarrier(this);
     const targets = relationship._takeTargets();
     for (const target of targets) {
       this._removeIncoming(target, meta.eid);
@@ -796,7 +795,7 @@ export class Components extends Relationships {
     }
     this._components.set(meta.eid, relationship);
     this.componentBitmask.addBit(meta.bitPtr);
-    meta._attachCarrier(this);
+    meta._term._stageAdded(this);
   }
 
   /** Assign relationship data; target storage is symbol-keyed and never among `props`' entries. */
@@ -869,7 +868,7 @@ export class Components extends Relationships {
     this._components.set(meta.eid, instance);
     this.componentBitmask.addBit(meta.bitPtr);
     if (!existing) {
-      meta._attachCarrier(this);
+      meta._term._stageAdded(this);
     }
     if (isAdd && !existing) {
       meta._traitAdd?.(this, instance);

@@ -489,6 +489,13 @@ applies. On top of it:
 
 ### `ComponentMeta` (`lib/vecs/src/component_meta.ts`)
 
+Carrier membership is stored once, in the component-presence query term, even if you
+never query the component. `usageCount` includes the newly attached entity inside
+add and target-add hooks. A query rooted directly at that component term also
+includes it when iterated inside those hooks, before its `enter` callback fires.
+Composite and sorted query membership still follows event propagation after the
+hooks. On removal, the count drops before exit callbacks run.
+
 | Field                   | Description                                                 |
 | ----------------------- | ----------------------------------------------------------- |
 | `Class`                 | The component class constructor.                            |
