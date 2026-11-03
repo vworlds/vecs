@@ -182,7 +182,7 @@ export interface HookEventMap {
 export type HookEvent = keyof HookEventMap;
 
 /**
- * Events a relationship trait registers with `on(event, handler, { trait: true })`.
+ * Events a relationship trait registers with `on(event, { trait: true }, handler)`.
  *
  * @internal
  */
@@ -417,7 +417,7 @@ export class ComponentMeta {
   /**
    * @internal Relationship-trait handlers fired before {@link _onAdd}, kept in
    * their own slot so dispatch calls the application slot directly. Registered
-   * with `on(event, handler, { trait: true })`.
+   * with `on(event, { trait: true }, handler)`.
    */
   public _traitAdd: HookSlot<HookHandler> = undefined;
   /** @internal Relationship-trait handlers fired before {@link _onRemove}; see {@link _traitAdd}. */
@@ -451,7 +451,8 @@ export class ComponentMeta {
    *
    * Multiple handlers may be registered for the same event; they fire in
    * registration order, after the handlers of the built-in relationship traits
-   * (`Exclusive`, `Traversable`, `OwnedTarget`, `With`, `OneOf`). Removing a
+   * (`Exclusive`, `Traversable`, `OwnedTarget`, `With`, `Requires`, `OneOf`,
+   * `OnDelete`, `OnDeleteTarget`). Removing a
    * handler is via {@link off} with the same reference. When a trait's
    * `targetAdd` or `targetRemove` handler changes the edge it was called for
    * (removes or replaces it, or removes the relationship), the application
