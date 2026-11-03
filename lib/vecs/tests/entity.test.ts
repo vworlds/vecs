@@ -241,22 +241,6 @@ describe("Entity — components", () => {
     expect(calls).toEqual(["meta trait", "component trait", "entity trait", "app"]);
   });
 
-  it("rejects a malformed trait registration", () => {
-    const w = new World();
-    const meta = w.component(Position).meta;
-    const on = meta.on.bind(meta) as (...args: unknown[]) => unknown;
-
-    expect(() => on("add", { trait: true })).toThrow(
-      'on("add", { trait: true }, handler) requires a handler function'
-    );
-    expect(() => on("add", () => {}, { trait: true })).toThrow(
-      'on("add", handler) takes no third argument; a trait handler is on("add", { trait: true }, handler)'
-    );
-    expect(() => on("add", { trait: false }, () => {})).toThrow(
-      'on("add", ...): the second argument must be a handler or { trait: true }'
-    );
-  });
-
   it("attach of the stored instance fires only set", () => {
     const w = new World();
     const calls: string[] = [];

@@ -506,11 +506,8 @@ export class ComponentMeta {
    * @internal The implementation behind every `on` overload, on this meta and
    * on the `Entity` / `Component` forwarders: a function in second position
    * registers an application handler, a `{ trait: true }` object followed by a
-   * function a relationship-trait handler.
-   *
-   * @throws When the options object is not `{ trait: true }` or lacks a handler
-   *   function after it, or when an application handler is followed by a third
-   *   argument.
+   * function a relationship-trait handler. The overloads keep other shapes
+   * out, so the arguments are not checked at runtime.
    */
   public _on<E extends HookEvent>(
     event: E,
@@ -518,21 +515,8 @@ export class ComponentMeta {
     maybeHandler: HookEventMap[E] | undefined
   ): this {
     if (typeof handlerOrOptions !== "function") {
-      if (handlerOrOptions?.trait !== true) {
-        throw new Error(
-          `on("${event}", ...): the second argument must be a handler or { trait: true }`
-        );
-      }
-      if (typeof maybeHandler !== "function") {
-        throw new Error(`on("${event}", { trait: true }, handler) requires a handler function`);
-      }
-      this._installTraitHook(event as TraitEvent, maybeHandler);
+      this._installTraitHook(event as TraitEvent, maybeHandler as HookEventMap[TraitEvent]);
       return this;
-    }
-    if (maybeHandler !== undefined) {
-      throw new Error(
-        `on("${event}", handler) takes no third argument; a trait handler is on("${event}", { trait: true }, handler)`
-      );
     }
     const handler = handlerOrOptions;
     switch (event) {
