@@ -166,8 +166,9 @@ component:
 
 Four routing rules worth memorizing:
 
-- **`update(C)` is change-only unless you opt into entry.** When an entity enters a system,
-  `{ onEnter: true }` update watchers push an `update` event for already-present watched components.
+- **`update({ watch: C })` is change-only unless you opt into entry.** When an entity enters a
+  system, `{ onEnter: true }` update watchers push an `update` event for already-present watched
+  components, and again when `C` is later added to a member.
   Use that for initialization; leave it off when a separate `enter` owns setup.
 - **`enter` and `exit` injection read snapshots.** Direct components, singular/plural target
   projections, and `Iter.src` are captured when the event is routed, so inbox replay retains those
@@ -188,7 +189,7 @@ Putting the rules together:
 - _Teardown before create:_ an `exit`-driven teardown system in `PRE_STORE` runs before an
   `enter`-driven creation system in `ON_STORE`; the teardown's `remove` is flushed between them,
   so a type swap tears down the old companion and builds the new one in the same tick.
-- _React, don't scan:_ `update(C)` touches nothing on idle entities, where `each` would visit all
+- _React, don't scan:_ `update({ watch: C })` touches nothing on idle entities, where `each` would visit all
   of them every tick.
 - _Same-tick reconciliation:_ a system that writes a component early in the tick is guaranteed
   that later phases see the new value.

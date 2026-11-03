@@ -57,7 +57,7 @@ These were confirmed by reading the code; implementers can rely on them.
 | A network relationship payload is `u32 target count`, that many target EIDs, then the relationship's ordinary encoded fields; clients ghost and reconcile every target                                                | `lib/vecs-protocol/src/relationship_snapshot.ts`, `lib/vecs-client/src/client_world.ts`                          |
 | vecs-physics pose: `Position {x,y}` (meters), `Rotation {angle}` (radians)                                                                                                                                            | `lib/vecs-physics/src/components/body.ts`                                                                        |
 | System/query API: `.with().enter().update().exit().each().run().phase()`                                                                                                                                              | `lib/vecs/src/system.ts`, `lib/vecs/src/query/query.ts`                                                          |
-| `update({ watch })` auto-adds the watched component to the query predicate                                                                                                                                            | `lib/vecs/src/query/query.ts:428`                                                                                |
+| `update({ watch })` only watches; `with(...)` alone builds the query predicate, and a query with an update but no `with` terms throws at build                                                                        | `lib/vecs/src/query/query.ts`                                                                                    |
 | `connectDgram` performs an HTTP handshake against `worldPath(apiBasePath, worldName)` before the channel opens                                                                                                        | `lib/vecs-client/src/client_world.ts:105`                                                                        |
 | The dgram transport is WebRTC datachannel with HTTP signaling mounted on the app's Express instance                                                                                                                   | `node_modules/@vworlds/dgram-server/.../socket-listener.js`                                                      |
 | Phaser: `scene.load.spritesheet(key, url, { frameWidth, frameHeight, margin, spacing })`; frames are row-major numeric                                                                                                | Phaser `SpriteSheetFile`                                                                                         |
@@ -598,7 +598,7 @@ No interpolators are registered by default. `phaserInterpolators()` (from
 `vecs-phaser-client`) opts in: it installs `interpolatePosition` (linear `{x,y}`
 lerp) on the `Position` wire type and `rotationInterpolator` (shortest-arc
 angular lerp in radians) on the `Rotation` wire type, both looked up from
-`phaserNetworkComponents`. Pass it at `ClientWorld.connectDgram` time via
+`phaserNetworkComponents`. Pass it at `ClientWorld` construction via
 `interpolators: phaserInterpolators()`. Pass
 `phaserInterpolators({ interpolateRotation: false })` to snap rotation while
 still interpolating `Position`. All other components snap to latest.
@@ -752,7 +752,7 @@ GameObject in the same frame, interpolated frames included.
   and an entity without `DrawBy`, because nothing was derived into its `Rotation` for the removal to
   undo.
 - **Without `DrawBy`** the tag does nothing, and removing it changes nothing. When `DrawBy` is
-  removed — for example because its parent was destroyed, under `CleanupPolicy.Remove` — the child
+  removed — for example because its parent was destroyed, under `(OnDeleteTarget, Remove)` — the child
   keeps the pose it was last resolved to, and removing the tag later leaves that pose alone.
 - **A tagged child's `Rotation` is derived**, so writing or replicating `Rotation` on it is
   overwritten every frame.
@@ -797,7 +797,7 @@ scans `entity.children(DrawIn)` and adopts it. A `DrawBy` child similarly waits 
 
 ### Container lifetime
 
-Both display relationships use `CleanupPolicy.Remove`: destroying a display parent detaches
+Both display relationships use `(OnDeleteTarget, Remove)`: destroying a display parent detaches
 children instead of destroying them. If the child also has `ChildOf` to that parent, `ChildOf`'s
 `Delete` policy owns the destruction cascade.
 
@@ -951,14 +951,12 @@ const catalog = await loadAssets(scene, {
   onProgress: (value) => updateLoadingBar(value),
 });
 
-const world = await ClientWorld.connectDgram({
-  host: "localhost",
-  port: 8080,
-  worldName: "main",
+const world = new ClientWorld({
   networkComponents: phaserNetworkComponents,
   interpolators: phaserInterpolators(),
 });
 world.module(PhaserRenderModule, { scene, pixelsPerMeter: 100, catalog });
+await world.connectDgram({ host: "localhost", port: 8080, worldName: "main" });
 ```
 
 `loadAssets` is awaited **before** `connectDgram`, guaranteeing every texture is resident before
@@ -1004,8 +1002,8 @@ Tiled tileset.
 - A `Phaser.Game` with scenes `[BootScene, DemoScene]`.
 - `BootScene`: draws a progress bar, `await loadAssets(scene, { host, port, worldName,
 onProgress })`, then `scene.start("DemoScene", { catalog })`; retries on failure.
-- `DemoScene`: `init` captures the catalog; `create` connects `ClientWorld.connectDgram` and
-  registers `PhaserRenderModule({ scene, pixelsPerMeter: 100, catalog })`; `update` drives
+- `DemoScene`: `init` captures the catalog; `create` constructs a `ClientWorld`, registers
+  `PhaserRenderModule({ scene, pixelsPerMeter: 100, catalog })`, then awaits `world.connectDgram`; `update` drives
   `world.setInput` + `world.progress(time, delta)`. Cosmetic grid + instructions drawn with Phaser
   `Graphics`/`Text` (client-only). On disconnect, `clearAllEntities()`; reconnect creates a fresh
   `ClientWorld` and registers the render module again.
@@ -1067,7 +1065,7 @@ rebuild.
 | New adds after a shape's enter aren't routed to `.update`                     | Enter reads all present components; order guarantees they're there                                                      |
 | Vertex-shape origin (Phaser anchors on bounding box, not vertex `(0,0)`)      | Pin vertex `(0,0)` to `Position` & rotation pivot per §7.5; handle asymmetric/negative points                           |
 | `Polygon.setTo` rebuilds geometry                                             | Treat as definition data, not per-frame                                                                                 |
-| Interpolation cadence (smoothness)                                            | Verify `.update(Position)` fires per frame during interp (existing demo behavior)                                       |
+| Interpolation cadence (smoothness)                                            | Verify `.update({ watch: Position })` fires per frame during interp (existing demo behavior)                            |
 | `phaser` version/peering                                                      | `phaser` is a **type-only peer dep** of the client lib; the app provides the runtime; `CoordSpace` avoids `Phaser.Math` |
 | Catalog must exist before the first diff references an id                     | `await loadAssets(...)` before `connectDgram`; the load resolves only on loader `complete`                              |
 | Adding `Image` reorders/extends the protocol                                  | Append-only at type 17; the order snapshot test pins it; the bump is documented in CHANGELOG                            |

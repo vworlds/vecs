@@ -547,6 +547,32 @@ describe("snapshot capture — relationship data", () => {
     expect(carries.data).not.toHaveProperty("_targets");
   });
 
+  it("round-trips a data field named target through set, capture and restore", () => {
+    class Aim extends Relationship {
+      target = "";
+    }
+    const w = makeWorld();
+    const other = makeWorld();
+    w.component(Aim);
+    other.component(Aim);
+    const root = w.entity();
+    const child = w.entity().add(ChildOf, root).add(Aim, root);
+    child.set(Aim, { target: "north" });
+
+    expect(child.get(Aim)!.target).toBe("north");
+    expect(child.target(Aim)).toBe(root);
+
+    const snapshot = w.snapshotSubtree(root);
+    const aim = snapshot.entities[1].relationships.find((r) => r.Class === Aim)!;
+    expect(aim.data).toEqual({ target: "north" });
+    expect(aim.targets).toEqual([root.eid]);
+
+    const result = w.restoreSubtree(other, snapshot);
+    const restoredChild = result.entities.get(child.eid)!;
+    expect(restoredChild.get(Aim)!.target).toBe("north");
+    expect(restoredChild.target(Aim)).toBe(result.roots[0]);
+  });
+
   it("captures every internal target of a multi-target relationship", () => {
     const w = makeWorld();
     const a = w.entity();
@@ -982,7 +1008,7 @@ describe("restoreSubtree", () => {
     const root = w.entity();
     const child = w.entity().add(ChildOf, root).add(PartOf, root);
     const order: string[] = [];
-    other.component(PartOf).on("targetPolicyAdd", (entity, _rel, target) => {
+    other.component(PartOf).on("targetAdd", (entity, _rel, target) => {
       expect(targets(entity, ChildOf)).toHaveLength(1);
       order.push("part");
     });
@@ -1066,7 +1092,7 @@ describe("restoreSubtree", () => {
     const other = makeWorld();
     const root = w.entity().add(Position);
     w.entity().add(ChildOf, root);
-    other.component(ChildOf).on("targetPolicyAdd", () => {
+    other.component(ChildOf).on("targetAdd", () => {
       throw new Error("nope");
     });
 

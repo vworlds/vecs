@@ -1,61 +1,83 @@
 import { BitPtr } from "./util/bitset.js";
-import { DenseSet } from "./util/dense_set.js";
+import type { ComponentTerm } from "./terms/component_term.js";
 import type { EID, Entity, EntityClass } from "./entity/index.js";
 import type { ValidationResult } from "./reflection/defaults.js";
 
+/**
+ * @internal The cleanup policy a component entity's meta stores. Declare it
+ * with the `OnDelete` and `OnDeleteTarget` traits.
+ */
 export enum CleanupPolicy {
   Throw = "throw",
   Remove = "remove",
   Delete = "delete",
 }
 
-/** Base class for relationship components that point at another entity. */
+/**
+ * Slot holding a relationship's targets. A symbol key keeps edge storage out of
+ * `Object.keys`, `Object.entries`, JSON and `structuredClone`, so every reader
+ * that treats the instance as data sees only user fields.
+ */
+const TARGETS = Symbol("targets");
+
+/**
+ * Base class for relationship components that point at another entity.
+ *
+ * Targets are read through `entity.target(Rel)` / `entity.targets(Rel)`; the
+ * instance itself carries only data, so avoid naming a data field `target` or
+ * `targets`.
+ */
 export abstract class Relationship {
-  private _targets: Entity | Entity[] | undefined;
+  /** One target, several, or `null`; assigned in the constructor so every instance has one shape. */
+  private [TARGETS]: Entity | Entity[] | null;
+
+  constructor() {
+    this[TARGETS] = null;
+  }
 
   /** @internal Add an edge without exposing mutable target storage. */
   public _addTarget(target: Entity): void {
-    if (this._targets === undefined) {
-      this._targets = target;
-    } else if (Array.isArray(this._targets)) {
-      this._targets.push(target);
+    if (this[TARGETS] === null) {
+      this[TARGETS] = target;
+    } else if (Array.isArray(this[TARGETS])) {
+      this[TARGETS].push(target);
     } else {
-      this._targets = [this._targets, target];
+      this[TARGETS] = [this[TARGETS], target];
     }
   }
 
   /** @internal Remove an edge and restore the single-target representation when possible. */
   public _removeTarget(target: Entity): boolean {
-    if (this._targets === target) {
-      this._targets = undefined;
+    if (this[TARGETS] === target) {
+      this[TARGETS] = null;
       return true;
     }
-    if (!Array.isArray(this._targets)) {
+    if (!Array.isArray(this[TARGETS])) {
       return false;
     }
-    const index = this._targets.indexOf(target);
+    const index = this[TARGETS].indexOf(target);
     if (index === -1) {
       return false;
     }
-    this._targets.splice(index, 1);
-    if (this._targets.length === 1) {
-      this._targets = this._targets[0];
+    this[TARGETS].splice(index, 1);
+    if (this[TARGETS].length === 1) {
+      this[TARGETS] = this[TARGETS][0];
     }
     return true;
   }
 
   /** @internal Replace the sole target of an exclusive relationship. */
   public _replaceTarget(target: Entity): Entity {
-    const previous = this._targets as Entity;
-    this._targets = target;
+    const previous = this[TARGETS] as Entity;
+    this[TARGETS] = target;
     return previous;
   }
 
   /** @internal Remove and return every target. */
   public _takeTargets(): Entity[] {
-    const targets = this._targets;
-    this._targets = undefined;
-    if (targets === undefined) {
+    const targets = this[TARGETS];
+    this[TARGETS] = null;
+    if (targets === null) {
       return [];
     }
     return Array.isArray(targets) ? targets : [targets];
@@ -63,39 +85,39 @@ export abstract class Relationship {
 
   /** @internal Return the first current target. */
   public _target(): Entity | undefined {
-    return Array.isArray(this._targets) ? this._targets[0] : this._targets;
+    return Array.isArray(this[TARGETS]) ? this[TARGETS][0] : (this[TARGETS] ?? undefined);
   }
 
   /** @internal Return the number of current targets without allocating. */
   public _targetCount(): number {
-    if (this._targets === undefined) {
+    if (this[TARGETS] === null) {
       return 0;
     }
-    return Array.isArray(this._targets) ? this._targets.length : 1;
+    return Array.isArray(this[TARGETS]) ? this[TARGETS].length : 1;
   }
 
   /** @internal Test targets without materializing a public snapshot. */
   public _someTarget(predicate: (target: Entity) => boolean): boolean {
-    if (this._targets === undefined) {
+    if (this[TARGETS] === null) {
       return false;
     }
-    if (!Array.isArray(this._targets)) {
-      return predicate(this._targets);
+    if (!Array.isArray(this[TARGETS])) {
+      return predicate(this[TARGETS]);
     }
-    return this._targets.some(predicate);
+    return this[TARGETS].some(predicate);
   }
 
   /** @internal Test an edge without allocating. */
   public _hasTarget(target: Entity): boolean {
-    return Array.isArray(this._targets) ? this._targets.includes(target) : this._targets === target;
+    return Array.isArray(this[TARGETS]) ? this[TARGETS].includes(target) : this[TARGETS] === target;
   }
 
   /** @internal Return a safe target snapshot. */
   public _targetArray(): Entity[] {
-    if (this._targets === undefined) {
+    if (this[TARGETS] === null) {
       return [];
     }
-    return Array.isArray(this._targets) ? [...this._targets] : [this._targets];
+    return Array.isArray(this[TARGETS]) ? [...this[TARGETS]] : [this[TARGETS]];
   }
 }
 
@@ -154,18 +176,28 @@ export interface HookEventMap {
   validate: ValidateHandler;
   /** Fixes a component in place; run by {@link World.normalize}, never on `set`. */
   normalize: NormalizeHandler;
-  /** @internal Framework policy applied when this component is attached. */
-  policyAdd: HookHandler;
-  /** @internal Framework policy applied when this component is removed. */
-  policyRemove: HookHandler;
-  /** @internal Framework policy applied after a relationship edge is added. Relationship metas only. */
-  targetPolicyAdd: TargetHandler;
-  /** @internal Framework policy applied after a relationship edge is removed. Relationship metas only. */
-  targetPolicyRemove: TargetHandler;
 }
 
 /** Event names accepted by {@link ComponentMeta.on} / {@link ComponentMeta.off}. */
 export type HookEvent = keyof HookEventMap;
+
+/**
+ * Events a relationship trait registers with `on(event, handler, { trait: true })`.
+ *
+ * @internal
+ */
+export type TraitEvent = "add" | "remove" | "targetAdd" | "targetRemove";
+
+/**
+ * Options of the internal `on` overload that registers a relationship-trait
+ * handler.
+ *
+ * @internal
+ */
+export interface TraitHookOptions {
+  /** Install the handler in the event's trait slot, ahead of application handlers. */
+  trait: true;
+}
 
 /**
  * Multi-handler metadata attached to a wrapper function when two or more
@@ -314,7 +346,7 @@ export class Implements {
  * ```
  *
  * Multiple handlers may be registered for the same event: they fire in
- * registration order (or in reverse registration order when `insert` is `true`).
+ * registration order, after the built-in relationship traits' handlers.
  * Remove a handler with {@link ComponentMeta.off} by the same reference used
  * to register it. Callers rarely need to remove handlers.
  *
@@ -337,10 +369,16 @@ export class ComponentMeta {
   /** Whether this relationship permits only one target. */
   public relationshipExclusive = false;
 
-  /** Applied to entities carrying this component when this component entity is deleted. */
-  public onDelete = CleanupPolicy.Throw;
-  /** Applied to entities targeting a deleted entity through this relationship. */
-  public onDeleteTarget = CleanupPolicy.Remove;
+  /**
+   * @internal Applied to entities carrying this component when this component
+   * entity is deleted. Written by the `OnDelete` trait.
+   */
+  public _onDelete = CleanupPolicy.Throw;
+  /**
+   * @internal Applied to entities targeting a deleted entity through this
+   * relationship. Written by the `OnDeleteTarget` trait.
+   */
+  public _onDeleteTarget = CleanupPolicy.Remove;
 
   /**
    * @internal Peer metas of components that cannot coexist with this one on
@@ -355,11 +393,6 @@ export class ComponentMeta {
   /** @internal Whether this component meta is an abstract/interface alias. */
   public _isInterface = false;
 
-  /** @internal Framework policy applied when this component is attached. */
-  public _onPolicyAdd: HookSlot<HookHandler> = undefined;
-  /** @internal Framework policy applied when this component is removed. */
-  public _onPolicyRemove: HookSlot<HookHandler> = undefined;
-
   /** @internal Component instances created by ensure operations but not yet attached. */
   public _pendingEnsures: WeakMap<Entity, ComponentInstance> | undefined = undefined;
 
@@ -371,10 +404,6 @@ export class ComponentMeta {
   public _onTargetAdd: HookSlot<TargetHandler> = undefined;
   /** @internal Handlers fired after a relationship edge is removed. */
   public _onTargetRemove: HookSlot<TargetHandler> = undefined;
-  /** @internal Framework policy handlers fired after a relationship edge is added. */
-  public _onTargetPolicyAdd: HookSlot<TargetHandler> = undefined;
-  /** @internal Framework policy handlers fired after a relationship edge is removed. */
-  public _onTargetPolicyRemove: HookSlot<TargetHandler> = undefined;
   /** @internal Handlers fired when a component's data is set or modified. */
   public _onSet: HookSlot<HookHandler> = undefined;
   /** @internal `validate` hooks, run in order by `World.validate`. */
@@ -385,115 +414,130 @@ export class ComponentMeta {
   public _validateIsDefault = false;
   /** @internal Whether `_onNormalize` holds only the metadata-derived default. */
   public _normalizeIsDefault = false;
+  /**
+   * @internal Relationship-trait handlers fired before {@link _onAdd}, kept in
+   * their own slot so dispatch calls the application slot directly. Registered
+   * with `on(event, handler, { trait: true })`.
+   */
+  public _traitAdd: HookSlot<HookHandler> = undefined;
+  /** @internal Relationship-trait handlers fired before {@link _onRemove}; see {@link _traitAdd}. */
+  public _traitRemove: HookSlot<HookHandler> = undefined;
+  /** @internal Relationship-trait handlers fired before {@link _onTargetAdd}; see {@link _traitAdd}. */
+  public _traitTargetAdd: HookSlot<TargetHandler> = undefined;
+  /** @internal Relationship-trait handlers fired before {@link _onTargetRemove}; see {@link _traitAdd}. */
+  public _traitTargetRemove: HookSlot<TargetHandler> = undefined;
 
   /**
-   * @internal Reverse index of entities currently carrying this component eid.
-   *
-   * Lazily allocated on first attach and never reset to `undefined` afterward,
-   * so a component eid that churns between 0 and 1 carriers does not thrash
-   * the `DenseSet` allocation. `usageCount` reads `_carriers.size` directly.
+   * @internal Sole carrier index, shared with component-presence queries.
+   * Created with the meta, even when no query names this component.
    */
-  public _carriers: DenseSet<Entity> | undefined = undefined;
+  public readonly _term: ComponentTerm;
 
-  constructor(Class: ComponentType, ceid: EID) {
+  constructor(Class: ComponentType, ceid: EID, term: ComponentTerm) {
     this.Class = Class;
     this.eid = ceid;
     this.bitPtr = new BitPtr(ceid);
     this.isRelationship = Class.prototype instanceof Relationship;
+    this._term = term;
   }
 
-  /** Number of entities currently carrying this component eid. */
+  /** Number of entities currently carrying this component eid, including during add hooks. */
   public get usageCount(): number {
-    return this._carriers?.size ?? 0;
-  }
-
-  /** @internal Record `entity` as a carrier of this component eid. */
-  public _attachCarrier(entity: Entity): void {
-    (this._carriers ??= new DenseSet<Entity>()).add(entity);
-  }
-
-  /** @internal Stop tracking `entity` as a carrier of this component eid. */
-  public _detachCarrier(entity: Entity): void {
-    this._carriers?.delete(entity);
+    return this._term.count;
   }
 
   /**
    * Register a handler for a hook event.
    *
    * Multiple handlers may be registered for the same event; they fire in
-   * registration order. Pass `insert: true` to prepend the handler ahead of
-   * any already-registered handlers. Removing a handler is via {@link off} with
-   * the same reference.
+   * registration order, after the handlers of the built-in relationship traits
+   * (`Exclusive`, `Traversable`, `OwnedTarget`, `With`, `OneOf`). Removing a
+   * handler is via {@link off} with the same reference. When a trait's
+   * `targetAdd` or `targetRemove` handler changes the edge it was called for
+   * (removes or replaces it, or removes the relationship), the application
+   * handlers for that edge are skipped.
    *
-   * The `targetAdd`, `targetRemove`, `targetPolicyAdd`, and `targetPolicyRemove`
-   * events require this meta to be a relationship; registering one on a
-   * non-relationship meta throws at registration time.
+   * The `targetAdd` and `targetRemove` events require this meta to be a
+   * relationship; registering one on a non-relationship meta throws at
+   * registration time.
    *
    * `validate` and `normalize` hooks run only through {@link World.validate},
    * {@link World.isValid} and {@link World.normalize}, never on `set`. The first
    * one registered replaces the default hook derived from member metadata.
    *
    * @param event - One of `add`, `remove`, `set`, `targetAdd`, `targetRemove`,
-   *   `validate`, `normalize`, `policyAdd`, `policyRemove`, `targetPolicyAdd`,
-   *   `targetPolicyRemove`.
+   *   `validate`, `normalize`.
    * @param handler - Handler whose signature is constrained by `event`.
-   * @param insert - When `true`, prepend the handler; when `false` (default), append.
    * @returns This meta, for chaining.
    */
-  public on<E extends HookEvent>(event: E, handler: HookEventMap[E], insert = false): this {
+  public on<E extends HookEvent>(event: E, handler: HookEventMap[E]): this;
+  /**
+   * @internal Register a relationship-trait handler. `{ trait: true }` installs
+   * it in the event's trait slot: trait handlers of one event run in
+   * registration order, before every application handler of that event, and
+   * `World.dispose` clears the `remove` / `targetRemove` ones.
+   */
+  public on<E extends TraitEvent>(
+    event: E,
+    options: TraitHookOptions,
+    handler: HookEventMap[E]
+  ): this;
+  public on<E extends HookEvent>(
+    event: E,
+    handlerOrOptions: HookEventMap[E] | TraitHookOptions,
+    maybeHandler?: HookEventMap[E]
+  ): this {
+    return this._on(event, handlerOrOptions, maybeHandler);
+  }
+
+  /**
+   * @internal The implementation behind every `on` overload, on this meta and
+   * on the `Entity` / `Component` forwarders: a function in second position
+   * registers an application handler, a `{ trait: true }` object followed by a
+   * function a relationship-trait handler. The overloads keep other shapes
+   * out, so the arguments are not checked at runtime.
+   */
+  public _on<E extends HookEvent>(
+    event: E,
+    handlerOrOptions: HookEventMap[E] | TraitHookOptions,
+    maybeHandler: HookEventMap[E] | undefined
+  ): this {
+    if (typeof handlerOrOptions !== "function") {
+      this._installTraitHook(event as TraitEvent, maybeHandler as HookEventMap[TraitEvent]);
+      return this;
+    }
+    const handler = handlerOrOptions;
     switch (event) {
       case "add":
-        this._onAdd = _installHook(this._onAdd, handler as HookHandler, insert);
+        this._onAdd = _installHook(this._onAdd, handler as HookHandler, false);
         break;
       case "remove":
-        this._onRemove = _installHook(this._onRemove, handler as HookHandler, insert);
+        this._onRemove = _installHook(this._onRemove, handler as HookHandler, false);
         break;
       case "set":
-        this._onSet = _installHook(this._onSet, handler as HookHandler, insert);
+        this._onSet = _installHook(this._onSet, handler as HookHandler, false);
         break;
       case "targetAdd":
         this._requireRelationship(event);
-        this._onTargetAdd = _installHook(this._onTargetAdd, handler as TargetHandler, insert);
+        this._onTargetAdd = _installHook(this._onTargetAdd, handler as TargetHandler, false);
         break;
       case "targetRemove":
         this._requireRelationship(event);
-        this._onTargetRemove = _installHook(this._onTargetRemove, handler as TargetHandler, insert);
+        this._onTargetRemove = _installHook(this._onTargetRemove, handler as TargetHandler, false);
         break;
       case "validate":
         if (this._validateIsDefault) {
           this._onValidate = undefined;
           this._validateIsDefault = false;
         }
-        this._onValidate = _installHook(this._onValidate, handler as ValidateHandler, insert);
+        this._onValidate = _installHook(this._onValidate, handler as ValidateHandler, false);
         break;
       case "normalize":
         if (this._normalizeIsDefault) {
           this._onNormalize = undefined;
           this._normalizeIsDefault = false;
         }
-        this._onNormalize = _installHook(this._onNormalize, handler as NormalizeHandler, insert);
-        break;
-      case "policyAdd":
-        this._onPolicyAdd = _installHook(this._onPolicyAdd, handler as HookHandler, insert);
-        break;
-      case "policyRemove":
-        this._onPolicyRemove = _installHook(this._onPolicyRemove, handler as HookHandler, insert);
-        break;
-      case "targetPolicyAdd":
-        this._requireRelationship(event);
-        this._onTargetPolicyAdd = _installHook(
-          this._onTargetPolicyAdd,
-          handler as TargetHandler,
-          insert
-        );
-        break;
-      case "targetPolicyRemove":
-        this._requireRelationship(event);
-        this._onTargetPolicyRemove = _installHook(
-          this._onTargetPolicyRemove,
-          handler as TargetHandler,
-          insert
-        );
+        this._onNormalize = _installHook(this._onNormalize, handler as NormalizeHandler, false);
         break;
       default: {
         const _exhaustive: never = event;
@@ -536,29 +580,40 @@ export class ComponentMeta {
       case "normalize":
         this._onNormalize = _removeHook(this._onNormalize, handler as NormalizeHandler);
         break;
-      case "policyAdd":
-        this._onPolicyAdd = _removeHook(this._onPolicyAdd, handler as HookHandler);
-        break;
-      case "policyRemove":
-        this._onPolicyRemove = _removeHook(this._onPolicyRemove, handler as HookHandler);
-        break;
-      case "targetPolicyAdd":
-        this._requireRelationship(event);
-        this._onTargetPolicyAdd = _removeHook(this._onTargetPolicyAdd, handler as TargetHandler);
-        break;
-      case "targetPolicyRemove":
-        this._requireRelationship(event);
-        this._onTargetPolicyRemove = _removeHook(
-          this._onTargetPolicyRemove,
-          handler as TargetHandler
-        );
-        break;
       default: {
         const _exhaustive: never = event;
         throw new Error(`Unknown hook event: ${String(_exhaustive)}`);
       }
     }
     return this;
+  }
+
+  /** Install a relationship-trait handler into the trait slot of `event`. */
+  private _installTraitHook(event: TraitEvent, handler: HookEventMap[TraitEvent]): void {
+    switch (event) {
+      case "add":
+        this._traitAdd = _installHook(this._traitAdd, handler as HookHandler, false);
+        break;
+      case "remove":
+        this._traitRemove = _installHook(this._traitRemove, handler as HookHandler, false);
+        break;
+      case "targetAdd":
+        this._requireRelationship(event);
+        this._traitTargetAdd = _installHook(this._traitTargetAdd, handler as TargetHandler, false);
+        break;
+      case "targetRemove":
+        this._requireRelationship(event);
+        this._traitTargetRemove = _installHook(
+          this._traitTargetRemove,
+          handler as TargetHandler,
+          false
+        );
+        break;
+      default: {
+        const _exhaustive: never = event;
+        throw new Error(`Unknown trait hook event: ${String(_exhaustive)}`);
+      }
+    }
   }
 
   private _requireRelationship(event: HookEvent): void {

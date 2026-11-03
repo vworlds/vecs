@@ -1,23 +1,30 @@
 import { CommandKind } from "../command.js";
 import {
   ComponentMeta,
-  _slotHandlers,
   type ComponentClass,
   type ComponentInstance,
   type ComponentRef,
   type ComponentType,
   type HookEvent,
   type HookEventMap,
+  type TraitEvent,
+  type TraitHookOptions,
+  type TargetHandler,
 } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
 import { Relationships } from "./entity.relationships.js";
 import type { EID, Entity } from "./entity.js";
 
 export class Components extends Relationships {
+  /** @internal Lazily track whether a dirty relationship also had an explicit data write. */
+  protected _relationshipDataWrites?: Set<ComponentMeta>;
+
   /**
    * @internal Apply an `Attach` command: store the provided component instance,
    * replacing any previous instance for this type. Events are fired as if the
-   * caller had performed a `set` operation.
+   * caller had performed a `set` operation. Replacing a different instance
+   * first runs the relationship traits' `remove` handlers for the old one and
+   * their `add` handlers for the new one; application handlers see only `set`.
    */
   public _attach(this: Entity, meta: ComponentMeta, component: ComponentInstance): void {
     if (meta._pendingEnsures?.get(this) === component) {
@@ -31,11 +38,11 @@ export class Components extends Relationships {
     }
     const existing = this._components.get(meta.eid);
     if (existing !== undefined && existing !== component) {
-      meta._onPolicyRemove?.(this, existing);
+      meta._traitRemove?.(this, existing);
     }
     this._storeComponent(meta, component, existing === undefined);
     if (existing !== undefined && existing !== component) {
-      meta._onPolicyAdd?.(this, component);
+      meta._traitAdd?.(this, component);
     }
     this._notifyComponentSet(meta, component, existing !== undefined);
   }
@@ -50,23 +57,62 @@ export class Components extends Relationships {
   }
 
   /**
-   * @internal Apply a `Modified` command: fire `onSet` and route modified
-   * events to every query that watches the component type.
+   * @internal Apply a pending modification and route events to watching queries.
+   * Data writes fire `onSet`; deferred relationships prepare that hook separately
+   * so its queued mutations can apply before routing. Edge-only updates never fire it.
    */
   public _modified(this: Entity, meta: ComponentMeta): void {
+    if (meta.isRelationship && this.world.deferred) {
+      this._modifiedRelationship(meta);
+      return;
+    }
     if (this._destroyed) {
       return;
     }
     const c = this._components.get(meta.eid);
     if (!c) {
+      if (meta.isRelationship) {
+        this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+      }
+      this._relationshipDataWrites?.delete(meta);
       return;
     }
     this._notifyComponentSet(meta, c, true);
   }
 
+  /** @internal Apply an already-classified deferred relationship notification. */
+  public _modifiedRelationship(this: Entity, meta: ComponentMeta): void {
+    if (this._destroyed || !this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
+      return;
+    }
+    const relationship = this._components.get(meta.eid);
+    this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+    if (!relationship) {
+      this._relationshipDataWrites?.delete(meta);
+      return;
+    }
+    this.world._notifyComponentChanged(meta.eid, this);
+    this._routeModified(meta.eid, relationship);
+  }
+
+  /** @internal Run an explicit data hook; return whether it could have queued mutations. */
+  public _prepareRelationshipUpdate(this: Entity, meta: ComponentMeta): boolean {
+    if (!this._relationshipDataWrites?.delete(meta)) {
+      return false;
+    }
+    const relationship = this._components.get(meta.eid);
+    if (!this._destroyed && relationship && this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
+      meta._onSet?.(this, relationship);
+      // Like ordinary modified, a recursive modified from onSet is coalesced.
+      this._relationshipDataWrites.delete(meta);
+      return true;
+    }
+    return false;
+  }
+
   /**
-   * @internal Apply a `Remove` command: clear the type bit, route exits,
-   * detach the component, and fire `onRemove`.
+   * @internal Apply a `Remove` command: clear the type bit and storage, route
+   * exits with injection access to the removed instance, then fire `onRemove`.
    */
   public _remove(this: Entity, meta: ComponentMeta): void {
     if (this._destroyed) {
@@ -92,14 +138,57 @@ export class Components extends Relationships {
       this._detachRelationship(meta, c as Relationship);
       return;
     }
+    this._detachSlot(meta, c);
+  }
+
+  /** @internal Shared slot teardown; destruction retains storage until all exits are routed. */
+  protected _detachSlot(
+    this: Entity,
+    meta: ComponentMeta,
+    instance: ComponentInstance,
+    keepStorage = false
+  ): void {
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this.componentBitmask.deleteBit(meta.bitPtr);
-    this.world._notifyComponentRemoved(meta.eid, this);
-    this._components.delete(meta.eid);
-    this.world._notifyComponentChanged(meta.eid, this);
-    meta._detachCarrier(this);
-    meta._onPolicyRemove?.(this, c);
-    meta._onRemove?.(this, c);
+    if (keepStorage) {
+      this.world._notifyComponentRemoved(meta.eid, this);
+    } else {
+      this._components.delete(meta.eid);
+      this._notifySlotRemoved(meta, instance);
+      // `update({ watch, onRemove: true })` routes after the component is gone,
+      // receiving the instance directly (no register read). See the
+      // `update` reference: it fires only when the entity stays a member.
+      this._routeRemoved(meta.eid, instance);
+    }
+    // Destroy deliberately skips trait remove handlers (e.g. SilenceSource); see RelationshipsModule.
+    if (!keepStorage) {
+      meta._traitRemove?.(this, instance);
+    }
+    meta._onRemove?.(this, instance);
+  }
+
+  /** @internal Skip unobserved removals; otherwise scope injection to this notification. */
+  protected _notifySlotRemoved(
+    this: Entity,
+    meta: ComponentMeta,
+    instance: ComponentInstance
+  ): void {
+    const world = this.world;
+    const componentTerm = meta._term;
+    if (!componentTerm._observed && world._worldTerm === undefined) {
+      world._notifyComponentRemoved(meta.eid, this, componentTerm);
+      return;
+    }
+    const previousEntity = world._removedEntity;
+    const previousCeid = world._removedCeid;
+    const previousInstance = world._removedInstance;
+    world._removedEntity = this;
+    world._removedCeid = meta.eid;
+    world._removedInstance = instance;
+    world._notifyComponentRemoved(meta.eid, this, componentTerm);
+    world._removedEntity = previousEntity;
+    world._removedCeid = previousCeid;
+    world._removedInstance = previousInstance;
   }
 
   /**
@@ -122,6 +211,7 @@ export class Components extends Relationships {
         return;
       }
       if (this._assignRelationshipProps(relationship, props)) {
+        this._relationshipDataWrites?.delete(meta);
         this._notifyComponentSet(meta, relationship, true);
       }
       return;
@@ -148,6 +238,9 @@ export class Components extends Relationships {
    * resolves to an existing entity is accepted, but a ref that does not yet
    * resolve throws. Non-relationship components ignore `target` and throw when
    * one is supplied.
+   * Adding an existing edge, including an Exclusive relationship's current
+   * target, is silent: no hooks or notifications. Deferred edge changes on an
+   * existing relationship coalesce with {@link modified} after mutations apply.
    *
    * @param Class - Component class to instantiate.
    * @param target - Relationship target. Any {@link ComponentRef} that resolves
@@ -242,6 +335,9 @@ export class Components extends Relationships {
 
   /**
    * Look up a component on this entity as a readonly value.
+   * Component removal clears storage before synchronous `exit` callbacks, so
+   * this returns `undefined` there. Inject the removed component into `exit`
+   * to retain its instance. Destruction retains storage during synchronous teardown.
    *
    * @param typeOrClass - Component class or numeric type id.
    * @returns The component instance, or `undefined` when it is not attached.
@@ -417,10 +513,11 @@ export class Components extends Relationships {
    * Mark a component type as having changed, queueing the corresponding `onSet` / `update`
    * notifications.
    *
-   * Repeated calls before the world routes the modified command are coalesced via
-   * the entity's dirty component bitset.
+   * Repeated calls before the world routes the pending notification are coalesced via
+   * the entity's dirty component bitset. Relationship edge changes in the same
+   * deferred drain join this update; it routes after queued mutations apply.
    *
-   * @param typeOrClass - Component class or numeric type id whose data changed.
+   * @param ref - Component reference whose data changed.
    * @returns This entity, for chaining.
    */
   public modified(this: Entity, ref: ComponentRef): this {
@@ -432,12 +529,19 @@ export class Components extends Relationships {
   /** @internal Mark a component changed, coalescing duplicate pending notifications. */
   protected _markModified(this: Entity, meta: ComponentMeta): this {
     this._throwIfInterface(meta, "modify");
+    if (meta.isRelationship && this.world.deferred) {
+      (this._relationshipDataWrites ??= new Set()).add(meta);
+    }
     if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       return this as unknown as this;
     }
     this._dirtyComponentBitmask.addBit(meta.bitPtr);
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta });
+      if (meta.isRelationship) {
+        this.world._enqueueRelationshipUpdate(this, meta, this.world._currentSource);
+      } else {
+        this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta });
+      }
     } else {
       this._modified(meta);
     }
@@ -467,13 +571,19 @@ export class Components extends Relationships {
    *
    * In deferred mode the removal is queued; `get(C)` continues to return the
    * component until the queue drains. When applied, queries fire `exit`
-   * callbacks first and the `onRemove` hook fires last.
+   * callbacks after storage is cleared and the `onRemove` hook fires last.
+   * Inject removed components into `exit`; `get(C)` there returns `undefined`.
+   * If a synchronous exit callback throws, the world is left partial; treat
+   * this as a programming error and do not continue using that world.
    *
    * Relationship components take an explicit `target` to remove one edge. The
    * target is resolved eagerly via {@link World.entity}: any
    * {@link ComponentRef} that resolves to an existing entity is accepted, but
    * a ref that does not yet resolve throws. Omit `target` to remove every edge
    * of the relationship.
+   * Removing an absent edge or relationship is silent: no hooks or notifications.
+   * Removing a non-final edge coalesces with other deferred edge changes and
+   * {@link modified}; the final edge still routes exit, not update.
    *
    * @param Class - Component class to detach.
    * @param target - Relationship target; any {@link ComponentRef} that resolves
@@ -575,7 +685,7 @@ export class Components extends Relationships {
    * instance of `meta`'s class, assign `data` onto it, and store it on this
    * entity. Every metadata semantic is applied exactly once, in this order:
    * exclusivity eviction of conflicting components, interface-alias eviction
-   * and storage, the framework `policyAdd` hook, the public `add` hook, and
+   * and storage, the `add` hooks (relationship traits' first), and
    * query-entry notification.
    *
    * This is the single constructor-and-copy implementation in vecs. Ordinary
@@ -665,6 +775,7 @@ export class Components extends Relationships {
     if (!reflectsAdd()) {
       return;
     }
+    this._routeArrived(meta.eid, relationship);
     this.world._notifyComponentAdded(meta.eid, this);
   }
 
@@ -714,11 +825,12 @@ export class Components extends Relationships {
     relationship: Relationship
   ): void {
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
+    this._relationshipDataWrites?.delete(meta);
     this.componentBitmask.deleteBit(meta.bitPtr);
-    this.world._notifyComponentRemoved(meta.eid, this);
     this._components.delete(meta.eid);
-    this.world._notifyComponentChanged(meta.eid, this);
-    meta._detachCarrier(this);
+    this._notifySlotRemoved(meta, relationship);
+    // Same `onRemove` watch routing as `_detachSlot`, after the delete above.
+    this._routeRemoved(meta.eid, relationship);
     const targets = relationship._takeTargets();
     for (const target of targets) {
       this._removeIncoming(target, meta.eid);
@@ -742,20 +854,18 @@ export class Components extends Relationships {
     }
     this._components.set(meta.eid, relationship);
     this.componentBitmask.addBit(meta.bitPtr);
-    meta._attachCarrier(this);
+    meta._term._stageAdded(this);
   }
 
-  /** Assign relationship data while ignoring all target-storage spellings. */
+  /** Assign relationship data; target storage is symbol-keyed and never among `props`' entries. */
   private _assignRelationshipProps(
     relationship: Relationship,
     props: Partial<ComponentInstance>
   ): boolean {
     let assigned = false;
     for (const [key, value] of Object.entries(props)) {
-      if (key !== "target" && key !== "targets" && key !== "_targets") {
-        (relationship as unknown as Record<string, unknown>)[key] = value;
-        assigned = true;
-      }
+      (relationship as unknown as Record<string, unknown>)[key] = value;
+      assigned = true;
     }
     return assigned;
   }
@@ -817,13 +927,14 @@ export class Components extends Relationships {
     this._components.set(meta.eid, instance);
     this.componentBitmask.addBit(meta.bitPtr);
     if (!existing) {
-      meta._attachCarrier(this);
+      meta._term._stageAdded(this);
     }
     if (isAdd && !existing) {
-      meta._onPolicyAdd?.(this, instance);
+      meta._traitAdd?.(this, instance);
       meta._onAdd?.(this, instance);
     }
     if (!existing) {
+      this._routeArrived(meta.eid, instance);
       this.world._notifyComponentAdded(meta.eid, this);
     }
   }
@@ -849,12 +960,20 @@ export class Components extends Relationships {
     target: Entity,
     isCurrent: () => boolean
   ): boolean {
-    // Policy handlers run first; each may mutate the relationship (e.g. an
-    // OwnedTarget policy parents the target). If one makes the edge no longer
-    // current, abort remaining policies and the public hook.
-    if (meta._onTargetPolicyAdd !== undefined) {
-      for (const h of _slotHandlers(meta._onTargetPolicyAdd)) {
-        h(this, relationship, target);
+    // Trait handlers run first; each may mutate the relationship (e.g. an
+    // OwnedTarget handler parents the target). If one makes the edge no longer
+    // current, skip the remaining trait handlers and the application handlers.
+    const traits = meta._traitTargetAdd;
+    if (traits !== undefined) {
+      if ("handlers" in traits) {
+        for (const h of traits.handlers as TargetHandler[]) {
+          h(this, relationship, target);
+          if (!isCurrent()) {
+            return false;
+          }
+        }
+      } else {
+        traits(this, relationship, target);
         if (!isCurrent()) {
           return false;
         }
@@ -871,9 +990,17 @@ export class Components extends Relationships {
     target: Entity,
     isCurrent: () => boolean
   ): boolean {
-    if (meta._onTargetPolicyRemove !== undefined) {
-      for (const h of _slotHandlers(meta._onTargetPolicyRemove)) {
-        h(this, relationship, target);
+    const traits = meta._traitTargetRemove;
+    if (traits !== undefined) {
+      if ("handlers" in traits) {
+        for (const h of traits.handlers as TargetHandler[]) {
+          h(this, relationship, target);
+          if (!isCurrent()) {
+            return false;
+          }
+        }
+      } else {
+        traits(this, relationship, target);
         if (!isCurrent()) {
           return false;
         }
@@ -888,8 +1015,19 @@ export class Components extends Relationships {
    * See {@link ComponentMeta.on} for the event list and semantics. Returns this
    * entity for chaining.
    */
-  public on<E extends HookEvent>(event: E, handler: HookEventMap[E], insert = false): this {
-    this.meta.on(event, handler, insert);
+  public on<E extends HookEvent>(event: E, handler: HookEventMap[E]): this;
+  /** @internal Register a relationship-trait handler. See {@link ComponentMeta.on}. */
+  public on<E extends TraitEvent>(
+    event: E,
+    options: TraitHookOptions,
+    handler: HookEventMap[E]
+  ): this;
+  public on<E extends HookEvent>(
+    event: E,
+    handlerOrOptions: HookEventMap[E] | TraitHookOptions,
+    maybeHandler?: HookEventMap[E]
+  ): this {
+    this.meta._on(event, handlerOrOptions, maybeHandler);
     return this;
   }
 

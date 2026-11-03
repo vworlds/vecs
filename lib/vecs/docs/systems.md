@@ -153,33 +153,52 @@ of its next run. The inbox replays in arrival order, so:
 For systems, injected values and `Iter.src` are captured when entry is routed and replayed from that
 snapshot when the system next drains its inbox.
 
-### `.update(ComponentClass, callback)` / `.update(options, callback)`
+### `.update(options, callback)`
 
-Fires when the watched component is set or marked modified on a tracked entity.
-`update(ComponentClass, ...)` also adds `ComponentClass` to the membership predicate, so the system
-only matches entities that carry the watched component. Pass `{ onEnter: true }` in the options form
-when the callback should also run as an entity enters with the watched component already present.
-The callback receives the entity first because component instances carry no owner reference:
+`update({ watch: C }, cb)` watches `C` on the entities the system already matches: `with` builds
+membership, and `update` only watches. The callback fires when `C` is set or marked modified on a
+member, and receives the entity first because component instances carry no owner reference:
 
 ```ts
-.update(Position, (entity, pos) => renderer.setPosition(entity.eid, pos.x, pos.y))
-.update({ watch: Position, onEnter: true, inject: [Sprite] }, (entity, pos, [sprite]) =>
-  sprite.setPosition(pos.x, pos.y)
-)
+world
+  .system("SyncSprites")
+  .with(Sprite, Position)
+  .update({ watch: Position, onEnter: true, inject: [Sprite] }, (entity, pos, [sprite]) =>
+    sprite.setPosition(pos.x, pos.y)
+  );
 ```
 
-Use `onEnter: true` for "apply current value when the entity appears, and again on change". Without
-it, `update` is change-only and a separate `enter` callback can own initialization.
+Keeping the two apart means a watch never changes which entities a system holds, so one system can
+watch several optional components (see the
+[design guide](./design-guide.md#with-builds-membership-update-watches)). Put `C` in `with` when
+the system should hold only entities that carry it, and leave it out when the system should hold
+its `with` entities either way and react when they carry `C`. Building a system or query that
+registers an `update` but has no `with` terms throws, naming it; a watch alone would otherwise
+match every entity.
 
-Because `update` adds `watch` to the membership predicate, `add(C)` can be the operation that makes
-an entity enter. Choose one update callback for `C`: `update({ watch: C, onEnter: true }, cb)` fires
-`cb` with the freshly added component, while `update(C, cb)` tracks the new member but waits for a
-later `set` or `modified`.
+The callback's component argument is never undefined: every event carries an instance. Two flags
+widen what counts as an event:
 
-Use `.update(C, ...)` by itself when `C` is the membership shape and watched value. Use
-`.with(A).update(C, ...)` when the callback should run only for entities carrying both `A` and `C`.
+| Event on a member          | Default | `onEnter: true`               | `onRemove: true`              |
+| -------------------------- | ------- | ----------------------------- | ----------------------------- |
+| Enters with `C` present    | —       | `update` with the present `C` | —                             |
+| `C` added to a member      | —       | `update` with the added `C`   | —                             |
+| `C` set / modified         | update  | `update`                      | `update`                      |
+| `C` removed, entity stays  | —       | —                             | `update` with the removed `C` |
+| `C` removed, `C` in `with` | `exit`  | `exit`                        | `exit` only                   |
 
-A query or system can register only one `update(C, ...)` callback for each component. A duplicate
+Use `onEnter: true` for "apply the current value when it appears, and again on change". Without it,
+`update` is change-only and a separate `enter` callback can own initialization. When `C` is in
+`with`, adding it is what makes the entity enter, so `onEnter` fires once, from entry.
+
+With `onRemove: true`, the removal event carries the removed instance, and the entity no longer has
+`C` when the callback runs: test `entity.has(C)` to tell a removal from a change. When `C` is also
+in `with`, removing it makes the entity exit first, so the removal is not delivered and only `exit`
+fires. Destroying an entity routes `exit`, not removal events. `ignoreSource` silences arrival,
+change and removal alike. Arrival and removal routing are in `Entity._routeArrived` and
+`Entity._routeRemoved` (`lib/vecs/src/entity/entity.queries.ts`).
+
+A query or system can register only one `update` callback for each component. A duplicate
 registration throws instead of replacing the existing callback.
 
 #### Repeated writes in one tick
@@ -188,14 +207,17 @@ Each routed write is one `update` event, and a system's inbox replays its events
 without merging any (`lib/vecs/src/system.ts`, `_pushUpdate` and the drain loop in
 `_runDeferred`). What differs is how many events a write routes:
 
-| Write                      | Events routed for `C` in one drain window                                                        |
-| -------------------------- | ------------------------------------------------------------------------------------------------ |
-| `entity.set(C, …)` × n     | n: every call queues its own command and fires its own `onSet` and `update`                      |
-| `entity.modified(C)` × n   | 1: the first call sets the dirty bit, the command clears it when it runs, later calls are no-ops |
-| `entity.getMut(C, cb)` × n | 1: it marks modified through the same dirty bit                                                  |
+| Write                              | Events routed for `C` in one drain window                                            |
+| ---------------------------------- | ------------------------------------------------------------------------------------ |
+| `entity.set(C, …)` × n             | n: every call queues its own command and fires its own `onSet` and `update`          |
+| `entity.modified(C)` × n           | 1: the first call sets the dirty bit; the pending notification clears it when routed |
+| `entity.getMut(C, cb)` × n         | 1: it marks modified through the same dirty bit                                      |
+| Edge adds/removals + `modified(R)` | 1 for a relationship that remains present: all join the dirty bit, in either order   |
 
 Coalescing needs a queued command, so it applies to calls made while commands are deferred (inside
-system callbacks); outside them `modified` applies immediately. To get one callback per tick, write
+system callbacks); outside them `modified` applies immediately. Relationship updates wait until
+queued mutations apply, so synchronous watchers see the committed edge set. Entry, exit and
+[per-edge hooks](./relationships.md#edge-hooks) are not coalesced. To get one callback per tick, write
 in place and call `modified` (or use `getMut`), or compare before `set` and skip equal values. Do
 not add a per-tick dedupe or batching step in the consumer when producers already use
 `modified`/`getMut`. Source: `lib/vecs/src/entity/entity.components.ts` (`_markModified`, `set`,
@@ -557,25 +579,25 @@ display is unchanged; introspection does not add structured query terms or `worl
 
 ## Reference
 
-| Method                                                           | Description                                                                                                                      |
-| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `with(...specs)` / `without(dsl)`                                | Declare membership; see [the DSL](./queries-and-filters.md#the-query-dsl).                                                       |
-| `phase(anchor)`                                                  | Place after a phase anchor (name or entity). Default `ON_UPDATE`.                                                                |
-| `enter(cb)` / `enter(inject, cb)`                                | Fires once when an entity starts matching.                                                                                       |
-| `update(C, cb)` / `update(options, cb)`                          | Fires on `set`/`modified` of `C` on a member; `options.onEnter: true` also fires on entry for present watched components.        |
-| `exit(cb)` / `exit(inject, cb)`                                  | Fires when an entity stops matching; injection retains references captured at exit time.                                         |
-| `each([C...], cb)`                                               | Fires per tracked entity every tick. Implies `track`. One per system.                                                            |
-| `run(cb)`                                                        | Fires once per tick, `(now, delta)`.                                                                                             |
-| `interval(seconds)` / `rate(n[, source])` / `tickSource(source)` | Cadence control.                                                                                                                 |
-| `orderBy([C...], compare)`                                       | Sorted membership refreshed when injected comparator data changes. Implies `track`.                                              |
-| `track()`                                                        | Expose `count`, `has`, iteration, `forEach` without `each`.                                                                      |
-| `ignoreSource(query \| dsl)`                                     | Drop `update` events originating from matching systems; see [Queries](./queries-and-filters.md#silencing-feedback-ignoresource). |
-| `disable()` / `enable()`                                         | Pause / resume processing. Idempotent.                                                                                           |
-| `destroy()`                                                      | Permanently remove the system (no `exit` callbacks).                                                                             |
-| `didTick` / `lastFireDelta`                                      | This frame's cadence result; ms accumulated into the last fire.                                                                  |
-| `cadence` / `enabled`                                            | Read current cadence source and enabled state; see [Introspection](#introspection).                                              |
-| `callbacks` / `watched`                                          | Read registered callback kinds and update-watched component classes; see [Introspection](#introspection).                        |
-| `world.pipeline`                                                 | Read systems in pipeline execution order; see [Introspection](#introspection).                                                   |
-| `count` / `has(e)` / `belongs(e)` / iteration / `forEach`        | Shared query surface; see [Queries](./queries-and-filters.md#reading-a-query).                                                   |
+| Method                                                           | Description                                                                                                                                                                           |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `with(...specs)` / `without(dsl)`                                | Declare membership; see [the DSL](./queries-and-filters.md#the-query-dsl).                                                                                                            |
+| `phase(anchor)`                                                  | Place after a phase anchor (name or entity). Default `ON_UPDATE`.                                                                                                                     |
+| `enter(cb)` / `enter(inject, cb)`                                | Fires once when an entity starts matching.                                                                                                                                            |
+| `update(options, cb)`                                            | Watches `options.watch` on members: `set`/`modified`; `onEnter` adds entry and arrival, `onRemove` adds removal (see [`.update`](#updateoptions-callback)). Never changes membership. |
+| `exit(cb)` / `exit(inject, cb)`                                  | Fires when an entity stops matching; injection retains references captured at exit time.                                                                                              |
+| `each([C...], cb)`                                               | Fires per tracked entity every tick. Implies `track`. One per system.                                                                                                                 |
+| `run(cb)`                                                        | Fires once per tick, `(now, delta)`.                                                                                                                                                  |
+| `interval(seconds)` / `rate(n[, source])` / `tickSource(source)` | Cadence control.                                                                                                                                                                      |
+| `orderBy([C...], compare)`                                       | Sorted membership refreshed when injected comparator data changes. Implies `track`.                                                                                                   |
+| `track()`                                                        | Expose `count`, `has`, iteration, `forEach` without `each`.                                                                                                                           |
+| `ignoreSource(query \| dsl)`                                     | Drop `update` events originating from matching systems; see [Queries](./queries-and-filters.md#silencing-feedback-ignoresource).                                                      |
+| `disable()` / `enable()`                                         | Pause / resume processing. Idempotent.                                                                                                                                                |
+| `destroy()`                                                      | Permanently remove the system (no `exit` callbacks).                                                                                                                                  |
+| `didTick` / `lastFireDelta`                                      | This frame's cadence result; ms accumulated into the last fire.                                                                                                                       |
+| `cadence` / `enabled`                                            | Read current cadence source and enabled state; see [Introspection](#introspection).                                                                                                   |
+| `callbacks` / `watched`                                          | Read registered callback kinds and update-watched component classes; see [Introspection](#introspection).                                                                             |
+| `world.pipeline`                                                 | Read systems in pipeline execution order; see [Introspection](#introspection).                                                                                                        |
+| `count` / `has(e)` / `belongs(e)` / iteration / `forEach`        | Shared query surface; see [Queries](./queries-and-filters.md#reading-a-query).                                                                                                        |
 
 `groupBy` is not available on systems — use `world.query(...).groupBy(...)`.

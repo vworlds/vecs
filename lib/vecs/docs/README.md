@@ -24,10 +24,10 @@ Read in this order the first time through:
      [execution-order, cadence, callback, and watched-component introspection](./systems.md#introspection) and
      [opt-in timing and run counts](./systems.md#measuring-systems).
    - [Queries and filters](./queries-and-filters.md) — the query DSL, live queries, one-shot
-     filters, grouped queries, `Bitset`.
+     filters, [grouped query types and live buckets](./queries-and-filters.md#grouped-queries-groupby), `Bitset`.
    - [Relationships](./relationships.md) — links, target creation and projection, ownership, hierarchy,
      cleanup cascades.
-   - [Modules](./modules.md) — packaging features, composition, scopes and module provenance, built-in modules.
+   - [Modules](./modules.md) — packaging features, composition, scopes, singleton values and resource teardown, built-in modules.
    - [Subtree snapshots](./snapshots.md) — capturing, restoring, and moving an entity forest
      between two worlds.
    - [Component reflection](./reflection.md) — member types, world-free `VecsStruct.of(C)`, wire fallback, and the `validate` /
@@ -50,24 +50,24 @@ For Node clients that need replicated Phaser poses, see [Headless clients](../..
 For physics integration, see the [post-step pose-change view](../../vecs-physics/docs/queries.md#pose-changes)
 after reading the execution-model and systems guides.
 
-| Guide                                              | Covers                                                                                                                  |
-| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| [getting-started.md](./getting-started.md)         | A runnable tutorial from `npm install` to a ticking world.                                                              |
-| [concepts.md](./concepts.md)                       | The core vocabulary and how the pieces relate, including the shared `Vec2` type.                                        |
-| [execution-model.md](./execution-model.md)         | `world.progress`, the 8 built-in phases, deferred commands, flush boundaries, event routing.                            |
-| [components.md](./components.md)                   | Component registration/provenance, definition reflection, hooks, traits, exclusivity, cleanup, aliases, and singletons. |
-| [entities.md](./entities.md)                       | Entity creation, mutation, relationship targets, lifecycle, disposal, deferred reads.                                   |
-| [systems.md](./systems.md)                         | `world.system`, callbacks, injection, ordering, cadence, introspection of callbacks and watches, and opt-in timing.     |
-| [queries-and-filters.md](./queries-and-filters.md) | `QueryDSL`, `Query`, `Filter`, `groupBy`, `ignoreSource`.                                                               |
-| [relationships.md](./relationships.md)             | Relationships, target creation, projection and ownership, hierarchy, traversal, and cleanup.                            |
-| [modules.md](./modules.md)                         | `Module<Config>`, `world.module`, `world.scope`, hierarchy provenance, built-in modules.                                |
-| [snapshots.md](./snapshots.md)                     | `snapshotSubtree`, `restoreSubtree`, `moveSubtree`, and `OnSnapshot` capture policies.                                  |
-| [reflection.md](./reflection.md)                   | Member types and metadata, `VecsStruct.of(C)`, wire fallback, `validate` / `normalize` hooks, `vecs_` static hooks.     |
-| [design-guide.md](./design-guide.md)               | Patterns, anti-patterns, and a Phaser render-layer case study.                                                          |
-| [diagrams.md](./diagrams.md)                       | Mermaid notation and copyable schema, instance, and systems templates for ECS designs.                                  |
-| [utilities.md](./utilities.md)                     | Public helper classes: `Events`, `ArrayMap`, `IterableArrayMap`, plus `Bitset` cross-ref.                               |
-| [glossary.md](./glossary.md)                       | ECS and vecs terminology.                                                                                               |
-| [testing.md](./testing.md)                         | Reference equality registration and safe JSON/assertion summaries.                                                      |
+| Guide                                              | Covers                                                                                                                       |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| [getting-started.md](./getting-started.md)         | A runnable tutorial from `npm install` to a ticking world.                                                                   |
+| [concepts.md](./concepts.md)                       | The core vocabulary and how the pieces relate, including the shared `Vec2` type.                                             |
+| [execution-model.md](./execution-model.md)         | `world.progress`, the 8 built-in phases, deferred commands, flush boundaries, event routing.                                 |
+| [components.md](./components.md)                   | Component registration/provenance, definition reflection, hooks, traits, exclusivity, cleanup, aliases, and singletons.      |
+| [entities.md](./entities.md)                       | Entity creation, mutation, relationship targets, lifecycle, disposal, deferred reads.                                        |
+| [systems.md](./systems.md)                         | `world.system`, callbacks, injection, ordering, cadence, introspection of callbacks and watches, and opt-in timing.          |
+| [queries-and-filters.md](./queries-and-filters.md) | `QueryDSL`, `Query`, `Filter`, `groupBy`, the `GroupedQuery` type, `ignoreSource`.                                           |
+| [relationships.md](./relationships.md)             | Relationships, target creation, projection and ownership, hierarchy, traversal, and cleanup.                                 |
+| [modules.md](./modules.md)                         | `Module<Config>`, `world.module`, `world.get/has`, resource teardown, `world.scope`, hierarchy provenance, built-in modules. |
+| [snapshots.md](./snapshots.md)                     | `snapshotSubtree`, `restoreSubtree`, `moveSubtree`, and `OnSnapshot` capture policies.                                       |
+| [reflection.md](./reflection.md)                   | Member types and metadata, `VecsStruct.of(C)`, wire fallback, `validate` / `normalize` hooks, `vecs_` static hooks.          |
+| [design-guide.md](./design-guide.md)               | Patterns, anti-patterns, and a Phaser render-layer case study.                                                               |
+| [diagrams.md](./diagrams.md)                       | Mermaid notation and copyable schema, instance, and systems templates for ECS designs.                                       |
+| [utilities.md](./utilities.md)                     | Public helper classes: `Events`, `ArrayMap`, `IterableArrayMap`, plus `Bitset` cross-ref.                                    |
+| [glossary.md](./glossary.md)                       | ECS and vecs terminology.                                                                                                    |
+| [testing.md](./testing.md)                         | Reference equality registration and safe JSON/assertion summaries.                                                           |
 
 Networking (wire encoding with `@wireType`, protocol component ordering, replication, RPCs, server
 sessions, and the client world) lives in the `@vworlds/vecs-wire`, `@vworlds/vecs-protocol`,
@@ -82,7 +82,7 @@ sessions, and the client world) lives in the `@vworlds/vecs-wire`, `@vworlds/vec
   `closeSession`, and exactly-once teardown.
 - [Idle keepalive gates](../../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate) —
   query membership, acknowledged content, and the replicated-state render clock.
-- [Client world](../../vecs-client/docs/client-world.md) — replication, render time,
+- [Client world](../../vecs-client/docs/client-world.md) — replication, read-only diff snapshots, render time,
   `invoke`/`listen`, and disposal.
 - [Browser client targets](../../vecs-mcp/docs/clients.md) — opt-in MCP access through
   the vecs connection, macrotask execution and replication caveats.

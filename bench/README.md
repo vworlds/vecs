@@ -18,6 +18,31 @@ callbacks fire every frame. Compare alternating builds with identical settings.
 `bench:release-check` includes timing and deterministic fingerprint rows for all
 three kinds.
 
+## Relationship edge updates
+
+Run `node --import ./bench/register-dist.mjs bench/edge-coalesce.ts` after building.
+It measures 1,000,000 add/remove pairs on one source with one synchronous watcher, after 100,000
+warmup pairs: immediate multi-target changes, deferred multi-target changes, and deferred
+exclusive replacements. `BENCH_DRAINS` and `BENCH_WARMUP_DRAINS` override those counts.
+Each `EDGE_RESULT` reports nanoseconds per pair/drain and update/edge-hook counts; edge hooks
+remain per edge even when deferred updates coalesce. Compare five alternating base/head rounds
+with identical loads using `BENCH_VECS_ROOT` for the base build.
+Pass `immediate`, `deferred` or `exclusive` as the final argument to isolate one mode for
+`node --cpu-prof`; omit it to run all three. Unknown modes fail rather than reporting an empty run.
+
+## Deferred edge bookkeeping
+
+Run `node --import ./bench/register-dist.mjs bench/pending-edges.ts` after building. It prices
+deferred `add(R, target)` per edge for 1,000 sources in one deferred scope: once with only the
+enqueue timed, and once including the drain. The `exclusive` mode retargets an `Exclusive`
+relationship across 16 cells; the `many` mode adds one fresh edge to a many-target relationship
+and removes it outside the timed window. Each enqueue records the command for pending-aware reads
+(`targets(R, { pending: true })`), so this benchmark bounds that cost. `PENDING_EDGES_RESULT`
+reports the median nanoseconds per edge after 750 warmup rounds of 3,000 measured rounds;
+`BENCH_SOURCES`, `BENCH_ROUNDS` and `BENCH_WARMUP_ROUNDS` override them. Pass `exclusive` or
+`many` to run one mode. Compare five alternating base/head rounds using `BENCH_VECS_ROOT` for the
+base build.
+
 ## Dead-reckoning eligibility
 
 For the physics-backed dead-reckoning eligibility measurement, run
@@ -245,9 +270,38 @@ The gap comes from V8's allocation-site pretenuring, not from extra work. Under
 the faster of the two. Neither the sector-tick benchmark nor the ECS microbenchmark, which create
 and destroy entities inside a longer-running process, shows the slowdown.
 
+## Client diff interpolation
+
+Run `node --import ./bench/register-dist.mjs bench/diff-buffer-pull.ts` after building.
+It prints microseconds per pull and per snapshot for 100, 500, 1,000, 2,000 and 4,000
+snapshots, using one position interpolator, a three-slot buffer and a new frame every
+other pull. Each size warms up for 200 pulls and measures 1,000. Frame construction
+is outside timing; the consumer's `snapshots` read is included. Set `BENCH_VECS_ROOT`
+to another built checkout for back-to-back comparison. Shared-host timings are noisy;
+compare the per-snapshot scaling, not an absolute threshold.
+
 ## Injected forEach setup
 
 Run `node --import ./bench/register-dist.mjs bench/foreach-inject.ts` after building. It times a
 one-entity `Query.forEach` with component injection against the bare callback form and prints
 `FOREACH_INJECT` with nanoseconds per call, their ratio and a checksum. The injected form caches
 its invoker per callback, so the figure left over is per-entity resolution, not per-call setup.
+
+## Component removal routing
+
+Run `node --expose-gc --import ./bench/register-dist.mjs bench/carrier-index.ts` to
+measure add-heavy and add/remove workloads, both with no query and with one direct
+component query. `CARRIER_INDEX` reports median nanoseconds per add and per operation
+over 100 batches of 10,000 entities after 20 warmup batches. Retained heap is the
+post-GC `heapUsed` delta for a separate 10,000-entity scene with eight components per
+entity (and, in the queried case, one query per component). Setup, assertions and GC
+are outside timing. Pin alternating before/after processes to the same CPU; use
+`BENCH_VECS_ROOT` to select saved baseline builds and report host load with results.
+
+Run `node --import ./bench/register-dist.mjs bench/remove-notify.ts` after building. It reports
+median nanoseconds per removal for no query, a storage-reading watched predicate, and an exclusive
+component swap (including the replacement add). Each scenario warms up for 20 batches and measures
+100 batches of 10,000 entities; setup/addition is outside the timed removal loop. Compare identical
+before/after runs on an idle host. `REMOVE_NOTIFY` rows include the scenario and batch counts.
+Pass `exclusive`, `predicate`, or `no-query` as the final argument to isolate one scenario for
+`node --cpu-prof` profiling; unknown scenario names fail rather than producing an empty run.

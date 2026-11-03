@@ -133,9 +133,17 @@ export function notifyComponentChanged(world: World, componentEid: EID, entity: 
  * Notify the term graph that `componentEid` was removed from `entity`.
  *
  * Routes to the `ComponentTerm` (membership exit) and world term (shape).
+ * Pass an already-resolved `componentTerm` to avoid another leaf lookup;
+ * `null` explicitly means the lookup found no component leaf. Omitting it
+ * preserves the ordinary lookup by `componentEid`.
  */
-export function notifyComponentRemoved(world: World, componentEid: EID, entity: Entity): void {
-  world._componentTerms.get(componentEid)?.componentRemoved(entity);
+export function notifyComponentRemoved(
+  world: World,
+  componentEid: EID,
+  entity: Entity,
+  componentTerm: ComponentTerm | null = world._componentTerms.get(componentEid) ?? null
+): void {
+  componentTerm?.componentRemoved(entity);
   world._worldTerm?.entityShapeChanged(entity);
 }
 
@@ -233,7 +241,11 @@ function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
  * Return the world's singleton `ComponentTerm` for `ceid`, creating it if
  * absent.
  */
-function getComponentTerm(world: World, ceid: EID, key: string): ComponentTerm {
+export function getComponentTerm(
+  world: World,
+  ceid: EID,
+  key = getDSLCacheKey(ceid, world)
+): ComponentTerm {
   let term = world._componentTerms.get(ceid);
   if (!term) {
     term = new ComponentTerm(world, key, ceid, (t) => destroyTerm(world, t));

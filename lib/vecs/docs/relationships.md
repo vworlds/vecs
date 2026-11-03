@@ -49,7 +49,7 @@ cannot maintain a field:
 - **A stored `Entity` dangles.** Reuse never makes it name another entity, because a destroyed
   `Entity` stays `destroyed`, but nothing clears the field when the entity dies. Writes through it
   are silently dropped, including `ensure` (see [mutating in place](./entities.md#getmut-and-ensure-mutating-in-place)).
-- **An edge is cleaned up for you.** When the target is destroyed, `onDeleteTarget` removes the edge
+- **An edge is cleaned up for you.** When the target is destroyed, the `OnDeleteTarget` policy removes the edge
   or destroys the source (see [Cleanup when a target dies](#cleanup-when-a-target-dies)). The
   reverse index (`children`), `target` and `parent` queries, `groupBy` and network replication work
   on edges only.
@@ -67,11 +67,42 @@ contact events), and hooks that run while an entity or an edge target is being d
 
 | Class           | Purpose                                                                                                                    |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `ChildOf`       | Exclusive parent/child hierarchy. `onDeleteTarget = Delete`: destroying a parent destroys its `ChildOf` children.          |
+| `ChildOf`       | Exclusive parent/child hierarchy. `(OnDeleteTarget, Delete)`: destroying a parent destroys its `ChildOf` children.         |
 | `DependsOn`     | Exclusive pipeline ordering: phases chain to each other and systems attach to phases through it.                           |
 | `SilenceSource` | Exclusive query silence domain; configured via [`ignoreSource`](./queries-and-filters.md#silencing-feedback-ignoresource). |
 
 `ChildOf` and `DependsOn` are also `Traversable`; all three built-ins above are `Exclusive`.
+
+## Companions: `With` and `Requires`
+
+`world.component(X).add(With, world.component(Y))` adds `Y`, or the same targets for edges, whenever
+`X` is added. It never removes `Y` when `X` leaves: `With` is inclusion, not requirement. See the
+[settled decision](../../../architecture/DECISIONS.md#with-adds-never-removes) and the
+[design guide](./design-guide.md#component-traits-policy-on-component-entities) for when to use it.
+
+`world.component(X).add(Requires, world.component(Y))` is the owning counterpart for plain
+components: it adds `Y` with `X`, and removing `X` from a live entity removes `Y` unless another
+present component still brings it. The full rules are in
+[Component traits](./components.md#component-traits-policy-on-component-entities).
+
+Both pairs are ordinary edges on the component entities, so a companion's bringers are its incoming
+edges: `world.component(Y).children(With)` and `world.component(Y).children(Requires)`. Declaring a
+pair needs no other bookkeeping, and tearing it down forgets the bringer. `isBroughtOn(companion,
+entity)` walks those two sets and reports whether `entity` carries one of them, which is the check
+`Requires` and `ClientWorld` use:
+
+```ts
+import { isBroughtOn, Requires, World } from "@vworlds/vecs";
+
+class Motion {}
+class DeadReckoned {}
+
+const world = new World();
+const motion = world.component(Motion);
+world.component(DeadReckoned).add(Requires, motion);
+const body = world.entity().add(DeadReckoned);
+isBroughtOn(motion, body); // true
+```
 
 ## Diagram examples
 
@@ -132,8 +163,16 @@ unit.remove(VisibleTo); // remove the component and every remaining edge
 `add(Relationship)` without a target is invalid. Targets must be live entities in the same world as
 the source. The `target` argument accepts any `ComponentRef` (registered class, numeric component
 id, or entity) and is resolved eagerly via `world.entity(target)`, so the target entity must
-already exist when the call is made. Removing a missing edge is a no-op; removing the final edge
-also removes the relationship component.
+already exist when the call is made. Adding an existing edge (including the current target of an
+`Exclusive` relationship), removing an absent edge, and removing an absent relationship are silent
+no-ops: no hook and no notification. Removing the final edge also removes the relationship component.
+
+Within one deferred drain, edge changes while the relationship remains present and `modified(Rel)`
+coalesce into one `update` per watcher, in either order. The update routes after queued mutations
+apply, so synchronous queries and replayed system callbacks see the committed edge set. First-edge
+entry and last-edge exit are unchanged; edge hooks and trait policies still run for each edge as its
+command applies. Outside deferred execution, each change routes immediately. Use
+[edge hooks](#edge-hooks) for per-edge detail rather than counting updates.
 
 A relationship subclass can still declare ordinary data fields:
 
@@ -147,12 +186,15 @@ source.set(WeightedLink, { weight: 10 });
 ```
 
 For relationships, `set` is **existing-only and data-only**. It updates ordinary fields on an
-attached relationship, but does nothing when the relationship is absent and ignores target-storage
-spellings. Edge changes must use `add` and `remove`; they never fire `onSet`.
+attached relationship, but does nothing when the relationship is absent. Edge changes must use `add`
+and `remove`; they never fire `onSet`. Targets live in a symbol-keyed slot that `Object.keys`, JSON
+and `structuredClone` skip, so `set` props, snapshots and the MCP printout see only data fields. Any
+field name is data, but naming one `target` or `targets` is discouraged because `entity.target(Rel)`
+and `entity.targets(Rel)` already use that vocabulary for edges.
 
 `attach`, `ensure`, and `getMut` reject relationship components because replacing or mutating an
 instance could bypass edge uniqueness, reverse indexes, and cleanup policies. Target storage is
-private: there is no public `target` or `targets` field to assign. The former `ensureTarget` and
+private: there is no target field on the instance to assign. The former `ensureTarget` and
 `onRetarget` APIs have been removed.
 
 `entity.childOf(parent)` is shorthand for `entity.add(ChildOf, parent)`. The `parent` property reads
@@ -241,10 +283,6 @@ each train's tail by following `children(TowedBy)` from the ship, so their
 only lets a container confirm its own queued coupling, `container.hasTarget(TowedBy, tail,
 { pending: true })`.
 
-Do not follow `add(R, target)` with `modified(R)`. The add already routes the relationship's
-notification, so `modified(R)` makes a watching system fire twice for one edge (see
-[Repeated writes in one tick](./design-guide.md)).
-
 ## OneOf target constraint
 
 Add the `OneOf` pair-form trait to constrain every target of a relationship to be a direct
@@ -282,8 +320,8 @@ world.entity().add(Alignment, weather); // throws: weather is not a child of Ali
 ```
 
 `OneOf` checks `target.parent === parentEntity`, so only a **direct** `ChildOf` edge satisfies
-the constraint — transitive descendants are rejected. The check runs in the relationship's
-`targetPolicyAdd` hook, so in deferred mode an invalid target surfaces from `flush()` /
+the constraint — transitive descendants are rejected. The check runs in a `targetAdd` handler
+the trait registers on the relationship, so in deferred mode an invalid target surfaces from `flush()` /
 `progress()` rather than from the `add` call site. A thrown edge leaves the world partially
 mutated; treat it as a programming error and discard the world (same contract as other
 trait-invariant violations).
@@ -343,8 +381,9 @@ edge is destroyed before the public hook runs on every path. A dying end takes n
 
 Register handlers with `on("targetAdd", handler)` and `on("targetRemove", handler)`; remove them
 with `off(event, handler)`. Multiple handlers may be registered for the same event and fire in
-registration order. Framework traits install separate internal `targetPolicyAdd` /
-`targetPolicyRemove` policies, so adding or removing a trait does not replace these public hooks.
+registration order, after the built-in traits' handlers. Adding a trait adds its handlers ahead of
+yours rather than replacing them. When a trait handler removes or replaces the edge it was called
+for, your handlers for that edge are skipped.
 
 ## Owned targets
 
@@ -384,18 +423,25 @@ write and no stale reference to guard.
 ## Cleanup when a target dies
 
 What happens to each incoming edge when its target entity is destroyed is governed by the
-relationship's `meta.onDeleteTarget`:
+relationship's `OnDeleteTarget` trait. Its target is the policy:
 
-| Policy                 | Meaning                                                                                    |
-| ---------------------- | ------------------------------------------------------------------------------------------ |
-| `CleanupPolicy.Remove` | Default. Remove only the edge to the destroyed target; other targets remain attached.      |
-| `CleanupPolicy.Delete` | Destroy each source entity that has an edge to the destroyed target through this relation. |
+| Policy   | Meaning                                                                                    |
+| -------- | ------------------------------------------------------------------------------------------ |
+| `Remove` | Default. Remove only the edge to the destroyed target; other targets remain attached.      |
+| `Delete` | Destroy each source entity that has an edge to the destroyed target through this relation. |
 
 ```ts
-import { CleanupPolicy } from "@vworlds/vecs";
+import { Delete, OnDeleteTarget } from "@vworlds/vecs";
 
-world.component(MyRel).meta.onDeleteTarget = CleanupPolicy.Delete;
+world.component(MyRel).add(OnDeleteTarget, Delete);
 ```
+
+`OnDeleteTarget` is an exclusive pair-form [trait](./design-guide.md#component-traits-policy-on-component-entities): adding
+another policy replaces the current one, removing the edge restores `Remove`, and `Throw` or any
+other target throws. Because the policy is a trait, reflection sees it:
+`world.component(MyRel).target(OnDeleteTarget)` names the policy, and `vecs-mcp` lists it among the
+relationship's traits. Unlike the other relationship traits, it can change while the relationship
+is in use; the next destroyed target follows the new policy.
 
 `ChildOf` ships with `Delete`, so destroying a parent recursively destroys its subtree:
 
@@ -408,8 +454,8 @@ With the default `Remove`, cleanup follows normal per-edge semantics: `onTargetR
 destroyed target, and the relationship component remains if another edge survives. Removing the
 last edge also removes the component.
 
-`onDeleteTarget` is independent from `onDelete`: `onDeleteTarget` applies when a relationship
-**target** is destroyed; `onDelete` applies when the relationship **component entity itself** is
+`OnDeleteTarget` is independent from `OnDelete`: `OnDeleteTarget` applies when a relationship
+**target** is destroyed; `OnDelete` applies when the relationship **component entity itself** is
 destroyed (see
 [Components — cleanup policies](./components.md#cleanup-policies-destroying-a-component-entity)).
 
@@ -502,8 +548,9 @@ payload gets its own ghost. List `ChildOf` or a custom relationship explicitly i
 | `world.component(R).on("targetAdd", handler)`    | Register a `(source, relationship, target)` edge-add handler.                                                                                                            |
 | `world.component(R).on("targetRemove", handler)` | Register a `(source, relationship, target)` edge-remove handler.                                                                                                         |
 | `world.component(R).add(OwnedTarget)`            | Adopt and destroy explicit targets; requires `Exclusive`.                                                                                                                |
-| `meta.onDeleteTarget`                            | `Remove` (default) per edge or `Delete` the source when a target dies.                                                                                                   |
+| `world.component(R).add(OnDeleteTarget, policy)` | `Remove` (default) per edge or `Delete` the source when a target dies.                                                                                                   |
 | `world.component(R).add(Traversable)`            | Enable depth tracking for cascade ordering; requires `Exclusive`.                                                                                                        |
+| `isBroughtOn(companion, entity)`                 | Whether `entity` carries a plain `With` or `Requires` bringer of `companion`, walking `companion.children(With)` and `children(Requires)`.                               |
 | `{ target: [R, q] }` / `{ parent: q }`           | Reactive existential DSL operators through relationship targets.                                                                                                         |
 | `{ source: [R, q] }` / `{ children: q }`         | Filter-only DSL operators down the reverse index.                                                                                                                        |
 | `{ target: [R, projection] }`                    | Inject projections from one current target; selection is unspecified for non-exclusive relations.                                                                        |

@@ -193,10 +193,15 @@ export abstract class Term implements TermConsumer {
     if (this._entities.has(entity)) {
       return;
     }
+    this._entities.add(entity);
+    this._propagateAdded(entity);
+  }
+
+  /** @internal Deliver entry after insertion, allowing component hooks between the two steps. */
+  protected _propagateAdded(entity: Entity): void {
     const world = this.world;
     world._termEmitDepth++;
     try {
-      this._entities.add(entity);
       this._emit(TermEventKind.Enter, entity);
     } finally {
       world._termEmitDepth--;

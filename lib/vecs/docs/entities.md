@@ -190,7 +190,7 @@ applies incoming relationship cleanup policies (see
 [Relationships](./relationships.md#cleanup-when-a-target-dies)). After destruction the entity must
 not be used.
 
-If the entity is itself in use as a component key, `destroy` honors `meta.onDelete` — by default
+If the entity is itself in use as a component key, `destroy` honors its `OnDelete` policy — by default
 it throws while carriers remain ([Components — cleanup policies](./components.md#cleanup-policies-destroying-a-component-entity)).
 
 A `destroy()` thrown synchronously (a `Throw`-policy component entity still in use) leaves the world
@@ -234,7 +234,12 @@ Disposal uses two passes through the existing entity destroy path. Every `remove
 entities already destroyed by a hook or cascade are skipped. In **pass 1**, every application entity
 uses ordinary [cleanup policies and cascades](./relationships.md#cleanup-when-a-target-dies).
 This includes plain entities created inside module scopes, even though their parent is infrastructure.
-Application hook-generated commands settle before pass 2 starts.
+Application hook-generated commands settle before the module step starts.
+
+**Module step:** remove every module's own singleton value, in reverse installation order,
+without destroying its definition entity. Nested modules precede their installing parent.
+Their [`remove` hooks release module resources](./modules.md#releasing-resources) while
+earlier modules' values and all world infrastructure remain available.
 
 **Pass 2** destroys remaining infrastructure (`lib/vecs/src/world/world.disposal.ts`):
 
@@ -245,8 +250,8 @@ Application hook-generated commands settle before pass 2 starts.
 | Phase entities                | They carry the `Phase` component.                             |
 
 Data stored on component entities (including singletons set with `world.set`) is removed once,
-after queued application cleanup. Bind module-owned resources to that data with `remove` hooks;
-you do not need a separate disposal callback.
+after queued application cleanup and the module step. Module values have already been removed,
+so destroying their definition entities does not re-fire their hooks.
 
 During pass 2 only, cleanup policies are suspended. `ChildOf`/`OwnedTarget` do not cascade;
 children are destroyed explicitly in the pass. A component still carried by another entity is removed
@@ -318,7 +323,7 @@ is reset in `finally`. Successful disposal leaves nothing, including component-c
 | `childOf(parent)`                              | Shorthand for `add(ChildOf, parent)`. Returns `this`.                                                                                                                 |
 | `parent` / `parent = p`                        | Getter/setter for the built-in `ChildOf` target; assigning `undefined` removes `ChildOf`.                                                                             |
 | `destroyed` / `alive`                          | `true` when the entity has been / has not been destroyed (marked for deletion).                                                                                       |
-| `on(event, handler, insert?)`                  | Register a handler for a hook event on this component's meta. `insert` defaults to `false` (append); `true` prepends. Returns `this`.                                 |
+| `on(event, handler)`                           | Register a handler for a hook event on this component's meta, appended after the handlers already registered. Returns `this`.                                         |
 | `off(event, handler)`                          | Remove a previously-registered handler by reference. Idempotent. Returns `this`.                                                                                      |
 | `toString()`                                   | Returns `"EntityN"`.                                                                                                                                                  |
 | `toJSON()`                                     | Returns the [diagnostic summary](#identity-and-diagnostic-summaries), without component data.                                                                         |

@@ -136,6 +136,16 @@ export class Relationships extends Queries {
     meta: ComponentMeta,
     relationship: Relationship
   ): void {
+    if (this.world.deferred) {
+      // Edge commands already validated the relationship. Dirty pairs need no
+      // data-write bookkeeping or producer lookup on subsequent edge changes.
+      if (this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
+        return;
+      }
+      this._dirtyComponentBitmask.addBit(meta.bitPtr);
+      this.world._enqueueRelationshipUpdate(this, meta, this.world._routingSource);
+      return;
+    }
     this.world._notifyComponentChanged(meta.eid, this);
     this._routeModified(meta.eid, relationship);
   }

@@ -21,10 +21,10 @@ function probeDuringDrain(w: World, read: () => unknown): unknown[] {
 }
 
 describe("add(Rel, target) notification routing", () => {
-  it("routes one update per add, so a following modified(Rel) routes a second", () => {
+  it("coalesces add(Rel, t) and a following modified(Rel) into one update", () => {
     const { w, source, a, b } = setup();
     const update = vi.fn();
-    w.system("watch").with(Rejected).update(Rejected, update);
+    w.system("watch").with(Rejected).update({ watch: Rejected }, update);
     source.add(Rejected, a);
     w.progress(0, 0);
 
@@ -39,7 +39,7 @@ describe("add(Rel, target) notification routing", () => {
       source.modified(Rejected);
     });
     w.progress(0, 0);
-    expect(update).toHaveBeenCalledTimes(2);
+    expect(update).toHaveBeenCalledTimes(1);
   });
 });
 

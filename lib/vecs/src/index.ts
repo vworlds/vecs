@@ -1,6 +1,6 @@
 export { System, type SystemCallbackKind, type SystemQuery } from "./system.js";
 export type { Vec2 } from "./geometry.js";
-export { Query, GroupedQuery, Group } from "./query/index.js";
+export { Query, type GroupedQuery, Group } from "./query/index.js";
 export type { EntityTestFunc, MaybeRequired, QueryDSL } from "./dsl.js";
 export { Delta, Iter, Now } from "./inject.js";
 export type {
@@ -27,14 +27,20 @@ export { Filter } from "./filter.js";
 export { ComponentDef, Trait } from "./component_def.js";
 export {
   ChildOf,
+  Delete,
   DependsOn,
   Exclusive,
+  isBroughtOn,
+  OnDelete,
+  OnDeleteTarget,
   OneOf,
   OwnedTarget,
+  Remove,
+  Requires,
   SilenceSource,
+  Throw,
 } from "./modules/relationships.js";
 export {
-  CleanupPolicy,
   Component,
   Implements,
   Relationship,

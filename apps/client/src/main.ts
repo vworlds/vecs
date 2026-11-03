@@ -243,21 +243,26 @@ async function connect(scene: DemoScene): Promise<void> {
 }
 
 async function createSession(scene: DemoScene): Promise<Session> {
-  const world = await ClientWorld.connectDgram({
-    ...connectionOptions,
+  const world = new ClientWorld({
     interpolators: phaserInterpolators(),
     localEntityIdStart: LOCAL_ENTITY_START,
     networkComponents: phaserNetworkComponents,
   });
-  if (import.meta.env.VITE_MCP === "1" && new URLSearchParams(location.search).has("mcp")) {
-    const { installBridge } = await import("@vworlds/vecs-mcp/client");
-    installBridge(world);
+  try {
+    if (import.meta.env.VITE_MCP === "1" && new URLSearchParams(location.search).has("mcp")) {
+      const { installBridge } = await import("@vworlds/vecs-mcp/client");
+      installBridge(world);
+    }
+    world.module(PhaserRenderModule, {
+      catalog: scene.catalog,
+      pixelsPerMeter: PIXELS_PER_METER,
+      scene,
+    });
+    await world.connectDgram(connectionOptions);
+  } catch (err: unknown) {
+    world.dispose();
+    throw err;
   }
-  world.module(PhaserRenderModule, {
-    catalog: scene.catalog,
-    pixelsPerMeter: PIXELS_PER_METER,
-    scene,
-  });
 
   return { scene, world };
 }

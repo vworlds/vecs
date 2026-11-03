@@ -1,13 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
   ChildOf,
-  CleanupPolicy,
+  ComponentDef,
+  Delete,
   DependsOn,
   type Entity,
   Exclusive,
+  isBroughtOn,
+  OnDelete,
+  OnDeleteTarget,
   OwnedTarget,
   Relationship,
+  Remove,
+  Requires,
   SilenceSource,
+  Throw,
+  Trait,
   Traversable,
   With,
   World,
@@ -20,6 +28,9 @@ class Helmet {}
 class Armor {}
 class WornBy extends Relationship {}
 class OwnedBy extends Relationship {}
+class Visor {}
+class Plume {}
+class InRoom extends Relationship {}
 
 function depthOf(w: World, entity: Entity): number | undefined {
   return w.entity(ParentOf).get(Traversable)!.depths.get(entity);
@@ -70,7 +81,7 @@ describe("RelationshipsModule", () => {
       "Traversable can only be added to a Relationship component"
     );
     // Invariant violations are programming errors: the trait component is stored
-    // before _onPolicyAdd throws, leaving the world partially mutated. Do not
+    // before its trait `add` handler throws, leaving the world partially mutated. Do not
     // assert post-throw state — discard the world instead.
   });
 
@@ -82,7 +93,7 @@ describe("RelationshipsModule", () => {
     const second = new World();
     const traversable = second.component(ParentOf).add(Exclusive).add(Traversable);
     expect(() => traversable.remove(Exclusive)).toThrow(/dependent relationship trait/);
-    // The removal runs before _onPolicyRemove throws, leaving the world without
+    // The removal runs before the trait `remove` handler throws, leaving the world without
     // Exclusive but still carrying the dependent trait. Discard the world.
   });
 
@@ -102,7 +113,7 @@ describe("RelationshipsModule", () => {
     const child = w.entity().add(ParentOf, parent);
 
     // attach-swapping the unique framework trait data instance is irrevocable:
-    // _attach fires _onPolicyRemove on the existing instance before storing
+    // _attach fires `remove` on the existing instance before storing
     // the replacement, so the irrevocability guard throws. The world is left
     // partially mutated and must be discarded — same contract as any other
     // trait-invariant violation.
@@ -116,7 +127,7 @@ describe("RelationshipsModule", () => {
   it("throws mid-destroy when component deletion hits a dependent-trait guard (world is unusable after)", () => {
     const w = new World();
     const exclusive = w.component(Exclusive);
-    exclusive.meta.onDelete = CleanupPolicy.Remove;
+    exclusive.add(OnDelete, Remove);
 
     expect(() => exclusive.destroy()).toThrow(/dependent relationship trait/);
     // A throw during _destroy is fatal: the entity is partially torn down and
@@ -128,8 +139,8 @@ describe("RelationshipsModule", () => {
     w.component(Inventory);
     // Trait-invariant violations must surface at flush time, not be silently
     // swallowed by the deferred queue. Previously _validateAdd ran pre-mutation
-    // and never fired for enqueued ops; the checks now live in _onPolicyAdd,
-    // which executes inside the command queue drain.
+    // and never fired for enqueued ops; the checks now live in the trait `add`
+    // handler, which executes inside the command queue drain.
     w.beginDefer();
     expect(() => w.component(Inventory).add(OwnedTarget)).not.toThrow();
     expect(w.component(Inventory).has(OwnedTarget)).toBe(false);
@@ -191,7 +202,7 @@ describe("RelationshipsModule", () => {
       "OwnedTarget cannot be removed once added"
     );
     // The trait component is already detached from the entity map before
-    // _onPolicyRemove throws, leaving the world partially mutated. Discard it.
+    // the trait `remove` handler throws, leaving the world partially mutated. Discard it.
     void relationship;
   });
 
@@ -202,7 +213,7 @@ describe("RelationshipsModule", () => {
     expect(() => relationship.attach(new OwnedTarget())).toThrow(
       "OwnedTarget cannot be removed once added"
     );
-    // _attach fires _onPolicyRemove on the existing instance; same irrevocability
+    // _attach fires `remove` on the existing instance; same irrevocability
     // guard applies. World is unusable; discard it.
     void relationship;
   });
@@ -225,6 +236,37 @@ describe("RelationshipsModule", () => {
     parent.remove(ParentOf);
     expect(depthOf(w, parent)).toBeUndefined();
     expect(depthOf(w, child)).toBe(1);
+  });
+
+  it("runs application targetAdd handlers after the Traversable depth handler", () => {
+    const w = new World();
+    const root = w.entity();
+    const parent = w.entity().add(ChildOf, root);
+    const depths = w.entity(ChildOf).get(Traversable)!.depths;
+    const seen: (number | undefined)[] = [];
+    w.component(ChildOf).on("targetAdd", (source) => {
+      seen.push(depths.get(source));
+    });
+
+    w.entity().add(ChildOf, parent);
+
+    expect(seen).toEqual([2]);
+  });
+
+  it("runs trait handlers before application handlers registered earlier", () => {
+    const w = new World();
+    const seen: (number | undefined)[] = [];
+    const relationship = w
+      .component(ParentOf)
+      .on("targetAdd", (source) => seen.push(depthOf(w, source)))
+      .add(Exclusive)
+      .add(Traversable);
+    const root = w.entity();
+
+    w.entity().add(ParentOf, root);
+
+    expect(seen).toEqual([1]);
+    void relationship;
   });
 
   it("backfills traversable relationships configured after edges exist", () => {
@@ -267,10 +309,9 @@ describe("RelationshipsModule", () => {
     expect(owned.parent).toBe(player);
     expect(depthOf(w, child)).toBe(1);
 
-    // Teardown bypasses _onPolicyRemove (Entity._destroy routes non-relationship
-    // components through the else branch at entity.lifecycle.ts and relationships
-    // through _detachRelationship, neither of which calls _onPolicyRemove), so the
-    // irrevocability guards never fire during world destruction.
+    // Entity._destroy fires only the application `remove` handlers, not the
+    // trait ones, so the irrevocability guards never fire during world
+    // destruction.
     expect(() => w.clearAllEntities()).not.toThrow();
 
     // Everything is gone, including the trait-carrying component entities.
@@ -326,8 +367,8 @@ describe("RelationshipsModule", () => {
       const e = w.entity();
 
       e.add(Helmet);
-      // Re-adding a plain component is a set-op: it does not re-fire _onPolicyAdd
-      // (existing=true branch at entity.components.ts:772), so Y is not re-added.
+      // Re-adding a plain component is a set-op: it does not re-fire `add`, so Y
+      // is not re-added.
       expect(() => e.add(Helmet)).not.toThrow();
       expect(e.has(Armor)).toBe(true);
     });
@@ -396,12 +437,298 @@ describe("RelationshipsModule", () => {
       const e = w.entity().add(WornBy, target);
       expect(e.hasTarget(OwnedBy, target)).toBe(true);
 
-      // _detachRelationship fires _onTargetPolicyRemove during teardown, but
+      // _detachRelationship fires `targetRemove` during teardown, but
       // the source is already marked destroyed by then, so the With
       // irrevocability guard skips the throw (matching the teardown contract
       // documented at relationships.ts:40-44).
       expect(() => w.clearAllEntities()).not.toThrow();
       expect(w.entities.size).toBe(0);
+    });
+  });
+
+  describe("Requires trait", () => {
+    function setup(): { w: World; armor: Entity } {
+      const w = new World();
+      const armor = w.component(Armor);
+      w.component(Helmet).add(Requires, armor);
+      return { w, armor };
+    }
+
+    it("adds the companion when the bringer is added, keeping one already there", () => {
+      const { w } = setup();
+
+      const fresh = w.entity().add(Helmet);
+      const worn = w.entity().set(Armor, {});
+      const armor = worn.get(Armor);
+      worn.add(Helmet);
+
+      expect(fresh.has(Armor)).toBe(true);
+      expect(worn.get(Armor)).toBe(armor);
+    });
+
+    it("removes the companion with its only bringer", () => {
+      const { w } = setup();
+      const removed: number[] = [];
+      w.component(Armor).on("remove", (entity) => removed.push(entity.eid));
+      const e = w.entity().add(Helmet);
+
+      e.remove(Helmet);
+
+      expect(e.has(Helmet)).toBe(false);
+      expect(e.has(Armor)).toBe(false);
+      expect(removed).toEqual([e.eid]);
+    });
+
+    it("removes a companion the entity held before the bringer arrived", () => {
+      const { w } = setup();
+      const e = w.entity().add(Armor).add(Helmet);
+
+      e.remove(Helmet);
+
+      expect(e.has(Armor)).toBe(false);
+    });
+
+    it("brings the companion back when the bringer is added again", () => {
+      const { w } = setup();
+      const e = w.entity().add(Helmet);
+
+      e.remove(Helmet);
+      e.add(Helmet);
+
+      expect(e.has(Helmet)).toBe(true);
+      expect(e.has(Armor)).toBe(true);
+    });
+
+    it("keeps the companion while another bringer, through With, is present", () => {
+      const { w, armor } = setup();
+      w.component(Visor).add(With, armor);
+      const e = w.entity().add(Helmet).add(Visor);
+
+      e.remove(Helmet);
+      expect(e.has(Armor)).toBe(true);
+
+      e.remove(Visor);
+      expect(e.has(Armor)).toBe(true); // With never removes its companion
+    });
+
+    it("keeps the companion while another Requires bringer is present, and removes it with the last", () => {
+      const { w, armor } = setup();
+      w.component(Visor).add(Requires, armor);
+      const e = w.entity().add(Helmet).add(Visor);
+
+      e.remove(Visor);
+      expect(e.has(Armor)).toBe(true);
+
+      e.remove(Helmet);
+      expect(e.has(Armor)).toBe(false);
+    });
+
+    it("cascades through a companion that itself requires another", () => {
+      const { w } = setup();
+      w.component(Armor).add(Requires, w.component(Plume));
+      const e = w.entity().add(Helmet);
+      expect(e.has(Plume)).toBe(true);
+
+      e.remove(Helmet);
+
+      expect(e.has(Armor)).toBe(false);
+      expect(e.has(Plume)).toBe(false);
+    });
+
+    it("keeps the companion when attach replaces the bringer", () => {
+      const { w } = setup();
+      const e = w.entity().add(Helmet);
+
+      e.attach(new Helmet());
+
+      expect(e.has(Armor)).toBe(true);
+    });
+
+    it("does nothing extra on destroy: each component is removed once", () => {
+      const { w } = setup();
+      const removed: string[] = [];
+      w.component(Helmet).on("remove", () => removed.push("Helmet"));
+      w.component(Armor).on("remove", () => removed.push("Armor"));
+      const e = w.entity().add(Helmet);
+
+      e.destroy();
+
+      expect(e.destroyed).toBe(true);
+      expect(removed.sort()).toEqual(["Armor", "Helmet"]);
+    });
+
+    it("removes the companion when a system removes the bringer, at the flush", () => {
+      const { w } = setup();
+      const e = w.entity().add(Helmet);
+      const seen: boolean[] = [];
+      w.system("unequip").run(() => {
+        e.remove(Helmet);
+        seen.push(e.has(Armor));
+      });
+
+      w.progress(0, 0);
+
+      expect(seen).toEqual([true]);
+      expect(e.has(Helmet)).toBe(false);
+      expect(e.has(Armor)).toBe(false);
+    });
+
+    it("keeps the companion when a system removes and re-adds the bringer in one flush", () => {
+      const { w } = setup();
+      const e = w.entity().add(Helmet);
+      w.system("swap").run(() => {
+        e.remove(Helmet);
+        e.add(Helmet);
+      });
+
+      w.progress(0, 0);
+
+      expect(e.has(Helmet)).toBe(true);
+      expect(e.has(Armor)).toBe(true);
+    });
+
+    it("finds its bringers, and With's, in the companion's incoming edges", () => {
+      const { w, armor } = setup();
+      const helmet = w.component(Helmet);
+      const visor = w.component(Visor).add(With, armor);
+      const e = w.entity().add(Visor);
+
+      expect([...armor.children(Requires)]).toEqual([helmet]);
+      expect([...armor.children(With)]).toEqual([visor]);
+      expect(isBroughtOn(armor, e)).toBe(true);
+      expect(isBroughtOn(armor, w.entity().add(Armor))).toBe(false);
+      expect(isBroughtOn(visor, e)).toBe(false);
+    });
+
+    it("forgets a bringer when its pair is torn down, with no bookkeeping of its own", () => {
+      const { w, armor } = setup();
+      const helmet = w.component(Helmet);
+      const visor = w.component(Visor).add(With, armor);
+
+      helmet.destroy();
+      visor.destroy();
+
+      expect(armor.children(Requires).size).toBe(0);
+      expect(armor.children(With).size).toBe(0);
+      expect(isBroughtOn(armor, w.entity().add(Armor))).toBe(false);
+    });
+
+    it("never counts relationship bringers", () => {
+      const w = new World();
+      const ownedBy = w.component(OwnedBy);
+      w.component(WornBy).add(With, ownedBy);
+      const e = w.entity().add(WornBy, w.entity());
+
+      expect(isBroughtOn(ownedBy, e)).toBe(false);
+    });
+
+    it("rejects relationships on either side", () => {
+      const w = new World();
+      expect(() => w.component(WornBy).add(Requires, w.component(OwnedBy))).toThrow(
+        "both be plain components"
+      );
+      // World partially mutated; discard it.
+    });
+
+    it("rejects being attached while the bringer is already in use", () => {
+      const w = new World();
+      const helmet = w.component(Helmet);
+      w.entity().add(Helmet);
+
+      expect(() => helmet.add(Requires, w.component(Armor))).toThrow("in use");
+      // World partially mutated; discard it.
+    });
+
+    it("rejects removing Requires once attached (irrevocable)", () => {
+      const { w, armor } = setup();
+
+      expect(() => w.component(Helmet).remove(Requires, armor)).toThrow(
+        "Requires cannot be removed once added"
+      );
+      // World partially mutated; discard it.
+    });
+
+    it("clearAllEntities tears down worlds with Requires configured and in use", () => {
+      const { w } = setup();
+      w.entity().add(Helmet);
+
+      expect(() => w.clearAllEntities()).not.toThrow();
+      expect(w.entities.size).toBe(0);
+    });
+  });
+
+  describe("cleanup policy traits", () => {
+    it("declares OnDelete and OnDeleteTarget as traits and gives ChildOf (OnDeleteTarget, Delete)", () => {
+      const w = new World();
+      const traits = w.query("Traits").with(ComponentDef, Trait).build();
+
+      expect(traits.has(w.component(OnDelete))).toBe(true);
+      expect(traits.has(w.component(OnDeleteTarget))).toBe(true);
+      expect(traits.has(w.component(Delete))).toBe(false);
+      expect(w.component(ChildOf).targets(OnDeleteTarget)).toEqual([w.component(Delete)]);
+      w.dispose();
+    });
+
+    it("cascades a target's destruction to its sources under (OnDeleteTarget, Delete)", () => {
+      const w = new World();
+      w.component(InRoom).add(OnDeleteTarget, Delete);
+      const room = w.entity();
+      const lamp = w.entity().add(InRoom, room);
+
+      room.destroy();
+
+      expect(lamp.destroyed).toBe(true);
+    });
+
+    it("replaces the policy on a second add and restores Remove when the edge is removed", () => {
+      const w = new World();
+      const inRoom = w.component(InRoom).add(OnDeleteTarget, Delete);
+      inRoom.add(OnDeleteTarget, Remove);
+      expect(inRoom.targets(OnDeleteTarget)).toEqual([w.component(Remove)]);
+
+      const first = w.entity();
+      const lamp = w.entity().add(InRoom, first);
+      first.destroy();
+      expect(lamp.destroyed).toBe(false);
+      expect(lamp.has(InRoom)).toBe(false);
+
+      inRoom.add(OnDeleteTarget, Delete);
+      inRoom.remove(OnDeleteTarget, Delete);
+      const second = w.entity();
+      lamp.add(InRoom, second);
+      second.destroy();
+      expect(lamp.destroyed).toBe(false);
+      expect(lamp.has(InRoom)).toBe(false);
+    });
+
+    it("applies OnDelete to carriers and restores Throw when the edge is removed", () => {
+      const w = new World();
+      const helmet = w.component(Helmet).add(OnDelete, Delete);
+      const wearer = w.entity().add(Helmet);
+      helmet.destroy();
+      expect(wearer.destroyed).toBe(true);
+
+      const armor = w.component(Armor).add(OnDelete, Remove);
+      armor.remove(OnDelete, Remove);
+      w.entity().add(Armor);
+      expect(() => armor.destroy()).toThrow(/component eid is still in use/);
+    });
+
+    it("rejects Throw, a non-policy target and a non-relationship carrier for OnDeleteTarget", () => {
+      const first = new World();
+      expect(() => first.component(InRoom).add(OnDeleteTarget, Throw)).toThrow(
+        "OnDeleteTarget accepts Remove or Delete, not Throw"
+      );
+
+      const second = new World();
+      const stranger = second.entity();
+      expect(() => second.component(InRoom).add(OnDeleteTarget, stranger)).toThrow(/OneOf: target/);
+
+      const third = new World();
+      third.component(NotRelationship);
+      expect(() => third.component(NotRelationship).add(OnDeleteTarget, Delete)).toThrow(
+        "OnDeleteTarget can only be added to a Relationship component"
+      );
     });
   });
 });

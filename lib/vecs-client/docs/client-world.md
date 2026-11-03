@@ -14,6 +14,7 @@ also knows when to let go of all of it.
 - Which server frame the world renders, and how to put client-computed state on the same timeline.
 - How to call a server RPC and answer server calls.
 - How `dispose` tears a world down and why pending calls must be rejected.
+- When to reuse a world across a switch and when to replace it.
 - What changes after disposal.
 - What the client does when it cannot decode or accept a frame, a diff or a snapshot from the
   server.
@@ -24,24 +25,27 @@ In browsers, query compilation and `@wireType` codecs require `'unsafe-eval'`; s
 policy note](../../vecs/docs/queries-and-filters.md#filters-one-shot-scans) and [wire codec policy
 note](../../vecs-wire/README.md#content-security-policy).
 
-Either build the world with a socket or let `connectDgram` do both. The world installs its own
-`Pull` and `Apply` systems in the `ON_LOAD` phase, so a normal `progress()` loop applies everything
-that has arrived.
+Construct the world with its world options, install your modules and listeners, then connect it
+with `connectDgram`. The world installs its own `Pull` and `Apply` systems in the `ON_LOAD` phase,
+so a normal `progress()` loop applies everything that has arrived.
 
 ```ts
 import { ClientWorld, interpolatePosition } from "@vworlds/vecs-client";
 
-const world = await ClientWorld.connectDgram({
-  host: "localhost",
-  port: 8080,
-  worldName: "arena",
+const world = new ClientWorld({
   networkComponents: [Position],
   interpolators: [[Position, interpolatePosition]],
 });
+world.module(GameModule, { scene });
+await world.connectDgram({ host: "localhost", port: 8080, worldName: "arena" });
 
 // per frame, from your render loop
 world.progress(performance.now(), 16);
 ```
+
+Install modules before connecting rather than after: attaching starts the ack timer, so work done
+after it, such as a first load that builds painters and caches, runs while the server already waits
+for acks.
 
 To drive a world yourself instead — in a test, or behind your own loop — hand it a `VecsSocket`
 directly with `attachSocket` and call `apply(now)` when you want buffered frames applied.
@@ -49,13 +53,46 @@ directly with `attachSocket` and call `apply(now)` when you want buffered frames
 Only attach a socket that is already **connected**. `attachSocket` (and the `socket` option) starts
 the ack timer, and an ack the transport rejects because it is not ready, such as dgram's
 `DATA_CHANNEL_NOT_CREATED` before the data channel opens, counts as a failed send and tears the
-world down as a disconnect. `connectDgram` therefore builds the world without a socket, awaits
-`connect()`, and only then attaches; if `connect()` rejects, it disposes the world, closes the
-socket, and rethrows. The client cannot instead wait for the first server frame before acking: the
+world down as a disconnect. `connectDgram` therefore awaits `connect()` and only then attaches. The
+client cannot instead wait for the first server frame before acking: the
 server sends nothing before a session has a baseline to acknowledge if its diff is empty and it has
 no RPC traffic, even with keepalives enabled, and it closes sessions
 that stay silent past `disconnectGraceMs`, so a client that withheld its first ack could be
 dropped, or could never deliver an early `invoke`.
+
+### Failure and cancellation
+
+`connectDgram` connects a world you own, so it never disposes it. If `connect()` rejects, it closes
+the socket, leaves the world unattached, and rethrows: retry on the same world or dispose it. Pass
+`signal` to cancel a connection in progress:
+
+```ts
+const controller = new AbortController();
+
+try {
+  await world.connectDgram({ host, port, worldName: "arena", signal: controller.signal });
+} catch (error) {
+  world.dispose(); // or keep the world and call connectDgram again
+  throw error;
+}
+```
+
+Aborting before `connectDgram` settles closes the socket and rejects with `signal.reason`; a signal
+already aborted on entry rejects before creating a socket. An abort after it resolves does nothing:
+`close()` or `dispose()` the world instead. `connectDgram` also rejects, without creating a socket,
+on a disposed world, on a connected one, and while another `connectDgram` call on the same world
+has not settled.
+
+When `connectDgram` still does not fit, compose it from its parts. `createDgramSocket(options)`
+returns an unconnected dgram socket typed as a `VecsSocket` with `connect()`, so you need no cast:
+
+```ts
+import { ClientWorld, createDgramSocket } from "@vworlds/vecs-client";
+
+const socket = await createDgramSocket({ host: "localhost", port: 8080, worldName: "arena" });
+await socket.connect();
+world.attachSocket(socket);
+```
 
 For socket lifecycle notifications, use `world.events.on("connect", handler)`.
 It fires synchronously at the end of every successful `attachSocket`, including
@@ -107,28 +144,46 @@ size the window for slow players are in
 
 ## Applying a frame
 
+When you use `DiffBuffer` directly, read `diff.snapshots` to iterate its snapshots in
+insertion order. The read-only array is cached until the next snapshot edit; repeated
+upserts during interpolation do not rebuild it. Use `diff.upsertSnapshot(snapshot)`
+to replace a cid without moving it, or append a new cid, and `diff.deleteSnapshot(cid)`
+to remove one. Use `getSnapshot(cid)` or the read-only `smap` view for keyed reads.
+Do not assign or mutate `snapshots` or `smap`. The owning implementation is
+[`diff_buffer.ts`](../src/diff_buffer.ts).
+
 `apply()` destroys reset entities first, applies snapshots next, and removes single components last.
-A reset destroys every component, including client-local companions brought through `With`.
+A reset destroys every component, including client-local companions brought through `With` or
+`Requires`.
 
 A removal of a single component is skipped while another component present on the entity **brings
-it through `With`**, so the entity keeps it. The rule exists for components that a client derives
-from a replicated one. Dead reckoning is the example: `Motion` brings a client-local `Position` and
-`Rotation` (`world.component(Motion).add(With, world.component(Position))`), and the diff in which
-the server switches a streamed body to dead reckoning sets `Motion` and removes `Position` and
-`Rotation`. Applied literally, the entity would end the frame without a render pose, and the
-queries, hooks and `DrawBy` children that match on it would see it leave and come back. With the
-rule it never goes without one: no `remove` hook fires for it, and nothing that watches it
+it through `With` or `Requires`**, so the entity keeps it. The rule exists for components that a
+client derives from a replicated one. Dead reckoning is the example: `Motion` brings a client-local
+`Position` and `Rotation` (`world.component(Motion).add(With, world.component(Position))`), and the
+diff in which the server switches a streamed body to dead reckoning sets `Motion` and removes
+`Position` and `Rotation`. Applied literally, the entity would end the frame without a render pose,
+and the queries, hooks and `DrawBy` children that match on it would see it leave and come back. With
+the rule it never goes without one: no `remove` hook fires for it, and nothing that watches it
 re-enters.
 
-- A bringer that the same diff sets counts as present, although its snapshot has not been
-  attached yet when the removals are checked.
-- The rule looks at the entity's other components, so a bringer that is gone is no reason to keep a
-  component: once nothing brings it, the server's removal applies. Removing a bringer does not take
-  its companions with it either; `With` only brings them along.
+The rule is judged once the diff has applied, against the entity as it then is:
+
+- A removal of a plain component that something can bring (it has an incoming `With` or `Requires`
+  edge; see [`isBroughtOn`](../../vecs/docs/relationships.md#companions-with-and-requires)) is held
+  back. Under `progress()` the `ClientWorld:Release` system, which runs right after
+  `ClientWorld:Apply` in `ON_LOAD`, settles the held removals once the flush after `Apply` has set
+  and removed what the diff carries; `apply()` settles them at its end. So a bringer that the same
+  diff sets counts as present, and one it removes does not, whatever the wire order.
+- A bringer whose own removal is held counts only if it is kept, so a chain of network bringers that
+  the diff removes together goes as a whole, while a client-local bringer keeps its companion.
+- Once nothing brings the component, the server's removal applies. Removing a `With` bringer does
+  not take its companions with it; removing a `Requires` bringer does, unless another bringer
+  remains (see [Component traits](../../vecs/docs/components.md#component-traits-policy-on-component-entities)).
 - It applies to plain components. A relationship is removed as sent, since `With` brings it one
   edge at a time and no single component stands for the whole relationship.
-- It costs nothing outside the removal path: a diff without removals is applied as before, and a
-  removal of a component that no `With` brings pays one lookup of the component's bringers.
+- It costs nothing outside the removal path: a diff without removals is applied as before, and
+  `ClientWorld:Release` returns after one length check when nothing is held. A removal of a
+  component that nothing brings is applied at once.
 
 ## Optimistic frames and gaps
 
@@ -188,12 +243,14 @@ once, with one `exit` and one `enter`, as it is for a client that acks at once. 
 skipped still updates the entity in place: its snapshots overwrite the components, and its removals
 take away the components the entity lost after the reset, so the final state is the same either way.
 
-Under `progress()` the order takes two systems, `ClientWorld:Pull` and `ClientWorld:Apply`, both in
-`ON_LOAD` and both run before any system you add to the phase. The first runs the handlers of
-server requests, pulls the diff and destroys the reset entities. Destroying is queued inside a
-system and completes at the flush after it, which frees the ids, so the second system creates the new
-entities on clean ids. Calling `apply(now)` yourself does both in one call and is only correct
-outside a system or a `defer` scope, where the destruction takes effect at once.
+Under `progress()` the order takes three systems, `ClientWorld:Pull`, `ClientWorld:Apply` and
+`ClientWorld:Release`, all in `ON_LOAD` and all run before any system you add to the phase. The
+first runs the handlers of server requests, pulls the diff and destroys the reset entities.
+Destroying is queued inside a system and completes at the flush after it, which frees the ids, so the
+second system creates the new entities on clean ids. The third settles the removals of brought
+components held back by the second, once the flush after it has applied the diff (see
+[Applying a frame](#applying-a-frame)). Calling `apply(now)` yourself does all three in one call and
+is only correct outside a system or a `defer` scope, where the destruction takes effect at once.
 
 ## Render time
 
@@ -418,6 +475,29 @@ The entity API is not guarded, so `entity()` and `progress()` still run on a dis
 must not be used again ([Disposing a world](../../vecs/docs/entities.md#disposing-a-world)). Build
 a new `ClientWorld` to start over; the constructor has no internal state tied to the previous one.
 
+### Reuse or replace a world
+
+A sector switch, a reconnect, or a retry can either keep the `ClientWorld` or build a new one. Both
+are supported; choose by what must survive.
+
+**Reuse** with `close()` then `connectDgram` (or `attachSocket` with your own socket) when the next server world replicates the same
+`networkComponents` the client was built with: the wire schema is fixed at construction. Modules,
+systems, painter caches and client-local entities stay, so the switch costs only the next baseline.
+That baseline is adopted even if the new server's frame counter is lower, destroys every replicated
+entity and recreates the new world's, firing `exit` and `enter` again and emitting `reset` with
+`initial: false`. Client-local state tied to the old world, such as an effect over a ship that no
+longer exists, is yours to clear, typically from that `reset` handler.
+
+```ts
+world.close();
+await world.connectDgram({ host, port, worldName: nextSector });
+```
+
+**Replace** with `dispose()` and a new `ClientWorld` when the schema changes, on a hot reload or
+route change, or when nothing client-side should outlive the switch. Disposal runs every `remove`
+hook, including each module's own
+([Releasing resources](../../vecs/docs/modules.md#releasing-resources)), then construct the new world, install its modules, and call its `connectDgram`.
+
 ## Frames the client cannot decode
 
 The client decodes each incoming frame as a whole, reads the snapshots out of its diff as it buffers
@@ -465,21 +545,22 @@ a payload that fails there still throws out of `apply()`.
 
 ## Reference
 
-| Member                              | Description                                                                              |
-| ----------------------------------- | ---------------------------------------------------------------------------------------- |
-| `ClientWorld.connectDgram(options)` | Connect over the dgram transport, then attach; returns a world with a connected socket.  |
-| `world.attachSocket(socket)`        | Bind a connected socket and start the ack timer. Throws after disposal.                  |
-| `world.setInput(input)`             | Set the input replicated on the next outgoing frame.                                     |
-| `world.invoke(rpcId, params?)`      | Call the server; settles with the reply params as soon as the reply arrives.             |
-| `world.listen(rpcId, handler)`      | Register a handler for calls the server makes on this client; it runs from `apply()`.    |
-| `world.unlisten(rpcId, handler)`    | Remove only the same handler reference; return whether it was removed.                   |
-| `world.connected`                   | Whether an attached socket is still connected and the world is not disposed.             |
-| `world.disposed`                    | Whether permanent teardown has begun.                                                    |
-| `world.apply(now)`                  | Run queued server requests, then apply buffered frames in reset/snapshot/removal order.  |
-| `world.renderFrame`                 | The fractional server frame the world renders; `0` before the first baseline.            |
-| `world.send()`                      | Send input, outstanding replies, the current ack frame, and a gap report if one is open. |
-| `world.close()`                     | Disconnect, reject pending calls, and close the socket while leaving state reusable.     |
-| `world.dispose()`                   | One-way teardown: reject calls, close the socket, destroy network and local entities.    |
+| Member                           | Description                                                                               |
+| -------------------------------- | ----------------------------------------------------------------------------------------- |
+| `world.connectDgram(options)`    | Connect over dgram, then attach; `signal` cancels. On failure the world stays undisposed. |
+| `createDgramSocket(options)`     | Create an unconnected dgram socket typed as a `VecsSocket` with `connect()`.              |
+| `world.attachSocket(socket)`     | Bind a connected socket and start the ack timer. Throws after disposal.                   |
+| `world.setInput(input)`          | Set the input replicated on the next outgoing frame.                                      |
+| `world.invoke(rpcId, params?)`   | Call the server; settles with the reply params as soon as the reply arrives.              |
+| `world.listen(rpcId, handler)`   | Register a handler for calls the server makes on this client; it runs from `apply()`.     |
+| `world.unlisten(rpcId, handler)` | Remove only the same handler reference; return whether it was removed.                    |
+| `world.connected`                | Whether an attached socket is still connected and the world is not disposed.              |
+| `world.disposed`                 | Whether permanent teardown has begun.                                                     |
+| `world.apply(now)`               | Run queued server requests, then apply buffered frames in reset/snapshot/removal order.   |
+| `world.renderFrame`              | The fractional server frame the world renders; `0` before the first baseline.             |
+| `world.send()`                   | Send input, outstanding replies, the current ack frame, and a gap report if one is open.  |
+| `world.close()`                  | Disconnect, reject pending calls, and close the socket while leaving state reusable.      |
+| `world.dispose()`                | One-way teardown: reject calls, close the socket, destroy network and local entities.     |
 
 Per-symbol detail lives in the JSDoc on `lib/vecs-client/src/client_world.ts` and
 `lib/vecs-client/src/diff_buffer.ts`.

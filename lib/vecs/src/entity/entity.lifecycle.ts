@@ -55,7 +55,7 @@ export class Lifecycle extends Components {
       let selfCarry = 0;
       if (entityMeta) {
         selfCarry = this._components.has(entityMeta.eid) ? 1 : 0;
-        if (entityMeta.usageCount > selfCarry && entityMeta.onDelete === CleanupPolicy.Throw) {
+        if (entityMeta.usageCount > selfCarry && entityMeta._onDelete === CleanupPolicy.Throw) {
           throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
         }
       }
@@ -75,10 +75,7 @@ export class Lifecycle extends Components {
           this._detachRelationship(componentMeta, c as Relationship);
           return;
         }
-        this.componentBitmask.deleteBit(componentMeta.bitPtr);
-        this.world._notifyComponentRemoved(ceid, this);
-        componentMeta._detachCarrier(this);
-        componentMeta._onRemove?.(this, c);
+        this._detachSlot(componentMeta, c, true);
       });
       this._dirtyComponentBitmask.clear();
       this._queries.clear();
@@ -120,7 +117,7 @@ export class Lifecycle extends Components {
     const entityMeta = this._meta;
     if (
       entityMeta &&
-      entityMeta.onDelete === CleanupPolicy.Throw &&
+      entityMeta._onDelete === CleanupPolicy.Throw &&
       entityMeta.usageCount > (this._components.has(entityMeta.eid) ? 1 : 0)
     ) {
       throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
@@ -133,26 +130,24 @@ export class Lifecycle extends Components {
   }
 
   private _applyOnDelete(this: Entity, entityMeta: ComponentMeta, selfCarry: number): void {
-    const carriers = entityMeta._carriers;
-    if (!carriers || carriers.size <= selfCarry) {
+    const carriers = entityMeta._term;
+    if (carriers.count <= selfCarry) {
       return;
     }
-    const shouldDelete = entityMeta.onDelete === CleanupPolicy.Delete;
-    // forEachSafe tolerates deletion of the current carrier mid-loop: each
-    // `_destroy`/`_remove` below detaches only its own carrier from this meta
-    // (via `_detachCarrier`), and any further cascade is buffered onto the
-    // world's deletion scope and drained after this scan completes — so no
-    // other slot of `carriers` is mutated while we are iterating it.
-    carriers.forEachSafe((carrier) => {
+    const shouldDelete = entityMeta._onDelete === CleanupPolicy.Delete;
+    // Live Set iteration skips carriers deleted by nested cascades and visits
+    // carriers added during cleanup. No snapshot is needed when a carrier
+    // detaches itself or destroys another carrier before we reach it.
+    for (const carrier of carriers) {
       if (carrier === this) {
-        return;
+        continue;
       }
       if (shouldDelete) {
         carrier._destroy();
       } else {
         carrier._remove(entityMeta);
       }
-    });
+    }
   }
 
   /**
@@ -179,7 +174,7 @@ export class Lifecycle extends Components {
       if (!relEntity) {
         return;
       }
-      const policy = relEntity.meta.onDeleteTarget;
+      const policy = relEntity.meta._onDeleteTarget;
       for (const source of sources) {
         // `sources` is iterated read-only here; re-entrant _removeIncoming
         // mutates it during the scope flush (after this scan completes), not

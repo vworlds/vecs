@@ -1,4 +1,6 @@
 import { CommandKind, type Command } from "../command.js";
+import type { ComponentMeta } from "../component_meta.js";
+import type { Entity } from "../entity/entity.js";
 import { Queries } from "./world.queries.js";
 
 export class Deferred extends Queries {
@@ -21,6 +23,10 @@ export class Deferred extends Queries {
    */
   public _deletionScope: unknown[] | undefined = undefined;
 
+  /** @internal Reused entity/meta/source triples avoid allocating relationship commands. */
+  private readonly _relationshipUpdates: (Entity | ComponentMeta | undefined)[] = [];
+  private _relationshipUpdateLength = 0;
+
   /** `true` while the world is in deferred mode. */
   public get deferred(): boolean {
     return this._deferredDepth > 0 || this._draining;
@@ -30,6 +36,15 @@ export class Deferred extends Queries {
   public _enqueue(cmd: Command): void {
     cmd.source = this._currentSource;
     this._commandQueue.push(cmd);
+  }
+
+  /** @internal Buffer one dirty relationship's notification with its original producer. */
+  public _enqueueRelationshipUpdate(entity: Entity, meta: ComponentMeta, source?: Entity): void {
+    const index = this._relationshipUpdateLength;
+    this._relationshipUpdates[index] = entity;
+    this._relationshipUpdates[index + 1] = meta;
+    this._relationshipUpdates[index + 2] = source;
+    this._relationshipUpdateLength += 3;
   }
 
   /** Enter deferred mode. */
@@ -98,20 +113,45 @@ export class Deferred extends Queries {
     }
   }
 
-  /** @internal Drain the top-level command queue in arrival order. */
+  /** @internal Apply mutations in arrival order, then route dirty relationship updates. */
   protected _processCommandQueue(): void {
     if (this._draining) {
       return;
     }
-    if (this._commandQueue.length === 0) {
+    if (this._commandQueue.length === 0 && this._relationshipUpdateLength === 0) {
       return;
     }
     this._draining = true;
     try {
-      for (let i = 0; i < this._commandQueue.length; i++) {
-        this._executeCommand(this._commandQueue[i]);
+      let i = 0;
+      let nextUpdate = 0;
+      while (i < this._commandQueue.length || nextUpdate < this._relationshipUpdateLength) {
+        // Even an explicit modified(R) preceding an edge must observe the final
+        // edge set. Drain mutations (including hook-enqueued commands) first.
+        while (i < this._commandQueue.length) {
+          this._executeCommand(this._commandQueue[i++]!);
+        }
+        const entity =
+          nextUpdate < this._relationshipUpdateLength
+            ? (this._relationshipUpdates[nextUpdate] as Entity)
+            : undefined;
+        if (entity) {
+          const meta = this._relationshipUpdates[nextUpdate + 1] as ComponentMeta;
+          this._routingSource = this._relationshipUpdates[nextUpdate + 2] as Entity | undefined;
+          if (entity._prepareRelationshipUpdate(meta) && i < this._commandQueue.length) {
+            continue;
+          }
+          nextUpdate += 3;
+          // Removal/destroy clears the bit. A remove/re-add can leave multiple
+          // queued commands, but only the first still-dirty command routes.
+          entity._modifiedRelationship(meta);
+        }
       }
       this._commandQueue.length = 0;
+      for (let j = 0; j < this._relationshipUpdateLength; j++) {
+        this._relationshipUpdates[j] = undefined;
+      }
+      this._relationshipUpdateLength = 0;
     } finally {
       this._routingSource = undefined;
       this._draining = false;

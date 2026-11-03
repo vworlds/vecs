@@ -193,9 +193,15 @@ world.component(Shield).on("remove", (entity) => {
 ```
 
 Multiple handlers may be registered for the same event: they fire in registration
-order. Call `on(event, handler)` to append, `on(event, handler, true)` to
-prepend, and `off(event, handler)` to remove a handler by reference. All three
-return the component entity for chaining.
+order. Call `on(event, handler)` to append and `off(event, handler)` to remove a handler by
+reference; both return the component entity for chaining. The built-in relationship traits
+(`Exclusive`, `Traversable`, `OwnedTarget`, `With`, `OneOf`) react to the same events, and their
+handlers always run before yours, so your handlers see the state they establish: a `ChildOf`
+`targetAdd` handler already finds the source's `Traversable` depth updated.
+
+`entity.attach(instance)` that replaces a different stored instance fires only `set` for your
+handlers. The built-in traits' own `remove` and `add` handlers run for the old and new instance
+first, so a trait such as `Traversable` refuses being swapped out.
 
 ## Component traits: policy on component entities
 
@@ -217,19 +223,23 @@ to definitions, including world-global data stored with `world.set(C, ...)`. Bei
 definition does not make a component a trait: `ComponentDef`, `Identity`, `ChildOf`, and a
 component's own singleton data are not policy declarations.
 
-| Trait/declaration | Applies to                                   | Effect                                                                       |
-| ----------------- | -------------------------------------------- | ---------------------------------------------------------------------------- |
-| `Singleton`       | Concrete components                          | Allows at most one carrier entity                                            |
-| `Implements`      | Non-relationship components                  | Exposes concrete data through abstract aliases                               |
-| `Exclusive`       | Relationships                                | Restricts the relationship to one target with atomic replacement             |
-| `Traversable`     | Exclusive relationships                      | Maintains hierarchy depth for cascade ordering                               |
-| `OwnedTarget`     | Exclusive relationships other than `ChildOf` | Owns each explicit target through `ChildOf` and destructive edge replacement |
-| `OneOf`           | Relationships                                | Constrains each target to be a direct `ChildOf` child of a declared parent   |
-| `With`            | A component and a target of the same kind    | Adding the component also adds the target (the same targets, for edges)      |
-| `OnSnapshot`      | Components                                   | Selects a [subtree snapshot policy](./snapshots.md)                          |
+| Trait/declaration | Applies to                                   | Effect                                                                                                  |
+| ----------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `Singleton`       | Concrete components                          | Allows at most one carrier entity                                                                       |
+| `Implements`      | Non-relationship components                  | Exposes concrete data through abstract aliases                                                          |
+| `Exclusive`       | Relationships                                | Restricts the relationship to one target with atomic replacement                                        |
+| `Traversable`     | Exclusive relationships                      | Maintains hierarchy depth for cascade ordering                                                          |
+| `OwnedTarget`     | Exclusive relationships other than `ChildOf` | Owns each explicit target through `ChildOf` and destructive edge replacement                            |
+| `OneOf`           | Relationships                                | Constrains each target to be a direct `ChildOf` child of a declared parent                              |
+| `With`            | A component and a target of the same kind    | Adding the component also adds the target (the same targets, for edges)                                 |
+| `Requires`        | A plain component and a plain target         | Like `With`, and removing the last bringer also removes the target                                      |
+| `OnSnapshot`      | Components                                   | Selects a [subtree snapshot policy](./snapshots.md)                                                     |
+| `OnDelete`        | Components and entities used as keys         | Selects what [destroying the key](#cleanup-policies-destroying-a-component-entity) does to its carriers |
+| `OnDeleteTarget`  | Relationships                                | Selects what [destroying a target](./relationships.md#cleanup-when-a-target-dies) does to its sources   |
 
-`ClonePublic`, `DontSnapshot`, and `CustomSnapshot` are policy targets of `OnSnapshot`, not
-traits, and remain unmarked. Phase, query, system, and module definitions are also not traits.
+`ClonePublic`, `DontSnapshot`, and `CustomSnapshot` are policy targets of `OnSnapshot`, and
+`Throw`, `Remove`, and `Delete` are policy targets of `OnDelete` and `OnDeleteTarget`; none of them
+are traits, and they remain unmarked. Phase, query, system, and module definitions are also not traits.
 
 Traits declare policy; their built-in modules install the hooks and maintain the metadata that
 enforce it. Configure traits in feature-module setup rather than opportunistically inside systems.
@@ -242,12 +252,24 @@ Do not assume all traits have the same lifecycle:
 - Add `OneOf` before relationship instances exist; it rejects every target that is not a direct
   `ChildOf` child of the declared parent.
 - `Traversable` backfills existing relationship instances.
+- `OnDelete` and `OnDeleteTarget` may change or be removed at any time; removing one restores its
+  default (`Throw` and `Remove`).
 - Setting or removing `Implements` recomputes interface aliases.
 - Add `With` before the component is in use, as `world.component(X).add(With, world.component(Y))`.
   It is irrevocable, both must be plain components or both relationships, and it only brings `Y`
   along: an existing `Y` is left as it is, and removing `X` does not remove `Y`. On a `ClientWorld`,
   a network removal of `Y` is skipped while `X` is on the entity (see
   [Applying a frame](../../vecs-client/docs/client-world.md#applying-a-frame)).
+- Add `Requires` the same way, as `world.component(X).add(Requires, world.component(Y))`, when `Y`
+  must leave with `X`. Adding `X` adds `Y` as `With` does. Removing `X` from a live entity removes
+  `Y` unless another component on the entity still brings it through `With` or `Requires`; a `Y`
+  the entity held before `X` arrived goes too. Destroying the entity does nothing extra, and an
+  `attach` that replaces `X` keeps `Y`. Inside a system the removal of `Y` is queued when the
+  removal of `X` applies, so removing and re-adding `X` in one flush leaves `Y` in place. Both must
+  be plain components, and the trait is irrevocable. The check walks `Y`'s incoming `With` and
+  `Requires` edges ([`isBroughtOn`](./relationships.md#companions-with-and-requires)) with no
+  per-entity bookkeeping. `ClientWorld` skips a network removal of `Y` while a `Requires`
+  bringer is present, as for `With`.
 
 Treat traits as setup policy unless their documentation explicitly supports runtime changes. Before
 writing custom component-type bookkeeping, check whether an existing trait already expresses the
@@ -307,21 +329,25 @@ relationship `R` as usual but limits it to one **target edge**, replacing that e
 ## Cleanup policies: destroying a component entity
 
 Every component key is backed by a component entity. What happens when you destroy that entity
-while other entities still carry the component is controlled by `meta.onDelete`
-(`CleanupPolicy` in `lib/vecs/src/component_meta.ts`):
+while other entities still carry the component is controlled by its `OnDelete` trait, whose target
+is the policy:
 
-| Policy                 | Meaning                                                                                                                                                                                                                                                                                                  |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CleanupPolicy.Throw`  | Default. Destroying the component entity while other entities carry it throws. The synchronous `destroy()` call throws before mutating anything, so the world stays usable; a `Throw` policy reached during a deferred drain or a relationship cascade throws and leaves the world partial — discard it. |
-| `CleanupPolicy.Remove` | Remove the component from every carrier, then destroy the component entity.                                                                                                                                                                                                                              |
-| `CleanupPolicy.Delete` | Destroy every carrier entity, then destroy the component entity.                                                                                                                                                                                                                                         |
+| Policy   | Meaning                                                                                                                                                                                                                                                                                                  |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Throw`  | Default. Destroying the component entity while other entities carry it throws. The synchronous `destroy()` call throws before mutating anything, so the world stays usable; a `Throw` policy reached during a deferred drain or a relationship cascade throws and leaves the world partial — discard it. |
+| `Remove` | Remove the component from every carrier, then destroy the component entity.                                                                                                                                                                                                                              |
+| `Delete` | Destroy every carrier entity, then destroy the component entity.                                                                                                                                                                                                                                         |
 
 ```ts
-import { CleanupPolicy } from "@vworlds/vecs";
+import { OnDelete, Remove } from "@vworlds/vecs";
 
-world.component(Temporary).meta.onDelete = CleanupPolicy.Remove;
+world.component(Temporary).add(OnDelete, Remove);
 world.component(Temporary).destroy(); // strips Temporary from all carriers
 ```
+
+`OnDelete` is an exclusive pair-form [trait](#component-traits-policy-on-component-entities):
+adding another policy replaces the current one, and removing the edge restores `Throw`. It may
+change while the component is in use; the next destroy follows the new policy.
 
 The `Throw` default also applies to plain entities used as component keys (`entity.add(keyEntity)`).
 
@@ -348,7 +374,7 @@ deferred drain or a cascade is irrecoverable — the component entity, its carri
 count are in a partial state and the world must be discarded. Configure cleanup policies so cascades
 are consistent; treat a mid-destroy throw as a programming error.
 
-Relationship components have a second, independent policy — `meta.onDeleteTarget` — that governs
+Relationship components have a second, independent policy — the `OnDeleteTarget` trait — that governs
 what happens to _sources_ when a relationship **target** is destroyed. See
 [Relationships](./relationships.md#cleanup-when-a-target-dies).
 
@@ -419,6 +445,7 @@ For world-global state, store the component **on its own component entity** with
 ```ts
 world.set(Gravity, { y: -9.8 }); // world.component(Gravity).set(Gravity, {...})
 world.get(Gravity)?.y; // world.component(Gravity).get(Gravity)
+world.has(Gravity); // whether the definition carries a Gravity value; no registration
 ```
 
 `SingletonModule` enforces the constraint (`lib/vecs/src/modules/singleton.ts`); see
@@ -453,6 +480,7 @@ interface markers for polymorphic dispatch — is in the
 | `component(Class, ceid?)`            | Register or look up the `Component` entity for `Class`; optional explicit numeric id.              |
 | `component(name)`                    | Resolve an already-registered component entity by its `name`. Throws if absent or not a component. |
 | `get(Class)`                         | Singleton read: `component(Class).get(Class)`.                                                     |
+| `has(Class)`                         | Singleton presence check; returns false for an unregistered class without registering it.          |
 | `set(Class, props)`                  | Singleton write: `component(Class).set(Class, props)`.                                             |
 | `setExclusiveComponents(...classes)` | Declare one mutually exclusive group.                                                              |
 | `validate(c)` / `isValid(c)`         | Run the class's `validate` hooks; see [Component reflection](./reflection.md).                     |
@@ -463,22 +491,27 @@ interface markers for polymorphic dispatch — is in the
 A `Component<T>` is an `Entity` subclass, so the full [entity API](./entities.md#reference)
 applies. On top of it:
 
-| Member                        | Description                                                                                                                                                                                                                                                                                                                                 |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `member(name, type)`          | Declare a member for [reflection](./reflection.md) and return the component; `.range` / `.description` / `.unit` / `.values` then apply to it.                                                                                                                                                                                              |
-| `on(event, handler, insert?)` | Register a handler for `add` / `remove` / `set` / `targetAdd` / `targetRemove` / `validate` / `normalize` (plus the internal `policyAdd` / `policyRemove` / `targetPolicyAdd` / `targetPolicyRemove` events). `insert` defaults to `false` (append); `true` prepends. Rejects `target*` events on non-relationships. Returns the component. |
-| `off(event, handler)`         | Remove a previously-registered handler by reference. Idempotent. Returns the component.                                                                                                                                                                                                                                                     |
-| `meta`                        | The `ComponentMeta` bookkeeping record.                                                                                                                                                                                                                                                                                                     |
+| Member                | Description                                                                                                                                                                                                                      |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `member(name, type)`  | Declare a member for [reflection](./reflection.md) and return the component; `.range` / `.description` / `.unit` / `.values` then apply to it.                                                                                   |
+| `on(event, handler)`  | Register a handler for `add` / `remove` / `set` / `targetAdd` / `targetRemove` / `validate` / `normalize`, appended after the handlers already registered. Rejects `target*` events on non-relationships. Returns the component. |
+| `off(event, handler)` | Remove a previously-registered handler by reference. Idempotent. Returns the component.                                                                                                                                          |
+| `meta`                | The `ComponentMeta` bookkeeping record.                                                                                                                                                                                          |
 
 ### `ComponentMeta` (`lib/vecs/src/component_meta.ts`)
 
-| Field                   | Description                                                                                   |
-| ----------------------- | --------------------------------------------------------------------------------------------- |
-| `Class`                 | The component class constructor.                                                              |
-| `eid`                   | Component entity id assigned at registration.                                                 |
-| `bitPtr`                | Pre-computed bit pointer into entity archetype bitsets.                                       |
-| `isRelationship`        | `true` when the class extends `Relationship`.                                                 |
-| `relationshipExclusive` | `true` when the relationship carries the `Exclusive` trait.                                   |
-| `onDelete`              | `CleanupPolicy` applied to carriers when the component entity is destroyed. Default `Throw`.  |
-| `onDeleteTarget`        | `CleanupPolicy` applied to sources when a relationship target is destroyed. Default `Remove`. |
-| `usageCount`            | Number of entities currently carrying this component.                                         |
+Carrier membership is stored once, in the component-presence query term, even if you
+never query the component. `usageCount` includes the newly attached entity inside
+add and target-add hooks. A query rooted directly at that component term also
+includes it when iterated inside those hooks, before its `enter` callback fires.
+Composite and sorted query membership still follows event propagation after the
+hooks. On removal, the count drops before exit callbacks run.
+
+| Field                   | Description                                                 |
+| ----------------------- | ----------------------------------------------------------- |
+| `Class`                 | The component class constructor.                            |
+| `eid`                   | Component entity id assigned at registration.               |
+| `bitPtr`                | Pre-computed bit pointer into entity archetype bitsets.     |
+| `isRelationship`        | `true` when the class extends `Relationship`.               |
+| `relationshipExclusive` | `true` when the relationship carries the `Exclusive` trait. |
+| `usageCount`            | Number of entities currently carrying this component.       |

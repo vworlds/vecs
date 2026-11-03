@@ -24,7 +24,8 @@ for (const kind of ["reactive", "each", "run"] as const) {
     if (kind === "reactive") {
       system
         .enter(() => record(index))
-        .update(Value, () => record(index))
+        .with(Value)
+        .update({ watch: Value }, () => record(index))
         .exit(() => record(index));
     } else if (kind === "each") {
       system.each([Value], () => record(index));

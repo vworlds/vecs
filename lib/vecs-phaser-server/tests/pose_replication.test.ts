@@ -277,7 +277,7 @@ describe("render pose replication from the sync systems", () => {
       .system("RenderPositionWatcher")
       .with(RenderPosition)
       .phase(ON_STORE)
-      .update(RenderPosition, (_entity, position) => {
+      .update({ watch: RenderPosition }, (_entity, position) => {
         watched.push({ x: position.x, y: position.y });
       });
     const entity = createSyncedEntity();

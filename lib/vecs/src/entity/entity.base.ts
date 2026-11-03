@@ -43,7 +43,7 @@ export class Base {
     ownComponentClass?: ComponentType
   ) {
     if (ownComponentClass !== undefined) {
-      this._meta = new ComponentMeta(ownComponentClass, eid);
+      this._meta = new ComponentMeta(ownComponentClass, eid, world._getComponentTerm(eid));
     }
   }
 
@@ -70,7 +70,11 @@ export class Base {
 
   /** Metadata for using this entity's eid as a component key. Created lazily for plain entities. */
   public get meta(): ComponentMeta {
-    return (this._meta ??= new ComponentMeta(Object, this.eid));
+    return (this._meta ??= new ComponentMeta(
+      Object,
+      this.eid,
+      this.world._getComponentTerm(this.eid)
+    ));
   }
 
   /** Number of live component instances currently attached for this entity's component key. */

@@ -6,6 +6,8 @@ import {
   type HookEvent,
   type HookEventMap,
   type HookHandler,
+  type TraitEvent,
+  type TraitHookOptions,
   type NormalizeHandler,
   type TargetHandler,
   type ValidateHandler,
@@ -24,7 +26,6 @@ import {
 } from "./modules/snapshot_types.js";
 
 export {
-  CleanupPolicy,
   ComponentMeta,
   Implements,
   Relationship,
@@ -44,9 +45,8 @@ export {
 /**
  * A per-component event map that narrows `add` / `remove` / `set` handlers to
  * the instance type `T` produces, narrows `validate` / `normalize` handlers to
- * that instance type, and narrows `targetAdd` / `targetRemove` /
- * `targetPolicyAdd` / `targetPolicyRemove` handlers to `T`'s relationship
- * instance type when `T` produces a relationship.
+ * that instance type, and narrows `targetAdd` / `targetRemove` handlers to
+ * `T`'s relationship instance type when `T` produces a relationship.
  */
 type ComponentEventMap<T extends ComponentType> = {
   add: HookHandler<InstanceType<T>>;
@@ -56,10 +56,6 @@ type ComponentEventMap<T extends ComponentType> = {
   targetRemove: TargetHandler<InstanceType<T> & Relationship>;
   validate: ValidateHandler<InstanceType<T>>;
   normalize: NormalizeHandler<InstanceType<T>>;
-  targetPolicyAdd: TargetHandler<InstanceType<T> & Relationship>;
-  targetPolicyRemove: TargetHandler<InstanceType<T> & Relationship>;
-  policyAdd: HookHandler;
-  policyRemove: HookHandler;
 };
 
 /** Callbacks declared alongside the {@link CustomSnapshot} policy value. */
@@ -128,12 +124,24 @@ export class Component<T extends ComponentType = ComponentType> extends Entity {
    * relationship instance type (for the `target*` events). See
    * {@link ComponentMeta.on} for full semantics.
    */
+  public override on<E extends HookEvent>(event: E, handler: ComponentEventMap<T>[E]): this;
+  /** @internal Register a relationship-trait handler. See {@link ComponentMeta.on}. */
+  public override on<E extends TraitEvent>(
+    event: E,
+    options: TraitHookOptions,
+    handler: ComponentEventMap<T>[E]
+  ): this;
   public override on<E extends HookEvent>(
     event: E,
-    handler: ComponentEventMap<T>[E],
-    insert = false
+    handlerOrOptions: ComponentEventMap<T>[E] | TraitHookOptions,
+    maybeHandler?: ComponentEventMap<T>[E]
   ): this {
-    return super.on(event, handler as HookEventMap[E], insert);
+    this.meta._on(
+      event,
+      handlerOrOptions as HookEventMap[E] | TraitHookOptions,
+      maybeHandler as HookEventMap[E] | undefined
+    );
+    return this;
   }
 
   /** Remove a previously-registered handler by reference. See {@link ComponentMeta.off}. */
