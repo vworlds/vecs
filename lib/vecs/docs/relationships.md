@@ -73,6 +73,14 @@ contact events), and hooks that run while an entity or an edge target is being d
 
 `ChildOf` and `DependsOn` are also `Traversable`; all three built-ins above are `Exclusive`.
 
+## Companions: `With`
+
+`world.component(X).add(With, world.component(Y))` adds `Y`, or the same targets for edges, whenever
+`X` is added. It never removes `Y` when `X` leaves: `With` is inclusion, not requirement. See the
+[settled decision](../../../architecture/DECISIONS.md#with-adds-never-removes) and the owning
+trait pending in [#463](https://github.com/vworlds/vecs/issues/463), and the
+[design guide](./design-guide.md#component-traits-policy-on-component-entities) for when to use it.
+
 ## Diagram examples
 
 Use the [ECS diagram notation](./diagrams.md) to distinguish a schema from a concrete scene.
