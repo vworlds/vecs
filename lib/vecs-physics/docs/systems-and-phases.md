@@ -417,7 +417,7 @@ Box2D reports every awake dynamic body after every step, and a body that did not
 - `Position` is created by the first write when the body has none. `Rotation`, `LinearVelocity` and `AngularVelocity` are only maintained on bodies that already carry them.
 - Box2D stores positions as 32-bit floats and a rotation as a cosine and sine pair, so the first step can still rewrite a component whose initial value Box2D does not reproduce exactly, such as a position of `0.1` or an angle of `0.3`. After that the value is stable.
 
-A system that waits for `update(Position)` therefore runs when the body actually moved, not on every step. If a system must visit every body on every step, iterate with `each` and read the component instead of waiting for a modification. `each` visits every matching body, asleep or awake, so it cannot tell you which bodies are awake:
+A system that waits for `update({ watch: Position })` therefore runs when the body actually moved, not on every step. If a system must visit every body on every step, iterate with `each` and read the component instead of waiting for a modification. `each` visits every matching body, asleep or awake, so it cannot tell you which bodies are awake:
 
 ```ts
 world

@@ -96,8 +96,9 @@ world
   });
 ```
 
-`update(Health, ...)` fires only when `Health` is set or marked modified on a tracked entity, so
-this system does no work for idle entities. Use `update({ watch: Health, onEnter: true }, ...)` when
+`update({ watch: Health }, ...)` fires only when `Health` is set or marked modified on a member
+entity, so this system does no work for idle entities. Use
+`update({ watch: Health, onEnter: true }, ...)` when
 you also want the callback to run for entities that already have `Health` as they enter. The phase
 taxonomy and ordering rules are in [Execution model](./execution-model.md).
 
