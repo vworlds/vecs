@@ -150,6 +150,37 @@ dependants. `issue edit` and `pr edit` can change the title; a title-only issue 
 keeps the scope approval. `vmethod check` warns when `.claude/settings.local.json`
 still sets `GH_TOKEN` or `GITHUB_TOKEN`, which vmethod no longer reads.
 
+## rc.15
+
+rc.15 is **breaking** for tracks and needs board migrations `0008` (contract v8, the
+`Track` text field) and `0009` (contract v9, answer-hold state). Tracks no longer
+use `track:<name>` labels: session membership comes from the board's `Track` field,
+a completely empty field selects main, and the watcher decorates own cards with a
+leading `🚀`. Task PRs use their own field or inherit the linked issue's. There is no
+label fallback, and tracks require `board.enabled: true`. vecs config needed no
+change; the repo has no `track:` label instructions.
+
+Adoption order, because board 4 is shared with SpaceRocks:
+
+1. vecs and SpaceRocks each merge their rc.15 adoption. Neither runs
+   `vmethod board migrate` before both have.
+2. The owner approves `vmethod board migrate` on board 4.
+3. Every watcher is restarted. The first watcher start after the migration converts
+   legacy labels on own-repository cards to `Track` (an existing value is kept and a
+   mismatch reported), removes the item labels and deletes unused label definitions.
+   Foreign cards are untouched.
+
+New: `review answer --hold "reason"` parks an external-event wait. The orchestrator
+turn is kept without waking the worker or repeating inactivity reminders, real events
+are still reported, one reminder follows after 24 hours, and `release-hold` or a later
+review/answer/GO resumes it.
+
+Fixes that matter here: transient GitHub GraphQL server errors are retried in-poll
+with bounded backoff (logged to `watch-retries.log`) instead of waking the
+orchestrator with a false QUERY ERROR; SILENT alerts and silent Progress updates
+are suppressed while a worker session is active; and `watch` acknowledges a bundle
+as soon as stdout is written, so re-arming no longer redelivers a late-window bundle.
+
 ## Pilot gaps and remaining rollout
 
 rc.3 resolves the rc.1 gaps:
