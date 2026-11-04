@@ -38,17 +38,76 @@ export class Deferred extends Queries {
   }
 
   /**
-   * @internal Queued commands that have not applied yet, from
-   * {@link _queuedCommandStart} to the end. Read-only; used by pending-aware
-   * relationship reads.
+   * @internal Replay `entity`'s not-yet-applied edge commands for `meta` over
+   * its committed `targets` snapshot, for `targets(R, { pending: true })`.
    */
-  public get _queuedCommands(): readonly Command[] {
-    return this._commandQueue;
+  public _pendingTargets(
+    entity: Entity,
+    meta: ComponentMeta,
+    targets: Entity[]
+  ): readonly Entity[] {
+    if (entity.destroyed) {
+      return [];
+    }
+    const queue = this._commandQueue;
+    for (let i = this._commandHead; i < queue.length; i++) {
+      const cmd = queue[i]!;
+      if (!this._isEdgeCommandFor(cmd, entity, meta)) {
+        continue;
+      }
+      if (cmd.kind === CommandKind.Remove) {
+        targets.length = 0;
+      } else if (cmd.kind === CommandKind.RemoveTarget) {
+        const index = targets.indexOf(cmd.target);
+        if (index !== -1) {
+          targets.splice(index, 1);
+        }
+      } else if (!cmd.target.destroyed && !targets.includes(cmd.target)) {
+        if (meta.relationshipExclusive) {
+          targets.length = 0;
+        }
+        targets.push(cmd.target);
+      }
+    }
+    return targets.some((target) => target.destroyed)
+      ? targets.filter((target) => !target.destroyed)
+      : targets;
   }
 
-  /** @internal Index of the first not-yet-applied command in {@link _queuedCommands}. */
-  public get _queuedCommandStart(): number {
-    return this._commandHead;
+  /**
+   * @internal Answer `hasTarget(R, target, { pending: true })` from the newest
+   * not-yet-applied edge command of `entity` that decides `target`, else `committed`.
+   */
+  public _hasPendingTarget(
+    entity: Entity,
+    meta: ComponentMeta,
+    target: Entity,
+    committed: boolean
+  ): boolean {
+    if (entity.destroyed || target.destroyed) {
+      return false;
+    }
+    const queue = this._commandQueue;
+    for (let i = queue.length - 1; i >= this._commandHead; i--) {
+      const cmd = queue[i]!;
+      if (!this._isEdgeCommandFor(cmd, entity, meta)) {
+        continue;
+      }
+      if (cmd.kind === CommandKind.Remove) {
+        return false;
+      }
+      if (cmd.target === target) {
+        return cmd.kind === CommandKind.AddTarget;
+      }
+      if (
+        cmd.kind === CommandKind.AddTarget &&
+        meta.relationshipExclusive &&
+        !cmd.target.destroyed
+      ) {
+        return false;
+      }
+    }
+    return committed;
   }
 
   /** @internal Append a command to the deferred-mode queue. */
@@ -178,5 +237,23 @@ export class Deferred extends Queries {
       this._routingSource = undefined;
       this._draining = false;
     }
+  }
+
+  /** @internal Whether `cmd` adds or removes an edge of `meta` on `entity`, or removes `meta` from it. */
+  private _isEdgeCommandFor(
+    cmd: Command,
+    entity: Entity,
+    meta: ComponentMeta
+  ): cmd is Extract<
+    Command,
+    { kind: CommandKind.AddTarget | CommandKind.RemoveTarget | CommandKind.Remove }
+  > {
+    return (
+      (cmd.kind === CommandKind.AddTarget ||
+        cmd.kind === CommandKind.RemoveTarget ||
+        cmd.kind === CommandKind.Remove) &&
+      cmd.entity === entity &&
+      cmd.meta === meta
+    );
   }
 }
