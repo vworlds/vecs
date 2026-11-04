@@ -208,6 +208,25 @@ export abstract class Term implements TermConsumer {
     }
   }
 
+  /** @internal Deliver `kind` for `entity` only to the consumers `deliver` accepts. Counted like {@link _add}. */
+  protected _emitTo(
+    kind: TermEventKind,
+    entity: Entity,
+    deliver: (consumer: TermConsumer) => boolean
+  ): void {
+    const world = this.world;
+    world._termEmitDepth++;
+    try {
+      this._consumers.forEach((consumer) => {
+        if (deliver(consumer)) {
+          consumer.onTermEvent(kind, entity);
+        }
+      });
+    } finally {
+      world._termEmitDepth--;
+    }
+  }
+
   /** @internal Emit an exit event and remove entity; no-op if not present. Counted like {@link _add}. */
   protected _delete(entity: Entity): void {
     const world = this.world;

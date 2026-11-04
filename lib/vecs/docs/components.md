@@ -507,6 +507,11 @@ includes it when iterated inside those hooks, before its `enter` callback fires.
 Composite and sorted query membership still follows event propagation after the
 hooks. On removal, the count drops before exit callbacks run.
 
+Each query still enters and exits that entity exactly once. If a hook removes the
+component again, queries that existed before the add see neither `enter` nor
+`exit`. A query built inside the hook enters the entity at build time and exits it
+on that removal, and is not entered a second time after the hooks.
+
 | Field                   | Description                                                 |
 | ----------------------- | ----------------------------------------------------------- |
 | `Class`                 | The component class constructor.                            |
