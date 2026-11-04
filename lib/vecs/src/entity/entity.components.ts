@@ -769,14 +769,17 @@ export class Components extends Relationships {
     this._addIncoming(target, meta.eid);
     const reflectsAdd = (): boolean =>
       this._components.get(meta.eid) === relationship && relationship._hasTarget(target);
+    // Entry follows the relationship's final state, not the first edge: a hook
+    // that retargets it still enters it, one that removes it does not.
+    const holds = (): boolean => this._components.get(meta.eid) === relationship;
     // Every exit before entry propagation discards the staged entry, so none outlives its add.
     try {
-      if (!this._emitTargetAdd(meta, relationship, target, reflectsAdd)) {
+      if (!this._emitTargetAdd(meta, relationship, target, reflectsAdd) && !holds()) {
         meta._term._discardStaged(this);
         return;
       }
       meta._onAdd?.(this, relationship);
-      if (!reflectsAdd()) {
+      if (!holds()) {
         meta._term._discardStaged(this);
         return;
       }

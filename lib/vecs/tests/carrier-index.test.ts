@@ -294,7 +294,50 @@ describe("component carrier index", () => {
     expect(component.meta._term._stagedCount).toBe(0);
   });
 
-  it("discards the staged entry when a targetAdd hook retargets a new relationship", () => {
+  it.each([
+    ["non-exclusive", false],
+    ["exclusive", true],
+  ])("enters a %s relationship once when its targetAdd hook retargets it", (_kind, exclusive) => {
+    const world = new World();
+    const component = world.component(Link);
+    if (exclusive) {
+      component.add(Exclusive);
+    }
+    const entered: Entity[] = [];
+    const exited: Entity[] = [];
+    const query = world
+      .query("links")
+      .with(Link)
+      .enter((e) => entered.push(e))
+      .exit((e) => exited.push(e))
+      .build();
+    const first = world.entity();
+    const second = world.entity();
+    const added: Entity[] = [];
+    component.on("add", (e) => added.push(e));
+    component.on("targetAdd", (source, _link, target) => {
+      if (target === first) {
+        source.add(Link, second);
+        source.remove(Link, first);
+      }
+    });
+
+    const entity = world.entity().add(Link, first);
+
+    expect(entity.has(Link)).toBe(true);
+    expect(entity.targets(Link)).toEqual([second]);
+    expect([...query]).toEqual([entity]);
+    expect(entered).toEqual([entity]);
+    expect(exited).toEqual([]);
+    expect(added).toEqual([entity]);
+    expect(component.meta._term._stagedCount).toBe(0);
+
+    entity.remove(Link);
+    expect(exited).toEqual([entity]);
+    expect([...query]).toEqual([]);
+  });
+
+  it("leaves no staged entry when a targetAdd hook retargets a new relationship", () => {
     const world = new World();
     const component = world.component(Link);
     const first = world.entity();
