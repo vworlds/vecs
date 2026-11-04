@@ -356,7 +356,10 @@ world
 ```
 
 Both handlers receive `(source, relationshipInstance, target)`. For a new relationship,
-`onTargetAdd` runs before `onAdd`; query entry follows `onAdd`. Removing the whole relationship
+`onTargetAdd` runs before `onAdd`; query entry follows `onAdd`. Entry follows the relationship's
+state after those hooks, not its first edge: if a `targetAdd` handler retargets the new
+relationship, the source still enters queries once and `onAdd` still runs once; if a handler
+removes the relationship, neither happens. Removing the whole relationship
 routes query exit and detaches all edges, calls `onTargetRemove` once per edge, then
 calls `onRemove`. An exclusive replacement calls `onTargetRemove` for the old target before
 `onTargetAdd` for the new target without removing and re-adding the component. Edge changes route
