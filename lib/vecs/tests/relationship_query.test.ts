@@ -398,7 +398,7 @@ describe("Relationship queries", () => {
     const pos = target.add(Position).get(Position)!;
     expect(enter).toHaveBeenCalledWith(candidate, [target, pos]);
     target.remove(Position);
-    expect(exit).toHaveBeenCalledWith(candidate, [target, undefined]);
+    expect(exit).toHaveBeenCalledWith(candidate, [target, pos]);
   });
 
   it("injects the target entity through a system enter callback", () => {

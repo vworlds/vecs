@@ -40,7 +40,11 @@ export type TargetInjectProjection = ComponentType | typeof Entity;
  * ```
  *
  * Every projected slot is optional because the relationship or target-side
- * component may be absent when the callback runs.
+ * component may be absent when the callback runs. Exit injection retains the
+ * target component being removed; ordinary entity reads still see it as absent.
+ * During target destruction, storage is retained through synchronous exits and
+ * remove hooks: live target projections, like self injection and `get`, can read
+ * the instance even after `has` becomes false. Storage is cleared after teardown.
  */
 export type TargetInject<
   P extends TargetInjectProjection | readonly TargetInjectProjection[] =
@@ -51,6 +55,9 @@ export type TargetInject<
 /**
  * Follows every target of a relationship and injects one array-valued tuple slot.
  * Each array entry is a projected tuple for one target, in relationship order.
+ * Exit injection retains target components being removed, as {@link TargetInject} does.
+ * During destruction, live projections also read retained storage through synchronous
+ * exits and remove hooks, matching self injection.
  */
 export type TargetsInject<
   P extends TargetInjectProjection | readonly TargetInjectProjection[] =
@@ -170,7 +177,7 @@ function _resolveTargetProjection(
   if (projection === TARGET_ENTITY) {
     return target;
   }
-  return target?.has(projection) ? target._get(projection) : undefined;
+  return target && (target._get(projection) ?? _removedInjected(target, projection));
 }
 
 function _resolveTargetsProjection(targets: readonly Entity[], projections: readonly EID[]) {
