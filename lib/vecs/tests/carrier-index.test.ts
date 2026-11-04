@@ -117,6 +117,152 @@ describe("component carrier index", () => {
     expect([...query]).toEqual([]);
   });
 
+  it("removes a component inside its own add hook without exit or later entry", () => {
+    const world = new World();
+    const component = world.component(Data);
+    const events: string[] = [];
+    const query = world
+      .query("data")
+      .with(Data)
+      .enter(() => events.push("enter"))
+      .exit(() => events.push("exit"))
+      .build();
+    component.on("add", (e) => e.remove(Data));
+
+    const entity = world.entity().add(Data);
+
+    expect(events).toEqual([]);
+    expect(entity.has(Data)).toBe(false);
+    expect([...query]).toEqual([]);
+    expect(component.meta.usageCount).toBe(0);
+  });
+
+  it("removes a relationship inside its own targetAdd hook without exit or later entry", () => {
+    const world = new World();
+    const component = world.component(Link);
+    const events: string[] = [];
+    const query = world
+      .query("links")
+      .with(Link)
+      .enter(() => events.push("enter"))
+      .exit(() => events.push("exit"))
+      .build();
+    component.on("targetAdd", (source) => source.remove(Link));
+
+    const entity = world.entity().add(Link, world.entity());
+
+    expect(events).toEqual([]);
+    expect(entity.has(Link)).toBe(false);
+    expect([...query]).toEqual([]);
+    expect(component.meta.usageCount).toBe(0);
+  });
+
+  it("enters a staged entity once into a query built inside its add hook", () => {
+    const world = new World();
+    const component = world.component(Data);
+    const entered: Entity[] = [];
+    let query: ReturnType<World["query"]> | undefined;
+    component.on("add", () => {
+      query = world
+        .query("built-in-add")
+        .with(Data)
+        .enter((e) => entered.push(e))
+        .build();
+    });
+
+    const entity = world.entity().add(Data);
+
+    expect(entered).toEqual([entity]);
+    expect([...query!]).toEqual([entity]);
+  });
+
+  it("exits a staged entity once from queries that saw it inside its add hook", () => {
+    class Other {}
+    const world = new World();
+    const component = world.component(Data);
+    world.component(Other);
+    const events: string[] = [];
+    const before = world
+      .query("before")
+      .with(Data)
+      .enter(() => events.push("before:enter"))
+      .exit(() => events.push("before:exit"))
+      .build();
+    const queries: ReturnType<World["query"]>[] = [];
+    component.on("add", (e) => {
+      queries.push(
+        world
+          .query("leaf")
+          .with(Data)
+          .enter(() => events.push("leaf:enter"))
+          .exit(() => events.push("leaf:exit"))
+          .build(),
+        world
+          .query("composite")
+          .with(Data, Other)
+          .enter(() => events.push("composite:enter"))
+          .exit(() => events.push("composite:exit"))
+          .build()
+      );
+      e.remove(Data);
+    });
+
+    const entity = world.entity().add(Other).add(Data);
+
+    expect(events).toEqual(["leaf:enter", "composite:enter", "leaf:exit", "composite:exit"]);
+    expect([...before]).toEqual([]);
+    expect(queries.map((q) => [...q])).toEqual([[], []]);
+    expect(entity.has(Data)).toBe(false);
+  });
+
+  it("enters once when an add hook removes and re-adds its own component", () => {
+    const world = new World();
+    const component = world.component(Data);
+    const events: string[] = [];
+    const query = world
+      .query("data")
+      .with(Data)
+      .enter(() => events.push("enter"))
+      .exit(() => events.push("exit"))
+      .build();
+    let reentered = false;
+    component.on("add", (e) => {
+      if (!reentered) {
+        reentered = true;
+        e.remove(Data);
+        e.add(Data);
+      }
+    });
+
+    const entity = world.entity().add(Data);
+
+    expect(events).toEqual(["enter"]);
+    expect([...query]).toEqual([entity]);
+    expect(component.meta.usageCount).toBe(1);
+  });
+
+  it("enters nested staged adds of one component exactly once each", () => {
+    const world = new World();
+    const component = world.component(Data);
+    const entered: Entity[] = [];
+    const query = world
+      .query("data")
+      .with(Data)
+      .enter((e) => entered.push(e))
+      .build();
+    const inner = world.entity();
+    component.on("add", (e) => {
+      if (e !== inner) {
+        inner.add(Data);
+      }
+    });
+
+    const outer = world.entity().add(Data);
+
+    expect(entered).toEqual([inner, outer]);
+    expect([...query]).toEqual([outer, inner]);
+  });
+
   it("destroys carriers of carriers exactly once while nested cascades delete upcoming members", () => {
     const world = new World();
     const root = world.entity().add(OnDelete, Delete);
