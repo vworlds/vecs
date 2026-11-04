@@ -21,7 +21,8 @@ test(
     try {
       await unit.standalone();
       assert.equal(unit.config.maxWorkers, 2);
-      assert.equal(unit.projects.length, 11);
+      // Ten workspaces, apps/server and the cross-package tests/guards project.
+      assert.equal(unit.projects.length, 12);
       const units = await unit.globTestSpecifications();
       assert.ok(units.length > 200);
       assert.ok(units.every(({ moduleId }) => !/\.(stress|tooling)\.test\.ts$/.test(moduleId)));
