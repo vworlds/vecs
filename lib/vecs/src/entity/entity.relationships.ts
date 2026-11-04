@@ -4,6 +4,24 @@ import { DenseSet } from "../util/dense_set.js";
 import type { EID, Entity } from "./entity.js";
 import { Queries } from "./entity.queries.js";
 
+/** Options for {@link Relationships.targets} and {@link Relationships.hasTarget}. */
+export interface TargetReadOptions {
+  /**
+   * Also count the edge commands queued for this entity and relationship in the
+   * current deferred scope: queued adds are included, queued removals (one edge
+   * or the whole relationship) are excluded, and an `Exclusive` relationship
+   * reports only its queued replacement. Targets already destroyed are never
+   * reported, and a destroyed entity reports none. Outside deferred mode nothing
+   * is queued, so the result equals the committed read. Defaults to `false`:
+   * committed edges only.
+   *
+   * The read scans the world's not-yet-applied commands, so it costs time
+   * proportional to the commands queued in the current scope; writes pay
+   * nothing for it. Use it for occasional reads, not per-entity hot loops.
+   */
+  pending?: boolean;
+}
+
 export class Relationships extends Queries {
   /** Return this entity's target through relationship `ref`, if present. */
   public target(rel: ComponentRef): Entity | undefined {
@@ -11,16 +29,48 @@ export class Relationships extends Queries {
     return (this._components.get(relEid) as Relationship | undefined)?._target();
   }
 
-  /** Return a safe readonly snapshot of all targets through relationship `ref`. */
-  public targets(rel: ComponentRef): readonly Entity[] {
+  /**
+   * Return a safe readonly snapshot of all targets through relationship `ref`.
+   *
+   * By default only committed edges are reported: inside a deferred scope an
+   * edge queued by `add(ref, target)` is not visible until the queue drains.
+   * Pass `{ pending: true }` to include the queued edge commands; see
+   * {@link TargetReadOptions}.
+   */
+  public targets(rel: ComponentRef, options?: TargetReadOptions): readonly Entity[] {
     const relEid = typeof rel === "number" ? rel : this.world.entity(rel).eid;
-    return (this._components.get(relEid) as Relationship | undefined)?._targetArray() ?? [];
+    const committed =
+      (this._components.get(relEid) as Relationship | undefined)?._targetArray() ?? [];
+    if (!options?.pending) {
+      return committed;
+    }
+    return this.world._pendingTargets(
+      this as unknown as Entity,
+      this.world.entity(relEid).meta,
+      committed
+    );
   }
 
-  /** Return whether this entity targets `target` through relationship `ref`. */
-  public hasTarget(rel: ComponentRef, target: Entity): boolean {
+  /**
+   * Return whether this entity targets `target` through relationship `ref`.
+   *
+   * By default only committed edges are tested. Pass `{ pending: true }` to
+   * answer from the committed edge plus the edge commands queued in the
+   * current deferred scope; see {@link TargetReadOptions}.
+   */
+  public hasTarget(rel: ComponentRef, target: Entity, options?: TargetReadOptions): boolean {
     const relEid = typeof rel === "number" ? rel : this.world.entity(rel).eid;
-    return (this._components.get(relEid) as Relationship | undefined)?._hasTarget(target) ?? false;
+    const committed =
+      (this._components.get(relEid) as Relationship | undefined)?._hasTarget(target) ?? false;
+    if (!options?.pending) {
+      return committed;
+    }
+    return this.world._hasPendingTarget(
+      this as unknown as Entity,
+      this.world.entity(relEid).meta,
+      target,
+      committed
+    );
   }
 
   /** @internal Test targets by relationship eid without allocating a snapshot. */
