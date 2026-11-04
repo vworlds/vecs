@@ -77,8 +77,9 @@ try {
 }
 ```
 
-Aborting before `connectDgram` settles closes the socket and rejects with `signal.reason`; a signal
-already aborted on entry rejects before creating a socket. An abort after it resolves does nothing:
+Aborting before `connectDgram` settles, including during transport startup, closes the socket and
+rejects with `signal.reason`; a signal already aborted on entry rejects before creating a socket.
+An abort after it resolves does nothing:
 `close()` or `dispose()` the world instead. `connectDgram` also rejects, without creating a socket,
 on a disposed world, on a connected one, and while another `connectDgram` call on the same world
 has not settled.

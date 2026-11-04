@@ -117,8 +117,8 @@ export interface ClientWorldOptions extends NetworkWorldOptions {
 /** Connection settings for {@link ClientWorld.connectDgram}; world options go to the constructor. */
 export interface DgramConnectOptions extends DgramSocketOptions {
   /**
-   * Cancel the connection. Aborting before `connectDgram` settles closes the socket and rejects
-   * with `signal.reason`, leaving the world unattached; a signal already aborted on entry rejects
+   * Cancel the connection, including transport startup. Aborting before `connectDgram` settles
+   * closes the socket and rejects with `signal.reason`, leaving the world unattached; a signal already aborted on entry rejects
    * before a socket is created. Aborting after it resolves has no effect: call
    * {@link ClientWorld.close} or {@link ClientWorld.dispose} instead.
    */
@@ -293,6 +293,8 @@ export class ClientWorld extends NetworkWorld {
       if (signal) {
         // The losing connect() may still reject after the abort; that outcome is not reported.
         connected.catch(() => undefined);
+        // connect() may synchronously trigger cancellation before the listener is installed.
+        signal.throwIfAborted();
         await Promise.race([
           connected,
           new Promise<never>((_resolve, reject) => {
