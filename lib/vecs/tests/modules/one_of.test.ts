@@ -28,7 +28,7 @@ describe("OneOf trait", () => {
     const e = w.entity();
 
     expect(() => e.add(ResidesIn, weather)).toThrow("OneOf: target");
-    // Invariant violation: the edge is partially routed when the policy hook
+    // Invariant violation: the edge is partially routed when the trait handler
     // throws. The world is left partially mutated; discard it.
   });
 
@@ -201,7 +201,7 @@ describe("OneOf trait", () => {
     const region = w.component(Region);
     w.component(ResidesIn).add(OneOf, region);
     // Cross-world target rejection is enforced by World.entity (called to
-    // resolve the target ref) before the OneOf policy hook runs, so the
+    // resolve the target ref) before the OneOf trait handler runs, so the
     // message is the cross-world one.
     const otherWorld = new World();
     const foreignTarget = otherWorld.entity();

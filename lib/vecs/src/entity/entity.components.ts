@@ -160,7 +160,9 @@ export class Components extends Relationships {
       // `update` reference: it fires only when the entity stays a member.
       this._routeRemoved(meta.eid, instance);
     }
-    // Destroy deliberately skips trait remove handlers (e.g. SilenceSource); see RelationshipsModule.
+    // Destroy deliberately skips trait remove handlers (teardown must not trip the
+    // Exclusive/OwnedTarget/Traversable irrevocability guards) while application remove
+    // hooks still fire; see the teardown contract in RelationshipsModule.
     if (!keepStorage) {
       meta._traitRemove?.(this, instance);
     }
