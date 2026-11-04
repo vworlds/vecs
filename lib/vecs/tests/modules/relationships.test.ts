@@ -387,9 +387,9 @@ describe("RelationshipsModule", () => {
 
       const e = w.entity().add(Helmet);
 
-      // Policy hooks fire before public hooks (entity.components.ts:773-774),
-      // so the auto-add of Armor completes before the custom add hook
-      // observes Helmet. Either way both must run.
+      // Trait handlers fire before application handlers (entity.components.ts,
+      // Components._storeRaw), so the auto-add of Armor completes before the
+      // custom add hook observes Helmet. Either way both must run.
       expect(e.has(Armor)).toBe(true);
       expect(calls).toEqual([`custom:${e.eid}`]);
     });
