@@ -178,7 +178,9 @@ export class RelationshipsModule extends Module {
         );
       }
       if (xMeta.usageCount > 0) {
-        throw new Error("With cannot be added while the target component is in use");
+        throw new Error(
+          `With cannot be added while the bringer ${xMeta.Class.name} is in use; declare the pair during setup`
+        );
       }
       if (xMeta.isRelationship) {
         xMeta.on("targetAdd", { trait: true }, (source, _rel, target) =>
@@ -200,7 +202,9 @@ export class RelationshipsModule extends Module {
           throw new Error("Requires: the component and its target must both be plain components");
         }
         if (xMeta.usageCount > 0) {
-          throw new Error("Requires cannot be added while the target component is in use");
+          throw new Error(
+            `Requires cannot be added while the bringer ${xMeta.Class.name} is in use; declare the pair during setup`
+          );
         }
         xMeta.on("add", { trait: true }, (entity) => entity.add(yEntity));
         xMeta.on("remove", { trait: true }, (entity) => {
