@@ -769,14 +769,22 @@ export class Components extends Relationships {
     this._addIncoming(target, meta.eid);
     const reflectsAdd = (): boolean =>
       this._components.get(meta.eid) === relationship && relationship._hasTarget(target);
-    if (!this._emitTargetAdd(meta, relationship, target, reflectsAdd)) {
-      return;
+    // Every exit before entry propagation discards the staged entry, so none outlives its add.
+    try {
+      if (!this._emitTargetAdd(meta, relationship, target, reflectsAdd)) {
+        meta._term._discardStaged(this);
+        return;
+      }
+      meta._onAdd?.(this, relationship);
+      if (!reflectsAdd()) {
+        meta._term._discardStaged(this);
+        return;
+      }
+      this._routeArrived(meta.eid, relationship);
+    } catch (error) {
+      meta._term._discardStaged(this);
+      throw error;
     }
-    meta._onAdd?.(this, relationship);
-    if (!reflectsAdd()) {
-      return;
-    }
-    this._routeArrived(meta.eid, relationship);
     this.world._notifyComponentAdded(meta.eid, this);
   }
 
@@ -927,17 +935,22 @@ export class Components extends Relationships {
     const existing = this._components.has(meta.eid);
     this._components.set(meta.eid, instance);
     this.componentBitmask.addBit(meta.bitPtr);
-    if (!existing) {
-      meta._term._stageAdded(this);
+    if (existing) {
+      return;
     }
-    if (isAdd && !existing) {
-      meta._traitAdd?.(this, instance);
-      meta._onAdd?.(this, instance);
-    }
-    if (!existing) {
+    meta._term._stageAdded(this);
+    // A throwing hook discards the staged entry, so none outlives its add.
+    try {
+      if (isAdd) {
+        meta._traitAdd?.(this, instance);
+        meta._onAdd?.(this, instance);
+      }
       this._routeArrived(meta.eid, instance);
-      this.world._notifyComponentAdded(meta.eid, this);
+    } catch (error) {
+      meta._term._discardStaged(this);
+      throw error;
     }
+    this.world._notifyComponentAdded(meta.eid, this);
   }
 
   private _throwIfInterface(meta: ComponentMeta, op: string): void {

@@ -42,6 +42,11 @@ export class ComponentTerm extends Term {
     // membership changes drive it, so no world scan is necessary.
   }
 
+  /** @internal Number of entities stored before their add hooks and not yet propagated. */
+  public get _stagedCount(): number {
+    return this._staged.length;
+  }
+
   /** @internal Whether removal must preserve an injection register for term consumers. */
   public get _observed(): boolean {
     return this._consumers.size > 0;
@@ -82,6 +87,26 @@ export class ComponentTerm extends Term {
    */
   public componentChanged(entity: Entity): void {
     this._emitRefresh(entity);
+  }
+
+  /**
+   * @internal Drop `entity`'s staged entry, without events, when its add ends
+   * without propagating (an early return or a throwing hook). The entity stays
+   * in the term only while it still carries the component.
+   */
+  public _discardStaged(entity: Entity): void {
+    const staged = this._staged;
+    if (staged.length === 0) {
+      return;
+    }
+    const index = staged.lastIndexOf(entity);
+    if (index < 0) {
+      return;
+    }
+    this._removeStaged(index);
+    if (!this._matches(entity)) {
+      this._entities.delete(entity);
+    }
   }
 
   /** Called by `build.ts` when the component is removed from `entity`. */
@@ -125,16 +150,9 @@ export class ComponentTerm extends Term {
     return consumers;
   }
 
-  /**
-   * Remove `entity` if it is still staged, exiting it only from the consumers
-   * that saw it during its add hooks. Returns `false` when it is not staged.
-   */
-  private _unstage(entity: Entity): boolean {
+  /** Remove the staged entry at `index` and return the consumers that saw it. */
+  private _removeStaged(index: number): TermConsumer[] | undefined {
     const staged = this._staged;
-    const index = staged.lastIndexOf(entity);
-    if (index < 0) {
-      return false;
-    }
     staged.splice(index, 1);
     const seen = this._stagedSeen;
     let consumers: TermConsumer[] | undefined;
@@ -145,6 +163,19 @@ export class ComponentTerm extends Term {
     if (staged.length === 0) {
       this._stagedSeen = undefined;
     }
+    return consumers;
+  }
+
+  /**
+   * Remove `entity` if it is still staged, exiting it only from the consumers
+   * that saw it during its add hooks. Returns `false` when it is not staged.
+   */
+  private _unstage(entity: Entity): boolean {
+    const index = this._staged.lastIndexOf(entity);
+    if (index < 0) {
+      return false;
+    }
+    const consumers = this._removeStaged(index);
     this._entities.delete(entity);
     if (consumers !== undefined) {
       this._emitTo(TermEventKind.Exit, entity, (consumer) => consumers.includes(consumer));

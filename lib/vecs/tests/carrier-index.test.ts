@@ -263,6 +263,72 @@ describe("component carrier index", () => {
     expect([...query]).toEqual([outer, inner]);
   });
 
+  it("discards the staged entry when an add hook throws", () => {
+    const world = new World();
+    const component = world.component(Data);
+    const other = world.entity().add(Data);
+    const throwing = (): void => {
+      throw new Error("hook failed");
+    };
+    component.on("add", throwing);
+
+    const failed = world.entity();
+    expect(() => failed.add(Data)).toThrow("hook failed");
+    component.off("add", throwing);
+    other.remove(Data);
+
+    expect(component.meta._term._stagedCount).toBe(0);
+    const entered: Entity[] = [];
+    const exited: Entity[] = [];
+    world
+      .query("later")
+      .with(Data)
+      .enter((e) => entered.push(e))
+      .exit((e) => exited.push(e))
+      .build();
+    const added = world.entity().add(Data);
+    added.remove(Data);
+    failed.remove(Data);
+    expect(entered).toEqual([failed, added]);
+    expect(exited).toEqual([added, failed]);
+    expect(component.meta._term._stagedCount).toBe(0);
+  });
+
+  it("discards the staged entry when a targetAdd hook retargets a new relationship", () => {
+    const world = new World();
+    const component = world.component(Link);
+    const first = world.entity();
+    const second = world.entity();
+    const other = world.entity().add(Link, first);
+    const retarget = (source: Entity, _link: Relationship, target: Entity): void => {
+      if (source !== other && target === first) {
+        source.add(Link, second);
+        source.remove(Link, first);
+      }
+    };
+    component.on("targetAdd", retarget);
+
+    const retargeted = world.entity().add(Link, first);
+    component.off("targetAdd", retarget);
+    other.remove(Link);
+
+    expect(component.meta._term._stagedCount).toBe(0);
+    const entered: Entity[] = [];
+    const exited: Entity[] = [];
+    world
+      .query("later")
+      .with(Link)
+      .enter((e) => entered.push(e))
+      .exit((e) => exited.push(e))
+      .build();
+    const added = world.entity().add(Link, first);
+    added.remove(Link);
+    expect(retargeted.has(Link)).toBe(true);
+    expect(entered).toEqual([retargeted, added]);
+    expect(exited).toEqual([added]);
+    expect(component.meta._term._stagedCount).toBe(0);
+  });
+
   it("destroys carriers of carriers exactly once while nested cascades delete upcoming members", () => {
     const world = new World();
     const root = world.entity().add(OnDelete, Delete);

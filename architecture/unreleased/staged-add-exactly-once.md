@@ -1,1 +1,0 @@
-- [vecs] Fixed: An add or `targetAdd` hook that removes its own component no longer makes queries fire `exit` for an entity they never entered (nor a stale `enter` afterwards), and a query built inside an add hook enters the new entity once instead of twice.
