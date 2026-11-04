@@ -140,6 +140,73 @@ describe("removal injection", () => {
       });
   });
 
+  it("injects singular and plural target components when the target is destroyed", () => {
+    const world = new World();
+    world.component(A);
+    world.component(Link);
+    const target = world.entity().add(A);
+    const source = world.entity().add(Link, target);
+    const instance = target.get(A);
+    const seen: unknown[] = [];
+    const query = world
+      .query("destroyed target")
+      .with({ target: [Link, A] })
+      .exit([{ target: [Link, A] }, { targets: [Link, A] }], (e, [value, rows]) => {
+        seen.push(e, value, rows);
+      })
+      .build();
+
+    target.destroy();
+
+    expect(seen).toEqual([source, instance, [[instance]]]);
+    expect(seen[1]).toBe(instance);
+    expect((seen[2] as unknown[][])[0][0]).toBe(instance);
+    expect(query.has(source)).toBe(false);
+    expect(source.targets(Link)).toEqual([]);
+  });
+
+  it("matches self injection for non-exit target reads during a destroy remove hook", () => {
+    const world = new World();
+    world.component(A);
+    world.component(B);
+    world.component(Link);
+    const target = world.entity().add(A).add(B);
+    const source = world.entity().add(Link, target);
+    const instance = target.get(A);
+    const self = world.query("destroy self read").with(B).build();
+    const projections = world.query("destroy target read").with(Link).build();
+    const seen: unknown[] = [];
+    world.component(A).on("remove", (e, removed) => {
+      seen.push(e, removed, e.destroyed, e.has(A), e.get(A));
+      self.forEach([A], (entity, [value]) => seen.push(entity, value));
+      projections.forEach(
+        [{ target: [Link, A] }, { targets: [Link, A] }],
+        (entity, [value, rows]) => seen.push(entity, value, rows)
+      );
+    });
+
+    target.destroy();
+
+    expect(seen).toEqual([
+      target,
+      instance,
+      true,
+      false,
+      instance,
+      target,
+      instance,
+      source,
+      instance,
+      [[instance]],
+    ]);
+    expect(seen[4]).toBe(instance);
+    expect(seen[6]).toBe(instance);
+    expect(seen[8]).toBe(instance);
+    expect((seen[9] as unknown[][])[0][0]).toBe(instance);
+    expect(self.count).toBe(0);
+    expect(projections.count).toBe(0);
+  });
+
   it("does not read or write the register when neither notification root is observed", () => {
     const world = new World();
     const removed: unknown[] = [];
