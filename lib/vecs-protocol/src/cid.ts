@@ -41,20 +41,20 @@ export class CidLayout {
   /** Pack an entity id and wire type into a uint32; throw on negative or overflowing ids. */
   public pack(eid: EID, wireType: number): CID {
     if (eid < 0) {
-      throw new Error(`cid_pack: entity id must be non-negative, got ${eid}`);
+      throw new Error(`cid.pack: entity id must be non-negative, got ${eid}`);
     }
     if (eid > this.maxEntityId) {
       throw new Error(
-        `cid_pack: entity id ${eid} exceeds maximum ${this.maxEntityId} for localComponentMin=${this.localComponentMin}. ` +
+        `cid.pack: entity id ${eid} exceeds maximum ${this.maxEntityId} for localComponentMin=${this.localComponentMin}. ` +
           `Increase localComponentMin or use a smaller entity id.`
       );
     }
     if (wireType < 0) {
-      throw new Error(`cid_pack: wire type id must be non-negative, got ${wireType}`);
+      throw new Error(`cid.pack: wire type id must be non-negative, got ${wireType}`);
     }
     if (wireType > this.maxWireType) {
       throw new Error(
-        `cid_pack: wire type id ${wireType} exceeds maximum wire type ${this.maxWireType}. ` +
+        `cid.pack: wire type id ${wireType} exceeds maximum wire type ${this.maxWireType}. ` +
           `Ensure wire type id is less than localComponentMin=${this.localComponentMin}.`
       );
     }

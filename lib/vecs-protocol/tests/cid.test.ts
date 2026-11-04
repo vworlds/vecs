@@ -21,11 +21,11 @@ describe("CidLayout", () => {
     expect(layout.maxWireType).toBe(31);
     expect(layout.unpack(layout.pack(134217727, 31))).toEqual([134217727, 31]);
     expect(() => layout.pack(134217728, 1)).toThrow(
-      "cid_pack: entity id 134217728 exceeds maximum 134217727 for localComponentMin=32. " +
+      "cid.pack: entity id 134217728 exceeds maximum 134217727 for localComponentMin=32. " +
         "Increase localComponentMin or use a smaller entity id."
     );
     expect(() => layout.pack(1, 32)).toThrow(
-      "cid_pack: wire type id 32 exceeds maximum wire type 31. " +
+      "cid.pack: wire type id 32 exceeds maximum wire type 31. " +
         "Ensure wire type id is less than localComponentMin=32."
     );
   });
