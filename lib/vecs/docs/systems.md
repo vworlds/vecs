@@ -375,6 +375,11 @@ present; projected components remain optional. `target` and `targets` resolve li
 their projected component and entity references plus sources when the event is routed. Inbox replay
 retains those references even if storage or edges change; component objects are not cloned.
 
+In a synchronous standalone query `exit`, both `target` and `targets` injection retain the
+target component being removed, including across nested removals. Inject that component instead of
+reading it back with `target.get(C)`: ordinary `get` and `has` reads already see its absence.
+After removal finishes, live projections resolve the missing component as `undefined`.
+
 Inline projection tuples infer precise slot types. When reusing a projection tuple stored in a
 variable, declare it `as const` to preserve each position's type.
 

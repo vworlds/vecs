@@ -14,6 +14,132 @@ abstract class Alias {
 class Link extends Relationship {}
 
 describe("removal injection", () => {
+  it("injects a removed singular target component while normal target reads stay absent", () => {
+    const world = new World();
+    world.component(A);
+    world.component(B);
+    world.component(Link);
+    const target = world.entity().add(A);
+    const source = world.entity().add(Link, target);
+    const instance = target.get(A);
+    const seen: unknown[] = [];
+    const query = world
+      .query("singular target")
+      .with({ target: [Link, A] })
+      .exit({ cursor: Iter, inject: [{ target: [Link, [Entity, A, B]] }] }, (it, values) => {
+        seen.push(it.entity, ...values, ...it.src, target.get(A), target.has(A));
+      })
+      .build();
+
+    target.remove(A);
+
+    expect(seen).toEqual([
+      source,
+      target,
+      instance,
+      undefined,
+      target,
+      target,
+      target,
+      undefined,
+      false,
+    ]);
+    expect(seen[2]).toBe(instance);
+    expect(query.has(source)).toBe(false);
+    world
+      .query("live singular target")
+      .with(Link)
+      .build()
+      .forEach([{ target: [Link, A] }], (_e, [a]) => expect(a).toBeUndefined());
+  });
+
+  it("injects a removed plural target component in relationship order", () => {
+    const world = new World();
+    world.component(A);
+    world.component(Link);
+    const missing = world.entity();
+    const target = world.entity().add(A);
+    const source = world.entity().add(Link, missing).add(Link, target);
+    const instance = target.get(A);
+    const seen: unknown[] = [];
+    const query = world
+      .query("plural target")
+      .with({ target: [Link, A] })
+      .exit({ cursor: Iter, inject: [{ targets: [Link, [Entity, A]] }] }, (it, [rows]) => {
+        seen.push(it.entity, rows, it.src[0], target.get(A), target.has(A));
+      })
+      .build();
+
+    target.remove(A);
+
+    expect(seen).toEqual([
+      source,
+      [
+        [missing, undefined],
+        [target, instance],
+      ],
+      [missing, target],
+      undefined,
+      false,
+    ]);
+    expect((seen[1] as unknown[][])[1][1]).toBe(instance);
+    expect(query.has(source)).toBe(false);
+    world
+      .query("live plural target")
+      .with(Link)
+      .build()
+      .forEach([{ targets: [Link, A] }], (_e, [rows]) => {
+        expect(rows).toEqual([[undefined], [undefined]]);
+      });
+  });
+
+  it("restores target projection injection after a nested target removal", () => {
+    const world = new World();
+    world.component(A);
+    world.component(B);
+    world.component(Link);
+    const outer = world.entity().add(A);
+    const inner = world.entity().add(B);
+    world.entity().add(Link, outer);
+    world.entity().add(Link, inner);
+    const a = outer.get(A);
+    const b = inner.get(B);
+    const seen: unknown[] = [];
+    world
+      .query("nested target trigger")
+      .with({ target: [Link, A] })
+      .exit(() => inner.remove(B))
+      .build();
+    world
+      .query("inner target")
+      .with({ target: [Link, B] })
+      .exit([{ target: [Link, B] }, { targets: [Link, B] }], (_e, [value, rows]) => {
+        seen.push(value, rows);
+      })
+      .build();
+    world
+      .query("outer target")
+      .with({ target: [Link, A] })
+      .exit([{ target: [Link, A] }, { targets: [Link, A] }], (_e, [value, rows]) => {
+        seen.push(value, rows);
+      })
+      .build();
+
+    outer.remove(A);
+
+    expect(seen).toEqual([b, [[b]], a, [[a]]]);
+    expect(seen[0]).toBe(b);
+    expect(seen[2]).toBe(a);
+    world
+      .query("live nested targets")
+      .with(Link)
+      .build()
+      .forEach([{ target: [Link, A] }, { targets: [Link, B] }], (_e, [value, rows]) => {
+        expect(value).toBeUndefined();
+        expect(rows).toEqual([[undefined]]);
+      });
+  });
+
   it("does not read or write the register when neither notification root is observed", () => {
     const world = new World();
     const removed: unknown[] = [];
