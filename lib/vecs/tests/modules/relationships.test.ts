@@ -351,12 +351,14 @@ describe("RelationshipsModule", () => {
       // World partially mutated; discard it.
     });
 
-    it("rejects being attached while the target component is already in use", () => {
+    it("rejects being attached while the bringer is already in use", () => {
       const w = new World();
       const helmet = w.component(Helmet);
       w.entity().add(Helmet); // Helmet is now in use
 
-      expect(() => helmet.add(With, w.component(Armor))).toThrow("in use");
+      expect(() => helmet.add(With, w.component(Armor))).toThrow(
+        "With cannot be added while the bringer Helmet is in use"
+      );
       // World partially mutated; discard it.
     });
 
@@ -635,7 +637,9 @@ describe("RelationshipsModule", () => {
       const helmet = w.component(Helmet);
       w.entity().add(Helmet);
 
-      expect(() => helmet.add(Requires, w.component(Armor))).toThrow("in use");
+      expect(() => helmet.add(Requires, w.component(Armor))).toThrow(
+        "Requires cannot be added while the bringer Helmet is in use"
+      );
       // World partially mutated; discard it.
     });
 
