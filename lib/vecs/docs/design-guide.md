@@ -214,9 +214,8 @@ for the full model and custom-trait guidance.
 not remove `Position`, and a `Position` the entity already holds is left as it is. `With` is
 inclusion, not requirement (see the [settled decision](../../../architecture/DECISIONS.md#with-adds-never-removes)).
 Reach for it when the bringer is never removed from a live entity (it is the entity's identity, or
-the entity dies with it), or when an orphaned companion is harmless. Otherwise own the companion
-explicitly: remove it in the bringer's `remove` hook, or use the owning trait once it ships
-([#463](https://github.com/vworlds/vecs/issues/463)). A networked
+the entity dies with it), or when an orphaned companion is harmless. Otherwise declare the pair
+with `Requires`, the owning counterpart described below. A networked
 client has one more rule, because the server decides what a client replicates but the client decides
 what it derives. **`ClientWorld.apply` skips a network removal of a component that another
 component present on the entity brings through `With` or `Requires`**, so a server can swap the
@@ -476,7 +475,7 @@ makes the entity relevant (`world.component(Ship).add(With, world.component(Thru
 setup, see §3), so no creation path can forget it. `With` only adds, so use it when the bringer is
 never removed from a live entity or an orphaned companion is harmless (the condition in §3); the
 `Ship` example fits because `Ship` is the entity's identity and `Thrusting` lives and dies with it.
-A bringer that comes and goes needs the companion owned explicitly. For example, a `DefaultWeapon`
+A bringer that comes and goes needs the companion owned, through `Requires`. For example, a `DefaultWeapon`
 that is never removed from its entity brings `ShootingCooldown`
 (`world.component(DefaultWeapon).add(With, world.component(ShootingCooldown))`), which replaces an
 `enter` system that only set the cooldown on first use.
@@ -1004,7 +1003,7 @@ system after whatever produces the entity/companion.
 - **`With` never removes its companion.** Removing a bringer that can leave a live entity orphans
   the companion, and a `.without(Bringer)` query still matches the entity because the companion
   stays. Use `With` only when the bringer is never removed or an orphan is harmless; otherwise
-  remove the companion in the bringer's `remove` hook (see §3 and the
+  declare the pair with `Requires`, which removes the companion with its last bringer (see §3 and the
   [settled decision](../../../architecture/DECISIONS.md#with-adds-never-removes)).
 - **A callback that always uses a component should inject it, not `get` it.** `entity.get(C)` is for
   a component that is conditionally needed and rarely required (see §4).
