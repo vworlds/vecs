@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { Entity, Query, System, World } from "../src/index.js";
+import { Entity, Query, Relationship, System, World } from "../src/index.js";
 
 class Client {}
 class View {
@@ -11,6 +11,7 @@ class Controls {
 class Transfer {
   sector = 0;
 }
+class InSector extends Relationship {}
 /** Marker attached to system entities to group them into a silence domain. */
 class Physics {}
 
@@ -294,6 +295,24 @@ describe("update({ watch }) without with(watch) — Query", () => {
     w.flush();
     expect(calls).toEqual([["controls", true, 2]]);
     expect(q.has(e)).toBe(true);
+  });
+
+  it("does not route removal when the entity is destroyed, for a component or a relationship", () => {
+    const { w } = setup();
+    w.component(InSector);
+    const calls: string[] = [];
+    w.query("views")
+      .with(Client)
+      .update({ watch: InSector, onRemove: true }, (e) => calls.push(`sector:${e.destroyed}`))
+      .update({ watch: Controls, onRemove: true }, (e) => calls.push(`controls:${e.destroyed}`))
+      .exit((e) => calls.push(`exit:${e.destroyed}`))
+      .build();
+
+    // Both watched components come before the predicate component, so their
+    // teardown runs while the dying entity is still a member.
+    const e = w.entity().add(InSector, w.entity()).set(Controls, { ship: 1 }).add(Client);
+    e.destroy();
+    expect(calls).toEqual(["exit:true"]);
   });
 
   it("keeps the query type and the callback's component non-optional", () => {
