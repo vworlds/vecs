@@ -24,8 +24,8 @@ export class Singleton {}
  * Registered automatically by every {@link World}. When a component entity has
  * the `Singleton` component attached, the module installs an `onAdd` hook on
  * that component class so that adding it to more than one entity throws.
- * Module definitions carry their already-constructed module instance rather
- * than constructing a separate value.
+ * Module definitions carry the module instance `World.module` constructed
+ * rather than a value constructed here.
  */
 export class SingletonModule extends Module {
   public init(): void {
@@ -47,9 +47,8 @@ export class SingletonModule extends Module {
             );
           }
         });
-        if (target instanceof Module) {
-          target.attach(target);
-        } else {
+        // `World.module` attaches the module instance it constructed.
+        if (!(targetMeta.Class.prototype instanceof Module)) {
           target.add(target);
         }
       });

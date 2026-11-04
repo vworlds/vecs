@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   BUILTIN_PIPELINE_PHASES,
-  Component,
   DEFAULT_ID_REUSE_WAIT_FRAMES,
   DependsOn,
   insertPhaseAfter,
@@ -38,7 +37,7 @@ describe("World - id pools", () => {
     expect(nextModuleEid).toBeLessThanOrEqual(999);
     expect(nextEntityEid).toBeGreaterThanOrEqual(1000);
     expect(w.component(A).eid).toBe(nextComponentEid);
-    expect(w.module(TestModule).eid).toBe(nextModuleEid);
+    expect(w.module(TestModule).entity.eid).toBe(nextModuleEid);
     expect(w.entity().eid).toBe(nextEntityEid);
   });
 
@@ -78,7 +77,7 @@ describe("World - id pools", () => {
     expect(nextModuleEid).toBeLessThanOrEqual(999);
     expect(nextEntityEid).toBeGreaterThanOrEqual(1000);
     expect(w.component(A).eid).toBe(nextComponentEid);
-    expect(w.module(TestModule).eid).toBe(nextModuleEid);
+    expect(w.module(TestModule).entity.eid).toBe(nextModuleEid);
     expect(w.entity().eid).toBe(nextEntityEid);
   });
 
@@ -144,7 +143,7 @@ describe("World - id pools", () => {
     }
 
     expect(w.component(A).eid).toBe(nextComponentEid);
-    expect(w.module(TestModule).eid).toBe(nextModuleEid);
+    expect(w.module(TestModule).entity.eid).toBe(nextModuleEid);
     expect(w.entity().eid).toBe(nextEntityEid);
     expect("configurePools" in w).toBe(false);
   });
@@ -257,7 +256,7 @@ describe("World - components", () => {
     const w = new World();
     const component = w.component(A);
 
-    expect(component).toBeInstanceOf(Component);
+    expect(component.isComponent).toBe(true);
     expect(w.entity(component.eid)).toBe(component);
     expect(component.meta.eid).toBe(component.eid);
   });
@@ -358,7 +357,7 @@ describe("World - pipeline", () => {
 
     const component = w.component(A);
 
-    expect(component).toBeInstanceOf(Component);
+    expect(component.isComponent).toBe(true);
     expect(w.component(A)).toBe(component);
   });
 

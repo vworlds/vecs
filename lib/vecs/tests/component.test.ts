@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { World } from "../src/index.js";
+import { Entity, Module, World } from "../src/index.js";
 
 class Health {
   hp = 10;
@@ -221,5 +221,36 @@ describe("Hook", () => {
       "first set",
       "first remove",
     ]);
+  });
+});
+
+describe("Entity.isComponent", () => {
+  it("is true only for definition entities, which are plain entities", () => {
+    class Feature extends Module {
+      public init(): void {}
+    }
+    const world = new World();
+    const definition = world.component(Health);
+    const key = world.entity();
+    world.entity().add(key);
+    const destroyed = world.component(class Dropped {});
+
+    expect(definition.isComponent).toBe(true);
+    expect(world.module(Feature).entity.isComponent).toBe(true);
+    expect(world.entity().isComponent).toBe(false);
+    expect(key.meta.Class).toBe(Object);
+    expect(key.isComponent).toBe(false);
+    expect(Object.getPrototypeOf(definition)).toBe(Entity.prototype);
+    destroyed.destroy();
+    expect(destroyed.isComponent).toBe(true);
+  });
+
+  it("does not install the declaration builders as own properties", () => {
+    const world = new World();
+    const definition = world.component(Health).member("hp", "u8").range(0, 100);
+
+    expect(Object.keys(definition)).toEqual(Object.keys(world.entity()));
+    expect(Object.keys(Entity.prototype)).not.toContain("member");
+    expect(definition.meta._currentMember).toBe("hp");
   });
 });

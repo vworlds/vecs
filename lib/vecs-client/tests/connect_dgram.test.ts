@@ -131,7 +131,7 @@ describe("ClientWorld.connectDgram", () => {
     const removed: string[] = [];
     class Game extends Module {
       public init(): void {
-        this.on("remove", () => removed.push("Game"));
+        this.entity.on("remove", () => removed.push("Game"));
       }
     }
     const world = new ClientWorld(worldOptions);

@@ -224,7 +224,7 @@ describe("World.dispose", () => {
         }
       }
       const world = new World();
-      const feature = world.module(Feature);
+      const feature = world.module(Feature).entity;
       const resource = world.component(Resource);
       const carrier = world.component(Carrier);
       const removed = countRemovals(world, Resource);
@@ -293,8 +293,8 @@ describe("World.dispose", () => {
       const w = new World();
       const events: EID[] = [];
       w.component(Handle).on("remove", (entity) => events.push(entity.eid));
-      const first = w.module(First).add(Handle);
-      const second = w.module(Second).add(Handle);
+      const first = w.module(First).entity.add(Handle);
+      const second = w.module(Second).entity.add(Handle);
       // Modules themselves are singleton values, so use a scoped definition
       // as the cross-module carrier dependency instead.
       const key = w.component(Marker).childOf(second);
@@ -315,8 +315,8 @@ describe("World.dispose", () => {
       const events: EID[] = [];
       w.component(Handle).on("remove", (entity) => events.push(entity.eid));
       const bare = w.entity();
-      const first = w.module(First, 890).add(Handle);
-      const second = w.module(Second, 889).add(Handle);
+      const first = w.module(First, 890).entity.add(Handle);
+      const second = w.module(Second, 889).entity.add(Handle);
       bare.destroy();
       w.dispose();
       expect(events).toEqual([second.eid, first.eid]);
@@ -362,7 +362,7 @@ describe("World.dispose", () => {
       }
       const w = new World();
       const component = w.component(Marker);
-      const feature = w.module(Feature);
+      const feature = w.module(Feature).entity;
       const system = w
         .system("Mover")
         .with(Marker)
@@ -571,7 +571,7 @@ describe("World.dispose", () => {
         expect(() => w.dispose()).toThrow(CALL_SITE_ERROR);
         events.push("module");
       });
-      const feature = w.module(Feature).add(Handle);
+      const feature = w.module(Feature).entity.add(Handle);
       w.dispose();
       expect(feature.destroyed).toBe(true);
       expect(events).toEqual(["target", "module"]);

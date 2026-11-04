@@ -1,10 +1,9 @@
 import { CommandKind } from "../command.js";
 import { CleanupPolicy } from "../component_meta.js";
-import { Component } from "../component.js";
 import { type Entity } from "../entity/index.js";
 import { Phase } from "../modules/pipeline.js";
 import { Query } from "../query/index.js";
-import { Module } from "../module.js";
+import { _isModuleDefinition } from "../module.js";
 import { carriersFirst } from "./destroy-order.js";
 import { Transfers } from "./world.transfers.js";
 import type { World } from "./world.js";
@@ -82,11 +81,11 @@ export class Disposal extends Transfers {
     }
     // Remove values without destroying their definition entities or scoped children.
     // Keep systems, queries, traits and other singleton data alive for these hooks.
-    const moduleValues = [...this._classRegistry.values()]
-      .filter((entity) => entity instanceof Module && !entity.destroyed)
+    const moduleEntities = [...this._classRegistry.values()]
+      .filter((entity) => _isModuleDefinition(entity) && !entity.destroyed)
       .reverse();
-    for (const mod of moduleValues) {
-      mod.remove(mod);
+    for (const entity of moduleEntities) {
+      entity.remove(entity);
       this.flush();
     }
     this._neutraliseCleanup();
@@ -94,7 +93,7 @@ export class Disposal extends Transfers {
       const entities = this._entities.values().filter((entity) => !entity.destroyed);
       // The class registry is insertion-ordered; the dense entity map swaps entries on deletion.
       const modules = [...this._classRegistry.values()]
-        .filter((entity) => entity instanceof Module && !entity.destroyed)
+        .filter((entity) => _isModuleDefinition(entity) && !entity.destroyed)
         .reverse();
       const queryEid = this.getEntity(Query)?.eid;
       const queries = entities.filter((entity) => queryEid !== undefined && entity.has(queryEid));
@@ -167,7 +166,7 @@ export class Disposal extends Transfers {
     const queryEid = this.getEntity(Query)?.eid;
     const phaseEid = this.getEntity(Phase)?.eid;
     const isInfrastructure = (entity: Entity): boolean =>
-      entity instanceof Component ||
+      entity.isComponent ||
       (queryEid !== undefined && entity.has(queryEid)) ||
       (phaseEid !== undefined && entity.has(phaseEid));
 

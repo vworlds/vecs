@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Component, ComponentDef, Module, Query, System, World } from "../../src/index.js";
+import { ComponentDef, Module, Query, System, World } from "../../src/index.js";
 
 class Position {
   x = 0;
@@ -18,7 +18,7 @@ describe("ComponentDef", () => {
     const ordinary = world.entity().add(Position);
     world.system("ordinary-system").with(Position);
     const definitions = world.query("Definitions").with(ComponentDef).build();
-    const expected = world.entities.values().filter((entity) => entity instanceof Component);
+    const expected = world.entities.values().filter((entity) => entity.isComponent);
 
     expect(new Set(definitions)).toEqual(new Set(expected));
     expect([...definitions]).toContain(world.component(ComponentDef));
@@ -34,7 +34,7 @@ describe("ComponentDef", () => {
     const definitions = world.query("Definitions").with(ComponentDef).build();
     const initial = new Set(definitions);
     const position = world.component(Position);
-    const feature = world.module(Feature);
+    const feature = world.module(Feature).entity;
     const late = world.component(LateComponent);
 
     expect(new Set(definitions)).toEqual(new Set([...initial, position, feature, late]));

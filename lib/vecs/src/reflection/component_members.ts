@@ -1,4 +1,4 @@
-import type { Component } from "../component.js";
+import type { Entity } from "../entity/index.js";
 import { DontSnapshot } from "../modules/snapshot_types.js";
 import {
   _declareMembers,
@@ -12,7 +12,7 @@ import {
  * on this class and on any registered subclass that inherits the member.
  */
 export function _declareComponentMember(
-  component: Component,
+  component: Entity,
   name: string,
   declaration: MemberDeclaration
 ): void {
@@ -25,7 +25,7 @@ export function _declareComponentMember(
       continue;
     }
     if (!registered.has(vecsStruct)) {
-      _attachVecsStruct(registered as Component);
+      _attachVecsStruct(registered);
     } else if (changed) {
       registered.modified(VecsStruct);
     }
@@ -33,7 +33,7 @@ export function _declareComponentMember(
 }
 
 /** @internal Attach the class's definition to its component entity, if it has one. */
-export function _attachVecsStruct(component: Component): void {
+export function _attachVecsStruct(component: Entity): void {
   const instance = _structInstance(component.meta.Class);
   if (instance !== undefined) {
     _vecsStructComponent(component);
@@ -41,9 +41,9 @@ export function _attachVecsStruct(component: Component): void {
   }
 }
 
-function _vecsStructComponent(component: Component): Component {
+function _vecsStructComponent(component: Entity): Entity {
   const world = component.world;
-  const registered = world.getEntity(VecsStruct) as Component | undefined;
+  const registered = world.getEntity(VecsStruct);
   if (registered !== undefined) {
     return registered;
   }

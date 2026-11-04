@@ -1,6 +1,6 @@
 import { CommandKind } from "../command.js";
 import { type ComponentRef } from "../component.js";
-import { Entity, Identity, RESERVED_EID, type EID, type EntityClass } from "../entity/index.js";
+import { Entity, Identity, RESERVED_EID, type EID } from "../entity/index.js";
 import { Deferred } from "./world.deferred.js";
 import type { World } from "./world.js";
 import { carriersFirst } from "./destroy-order.js";
@@ -80,14 +80,14 @@ export class Entities extends Deferred {
   public entity(this: World, ref: ComponentRef): Entity;
   public entity(this: World, ref?: ComponentRef | string): Entity {
     if (ref === undefined) {
-      return this._entity(Entity);
+      return this._entity();
     }
     if (typeof ref === "string") {
       let entity = this._identityNameIndex.get(ref);
       if (entity) {
         return entity;
       }
-      entity = this._entity(Entity);
+      entity = this._entity();
       entity.set(Identity, { name: ref });
       return entity;
     }
@@ -160,9 +160,9 @@ export class Entities extends Deferred {
   }
 
   /** @internal Create an entity with an id from the entity pool. */
-  protected _entity<T extends Entity>(this: World, Constructor: EntityClass<T>): T {
+  protected _entity(this: World): Entity {
     const eid = this._entityPool.alloc();
-    const e = new Constructor(this, eid);
+    const e = new Entity(this, eid);
     this._register(e);
     return e;
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DontSnapshot,
+  Entity,
   IdentityModule,
   Module,
   OnSnapshot,
@@ -35,13 +35,15 @@ describe("World.module", () => {
     }
     const world = new World();
     const feature = world.module(Feature);
-    expect(feature.has(Singleton)).toBe(true);
+    expect(feature.entity).toBe(world.component(Feature));
+    expect(feature.entity.has(Singleton)).toBe(true);
+    expect(feature.entity.get(Feature)).toBe(feature);
     expect(world.get(Feature)).toBe(feature);
     expect(world.module(Feature)).toBe(feature);
     expect(() => world.entity().attach(feature)).toThrow(/singleton/);
     for (const Class of [IdentityModule, SingletonModule]) {
       expect(world.get(Class)).toBe(world.module(Class));
-      expect(world.module(Class).has(Singleton)).toBe(true);
+      expect(world.module(Class).entity.has(Singleton)).toBe(true);
     }
   });
 
@@ -52,14 +54,14 @@ describe("World.module", () => {
     const source = new World();
     source.component(Position);
     const root = source.entity();
-    const feature = source.module(Feature).childOf(root);
+    const feature = source.module(Feature).entity.childOf(root);
     const child = source.entity().set(Position, { x: 7 }).childOf(feature);
     const snapshot = source.snapshotSubtree(root);
     expect(snapshot.entities.flatMap((record) => record.components.map((c) => c.Class))).toEqual([
       Singleton,
       Position,
     ]);
-    expect(feature.target(OnSnapshot)).toBe(source.component(DontSnapshot));
+    expect(feature.has(OnSnapshot)).toBe(false);
     expect(() => source.snapshotSubtree(root, { components: [Feature] })).toThrow(/DontSnapshot/);
     const destination = new World();
     destination.component(Position);
@@ -70,7 +72,7 @@ describe("World.module", () => {
     expect(restored.entities.get(child.eid)?.get(Position)?.x).toBe(7);
   });
 
-  it("creates a typed module entity and registers metadata for the module class", () => {
+  it("creates a plain module object on a definition entity registered for its class", () => {
     class TestModule extends Module {
       public initCalls = 0;
 
@@ -84,12 +86,47 @@ describe("World.module", () => {
     const mod = world.module(TestModule);
 
     expect(mod).toBeInstanceOf(TestModule);
+    expect(mod).not.toBeInstanceOf(Entity);
     expect(mod.world).toBe(world);
-    expect(mod.eid).toBe(nextModuleEid);
-    expect(world.entity(mod.eid)).toBe(mod);
-    expect(mod.meta.eid).toBe(mod.eid);
-    expect(mod.meta.Class).toBe(TestModule);
+    expect(mod.entity).toBeInstanceOf(Entity);
+    expect(mod.entity.eid).toBe(nextModuleEid);
+    expect(mod.entity.isComponent).toBe(true);
+    expect(world.entity(mod.entity.eid)).toBe(mod.entity);
+    expect(world.component(TestModule)).toBe(mod.entity);
+    expect(mod.entity.meta.Class).toBe(TestModule);
     expect(mod.initCalls).toBe(1);
+  });
+
+  it("constructs the module with its world and entity before field initializers run", () => {
+    class Position {}
+    class Feature extends Module {
+      public readonly definition = this.entity;
+      public readonly positions = this.world.query("feature positions").with(Position).track();
+      public initEntity: unknown;
+      public init(): void {
+        this.initEntity = this.entity;
+        this.entity.on("remove", () => {});
+      }
+    }
+
+    const world = new World();
+    world.component(Position);
+    const feature = world.module(Feature);
+
+    expect(feature.definition).toBe(world.component(Feature));
+    expect(feature.initEntity).toBe(feature.entity);
+    expect(feature.positions.entity.parent).toBeUndefined();
+  });
+
+  it("refuses a module class registered only as a component", () => {
+    class Feature extends Module {
+      public init(): void {}
+    }
+
+    const world = new World();
+    world.component(Feature);
+
+    expect(() => world.module(Feature)).toThrow("Module Feature is registered but not installed");
   });
 
   it("accepts an explicit module eid", () => {
@@ -100,8 +137,8 @@ describe("World.module", () => {
     const world = new World();
     const mod = world.module(TestModule, 950);
 
-    expect(mod.eid).toBe(950);
-    expect(world.entity(950)).toBe(mod);
+    expect(mod.entity.eid).toBe(950);
+    expect(world.entity(950)).toBe(mod.entity);
   });
 
   it("passes typed config to init", () => {
@@ -136,7 +173,7 @@ describe("World.module", () => {
     const world = new World();
     const mod = world.module(TestModule, { label: "network" }, 950);
 
-    expect(mod.eid).toBe(950);
+    expect(mod.entity.eid).toBe(950);
     expect(mod.label).toBe("network");
   });
 

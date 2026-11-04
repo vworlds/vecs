@@ -1,7 +1,6 @@
 // `snapshotSubtree` capture: walk the forest, then copy each entity's selected
 // data into detached snapshot records. Nothing here mutates the source world.
 
-import { Component } from "../component.js";
 import { type ComponentMeta, type ComponentType, type Relationship } from "../component_meta.js";
 import { type EID, type Entity } from "../entity/index.js";
 import { type ResolvedSnapshotPolicy, _resolveSnapshotPolicy } from "../modules/snapshot_types.js";
@@ -101,7 +100,7 @@ function _collectForest(
     if (root.destroyed) {
       throw new Error(`Cannot snapshot destroyed entity ${root.eid}`);
     }
-    if (root instanceof Component) {
+    if (root.isComponent) {
       throw new Error(
         `Cannot snapshot component entity ${root.eid}; snapshot ordinary entities only`
       );

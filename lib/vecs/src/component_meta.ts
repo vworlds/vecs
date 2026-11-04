@@ -1,6 +1,6 @@
 import { BitPtr } from "./util/bitset.js";
 import type { ComponentTerm } from "./terms/component_term.js";
-import type { EID, Entity, EntityClass } from "./entity/index.js";
+import type { EID, Entity } from "./entity/index.js";
 import type { ValidationResult } from "./reflection/defaults.js";
 
 /**
@@ -315,7 +315,7 @@ export type ComponentType<T extends ComponentInstance = ComponentInstance> = abs
 export type ComponentClass<T extends ComponentInstance = ComponentInstance> = new () => T;
 
 /** A component class constructor, component eid, or entity component key. */
-export type ComponentRef = EID | ComponentType | EntityClass | Entity;
+export type ComponentRef = EID | ComponentType | Entity;
 
 /** Built-in component declaring abstract/interface component aliases. */
 export class Implements {
@@ -406,6 +406,11 @@ export class ComponentMeta {
   public _validateIsDefault = false;
   /** @internal Whether `_onNormalize` holds only the metadata-derived default. */
   public _normalizeIsDefault = false;
+  /**
+   * @internal The member most recently declared with `Component.member` on
+   * this component's definition entity, which the member modifiers apply to.
+   */
+  public _currentMember: string | undefined = undefined;
   /**
    * @internal Relationship-trait handlers fired before {@link _onAdd}, kept in
    * their own slot so dispatch calls the application slot directly. Registered

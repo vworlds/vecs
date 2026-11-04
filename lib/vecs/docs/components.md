@@ -46,19 +46,24 @@ const meta = world.component(Position).meta;
 
 // Name the component entity, then resolve it by string later:
 world.component(Position).name = "Position";
-world.component("Position"); // returns the same Component entity
+world.component("Position"); // returns the same definition entity
 ```
 
-`world.component(Class)` (`lib/vecs/src/world/world.components.ts`) returns the **`Component`
+`world.component(Class)` (`lib/vecs/src/world/world.components.ts`) returns the **definition
 entity** for that class, creating and registering it on the first call. Subsequent calls with the
-same class return the same entity. The same class can be registered independently in multiple
+same class return the same entity. It is an ordinary `Entity`, typed as
+`Component<T> = ComponentDeclarations<T> & Entity`: the type adds the declaration builders
+(`member`, `range`, `unit`, `values`, `description`, `snapshotPolicy`) and the `on` / `off`
+overloads narrowed to `T`. `Component` is a type, not a class, so there is nothing to test with
+`instanceof`. Check `entity.isComponent` instead: it is `true` when the entity is the definition
+of a registered component or module class. The same class can be registered independently in multiple
 worlds — metadata is world-specific. Passing an explicit id for an already-registered class (with
 a different id) throws, as does passing a name with no matching component entity.
 
 ### Reflecting on component definitions
 
 Use the built-in `ComponentDef` tag to query registered definitions rather than scanning every
-entity with an `instanceof Component` predicate:
+entity with an `isComponent` predicate:
 
 ```ts
 import { ComponentDef, World } from "@vworlds/vecs";
@@ -98,7 +103,7 @@ a trait. See [Component traits](#component-traits-policy-on-component-entities) 
 
 Components created during a module's `init` become its `ChildOf` children, through
 [`world.scope`](./modules.md#scopes-and-module-provenance). Read `world.component(C).parent`,
-or walk parents to the nearest `Module` when an explicit hierarchy intervenes (for example
+or walk parents to the nearest module definition entity when an explicit hierarchy intervenes (for example
 `OneOf` values). Existing registrations are never reparented by a second module. There is no
 registrar list or per-trait audit; trait additions do not create separate entities. Vecs' own
 constructor-installed built-in modules remain unscoped.
@@ -138,7 +143,7 @@ is reserved.
 
 ## Hooks: component and relationship edges
 
-The `Component` entity exposes lifecycle hooks fired for every entity carrying the component:
+The definition entity exposes lifecycle hooks fired for every entity carrying the component:
 
 ```ts
 world

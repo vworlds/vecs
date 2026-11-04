@@ -124,7 +124,7 @@ export class LocalWorld {
 
   private _components(filter?: string): unknown[] {
     const registry = this.registry();
-    const provenance = new Map<Entity, Module | undefined>();
+    const provenance = new Map<Entity, Entity | undefined>();
     return [...registry]
       .filter(([name]) => filter === undefined || name.includes(filter))
       .map(([name, component]) => {
@@ -151,14 +151,13 @@ export class LocalWorld {
         return {
           name,
           eid: component.eid,
-          kind:
-            component instanceof Module
-              ? "module"
-              : component.meta.isRelationship
-                ? "relationship"
-                : "component",
+          kind: isModuleEntity(component)
+            ? "module"
+            : component.meta.isRelationship
+              ? "relationship"
+              : "component",
           trait: this._traits.has(component),
-          ...(parent instanceof Module ? { module: parent.meta.Class.name } : {}),
+          ...(parent === undefined ? {} : { module: parent.meta.Class.name }),
           carriers: component.instanceCount(),
           traits,
           schema,
@@ -273,16 +272,18 @@ export class LocalWorld {
     }));
   }
 
+  /** The nearest module definition entity at or above `parent`, through `ChildOf`. */
   private _module(
     parent: Entity | undefined,
-    cache: Map<Entity, Module | undefined>
-  ): Module | undefined {
+    cache: Map<Entity, Entity | undefined>
+  ): Entity | undefined {
     const path = new Set<Entity>();
-    while (parent && !(parent instanceof Module) && !cache.has(parent) && !path.has(parent)) {
+    while (parent && !isModuleEntity(parent) && !cache.has(parent) && !path.has(parent)) {
       path.add(parent);
       parent = parent.parent;
     }
-    const module = parent instanceof Module ? parent : parent ? cache.get(parent) : undefined;
+    const module =
+      parent && isModuleEntity(parent) ? parent : parent ? cache.get(parent) : undefined;
     for (const entity of path) {
       cache.set(entity, module);
     }
@@ -375,4 +376,9 @@ export function query(value: unknown, registry: Map<string, Component>, watch = 
     default:
       throw new Error(`Unknown query operator ${operator}`);
   }
+}
+
+/** Whether `entity` is a module class's definition entity: modules are not entities. */
+function isModuleEntity(entity: Entity): boolean {
+  return entity.isComponent && entity.meta.Class.prototype instanceof Module;
 }

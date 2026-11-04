@@ -5,9 +5,11 @@ modules every world installs.
 
 ## What a module is
 
-A `Module` (`lib/vecs/src/module.ts`) is a component entity whose `init()` method runs once when
-the module is registered. It is the unit of packaging for a feature: registering components,
-declaring systems, setting exclusivity and cleanup policy, and (rarely) inserting phases.
+A `Module` (`lib/vecs/src/module.ts`) is a plain object whose `init()` method runs once when the
+module is registered. It is the unit of packaging for a feature: registering components, declaring
+systems, setting exclusivity and cleanup policy, and (rarely) inserting phases. A module is not an
+entity. It has two fields: `this.world`, the world that installed it, and `this.entity`, its
+class's definition entity.
 
 ```ts
 import { Module, POST_UPDATE } from "@vworlds/vecs";
@@ -30,17 +32,34 @@ export class PoseSyncModule extends Module {
 world.module(PoseSyncModule);
 ```
 
-`world.module(ModuleClass, config?, eid?)` (`lib/vecs/src/world/world.modules.ts`) registers the
-module on first call — drawing its entity id from the `module` pool (900–999 by default, or pass
-an explicit `eid`) — and invokes `init(config)` exactly once. Subsequent calls return the existing
-module instance; passing a config again after the first registration throws.
-The definition carries the module itself as its `Singleton` value: `world.get(M)` returns
-`world.module(M)`, and `world.has(M)` reports whether that value is present. Module classes
-declare `DontSnapshot`; live module instances are never captured or restored as data.
+`world.module(ModuleClass, config?, eid?)` (`lib/vecs/src/world/world.modules.ts`) installs the
+module on the first call. It registers `ModuleClass` as a component type, drawing the definition
+entity's id from the `module` pool (900–999 by default, or pass an explicit `eid`). It then
+constructs the module with `world` and `entity`, stores it on that entity as the class's
+`Singleton` value, and invokes `init(config)` exactly once. The call returns the module instance,
+not an entity; `world.component(M)` returns the definition entity, the same as `mod.entity`.
+Subsequent calls return the existing module instance; passing a config again after the first
+registration throws. `world.get(M)` returns `world.module(M)`, and `world.has(M)` reports whether
+that value is present. Snapshots never capture a module value: the snapshot policy resolves every
+`Module` subclass to `DontSnapshot` by class, so live module instances are never captured or
+restored as data.
 Install new modules outside `progress()` and `defer`; installation also throws during a command
 drain, before registering anything. Looking up an already installed module works in any of those
 contexts. Lazy loading from a system or hook is the application's job: schedule it after
 `progress()` returns.
+
+## The module entity is not for gameplay data
+
+Use `this.entity` for module scope and hooks: `this.entity.on("remove", ...)`, or as the parent of
+the entities the module creates. Do not store gameplay or per-frame data on it. Keep that state on
+game entities or on [singleton components](./components.md#singletons-and-world-global-data).
+
+Why: every entity runs through the same per-entity write path (`set`, `modified`, hook and query
+routing). V8 optimizes that path while it sees one entity shape. Every `Entity` shares one class
+and one hidden class, and modules and component definitions do not subclass it, so the path stays
+monomorphic. Module code that writes data through module entities adds no entity classes, but it
+mixes setup-time metadata into the hot path for no benefit, and the module's data then lives on a
+definition rather than with the gameplay it describes.
 
 ## Configuration
 
@@ -121,22 +140,24 @@ class Feature extends Module {
 }
 const world = new World();
 const feature = world.module(Feature);
-world.component(Position).parent === feature; // true
-world.entity("camera").parent === feature; // true
+world.component(Position).parent === feature.entity; // true
+world.entity("camera").parent === feature.entity; // true
 
 function owningModule(entity: Entity): Module | undefined {
   const visited = new Set<Entity>();
   for (let parent = entity.parent; parent && !visited.has(parent); parent = parent.parent) {
-    if (parent instanceof Module) return parent;
+    if (parent.isComponent && parent.meta.Class.prototype instanceof Module) {
+      return parent.get(parent) as Module | undefined;
+    }
     visited.add(parent);
   }
   return undefined;
 }
 owningModule(world.component(Position)); // feature
-world.scope(feature, () => world.entity("another child"));
+world.scope(feature.entity, () => world.entity("another child"));
 ```
 
-`world.module()` runs a new module's `init` inside `world.scope(moduleEntity, ...)`. Nested modules
+`world.module()` runs a new module's `init` inside `world.scope(mod.entity, ...)`. Nested modules
 are children of the enclosing scope; their own creations belong to the nested module. Provenance is
 the **nearest module ancestor**, not necessarily the direct parent: a `OneOf` value may be parented
 to its relationship entity, which is parented to the module. This is a real ownership hierarchy:
@@ -150,7 +171,7 @@ which module added a trait edge. Explicit reparenting changes ownership, not a h
 
 ## Releasing resources
 
-Release resources acquired in `init` with the module's own `remove` hook. You do not need
+Release resources acquired in `init` with a `remove` hook on the module's entity. You do not need
 a sentinel entity solely to observe world teardown (such as SpaceRocks' RadialMenu pattern).
 For a class-owned recipe, declare a static hook:
 
@@ -171,8 +192,8 @@ class RefreshModule extends Module {
 ```
 
 Alternatively, register an instance hook inside `init`, for example
-`this.on("remove", () => clearInterval(this.timer))`, or register one on
-the result of `world.module(RefreshModule)`. Both arguments identify that same module.
+`this.entity.on("remove", () => clearInterval(this.timer))`, or register one on
+`world.module(RefreshModule).entity`. The hook receives the definition entity and the module.
 If you register both static and instance hooks, both run.
 
 [`world.dispose()`](./entities.md#disposing-a-world) first settles application cleanup,
@@ -203,11 +224,13 @@ All are exported, so a custom world setup can reuse them.
 
 ## Reference
 
-| API                                                                            | Description                                                                                         |
-| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| `class M extends Module<Config>`                                               | Declare a module; `Config` defaults to `undefined`.                                                 |
-| `init(config)`                                                                 | One-time setup hook; called by the world on first registration.                                     |
-| `world.module(M)` / `world.module(M, config)` / `world.module(M, config, eid)` | Register (first call) or retrieve (later calls) the module. Config after first registration throws. |
-| `this.world`                                                                   | Inside `init`: the owning world (a module is an entity).                                            |
-| `world.scope(parent, fn)`                                                      | Parent all synchronous creations in `fn`; existing lookups are unchanged.                           |
-| `ModuleConfig<T>`                                                              | Utility type extracting a module's config type.                                                     |
+| API                                                                            | Description                                                                                                 |
+| ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| `class M extends Module<Config>`                                               | Declare a module; `Config` defaults to `undefined`.                                                         |
+| `init(config)`                                                                 | One-time setup hook; called by the world on first registration.                                             |
+| `world.module(M)` / `world.module(M, config)` / `world.module(M, config, eid)` | Install (first call) or retrieve (later calls) the module instance. Config after first registration throws. |
+| `this.world`                                                                   | The owning world.                                                                                           |
+| `this.entity`                                                                  | The module class's definition entity: scope parent and hook target, not gameplay data.                      |
+| `world.scope(parent, fn)`                                                      | Parent all synchronous creations in `fn`; existing lookups are unchanged.                                   |
+| `ModuleConfig<T>`                                                              | Utility type extracting a module's config type.                                                             |
+| `ModuleClass<T>`                                                               | Constructor type `world.module` accepts: `new (world, entity) => T`.                                        |

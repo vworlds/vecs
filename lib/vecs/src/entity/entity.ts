@@ -1,6 +1,4 @@
-import { type ComponentType } from "../component_meta.js";
 import { ChildOf } from "../modules/relationship_types.js";
-import { type World } from "../world/index.js";
 import { IdentityEntity } from "./entity.identity.js";
 
 /** Entity id assigned by a {@link World}. */
@@ -8,12 +6,6 @@ export type EID = number;
 
 /** Entity id reserved by the world and used for target injection. */
 export const RESERVED_EID = 0;
-
-export type EntityClass<T extends Entity = Entity> = new (
-  world: World,
-  eid: EID,
-  ownComponentClass?: ComponentType
-) => T;
 
 /**
  * A game object: a unique numeric id with an arbitrary set of
@@ -63,6 +55,16 @@ export class Entity extends IdentityEntity {
     } else {
       this.childOf(parent);
     }
+  }
+
+  /**
+   * True if this entity is the definition entity of a registered component or
+   * module class, as returned by {@link World.component}: it owns a
+   * {@link ComponentMeta} for that class. Plain entities used as component
+   * keys are not components.
+   */
+  public get isComponent(): boolean {
+    return this._meta !== undefined && this._meta.Class !== Object;
   }
 
   /** True if this entity has been destroyed (marked for deletion). */

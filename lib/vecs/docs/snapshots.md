@@ -100,6 +100,10 @@ world.component(PhysicsEngine).snapshotPolicy(DontSnapshot);
 A `DontSnapshot` type is skipped during capture. **Selecting** one explicitly is an error, so a
 caller cannot silently lose state it asked for by name.
 
+Every [`Module`](./modules.md) subclass resolves to `DontSnapshot` by class, without an
+`OnSnapshot` declaration: module values are live world objects, so captures skip them and
+selecting one is an error.
+
 ### `CustomSnapshot`
 
 For a component that mixes declarative state with runtime state. The owner supplies both halves.

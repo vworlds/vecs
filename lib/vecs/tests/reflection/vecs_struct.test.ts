@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  Component,
   ComponentDef,
   description,
   range,
@@ -170,7 +169,7 @@ describe("VecsStruct", () => {
       .values([1, 2])
       .on("set", onSet);
 
-    expect(chained).toBeInstanceOf(Component);
+    expect(chained.isComponent).toBe(true);
     expect(chained).toBe(world.component(Three));
     expect(world.component(Three).member("a", "u8")).toBe(world.component(Three));
     expect(chained.get(VecsStruct)!.members).toEqual({

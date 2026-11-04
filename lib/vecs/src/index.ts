@@ -41,8 +41,9 @@ export {
   Throw,
 } from "./modules/relationships.js";
 export {
-  Component,
   Implements,
+  type Component,
+  type ComponentDeclarations,
   Relationship,
   type ComponentInstance,
   type ComponentClass,
@@ -74,14 +75,8 @@ export type {
   VecsMember,
 } from "./reflection/member_types.js";
 export type { ValidationResult, Violations } from "./reflection/defaults.js";
-export {
-  Entity,
-  type EID,
-  type EntityClass,
-  Identity,
-  type TargetReadOptions,
-} from "./entity/index.js";
-export { Module, type ModuleConfig } from "./module.js";
+export { Entity, type EID, Identity, type TargetReadOptions } from "./entity/index.js";
+export { Module, type ModuleClass, type ModuleConfig } from "./module.js";
 export { MoveSubtreeError } from "./world/world.transfers.js";
 export { IdentityModule } from "./modules/identity.js";
 export { ImplementsModule } from "./modules/implements.js";

@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { Component, World } from "@vworlds/vecs";
+import { type Component, World } from "@vworlds/vecs";
 import * as v from "@vworlds/vecs";
 import { LocalWorld } from "../../src/bridge/world.js";
 
@@ -10,7 +10,7 @@ it("reflects live component definitions with identical duplicate naming and no e
   expect(local.registry().get("Duplicate")).toBe(a);
   const b = world.component(class Duplicate {});
   const expected = [...world.entities.values()].filter(
-    (entity): entity is Component => entity instanceof Component
+    (entity): entity is Component => entity.isComponent
   );
   const counts = new Map<string, number>();
   expected.forEach((c) => counts.set(c.meta.Class.name, (counts.get(c.meta.Class.name) ?? 0) + 1));
@@ -115,11 +115,8 @@ it("classifies all built-ins by declaration, independently of their usage", () =
     }
   }
   for (const name of groups[0][0]) {
-    expect(rows.get(name)?.traits).toContainEqual({ name: "Singleton" });
-    expect(rows.get(name)?.traits).toContainEqual({
-      name: "OnSnapshot",
-      targets: ["DontSnapshot"],
-    });
+    // Module values are excluded from snapshots by class, not an `OnSnapshot` edge.
+    expect(rows.get(name)?.traits).toEqual([{ name: "Singleton" }]);
   }
   expect(rows.get("ChildOf")?.traits).toContainEqual({
     name: "OnDeleteTarget",
@@ -145,7 +142,7 @@ it("reports only declared traits, uniform pair targets, duplicate keys and neare
   const world = new World();
   world.module(v.SnapshotModule);
   const root = world.module(Root);
-  const middle = world.entity().childOf(root);
+  const middle = world.entity().childOf(root.entity);
   world.component(Audited).add(v.Trait);
   world.component(Ordinary);
   const ordinaryKey = world.entity();
