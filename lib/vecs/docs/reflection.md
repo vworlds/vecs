@@ -129,6 +129,11 @@ declarations keep their component ids. Look it up with `world.getEntity(VecsStru
 `entity.get(VecsStruct)` throws in a world that has never registered it. Like `ComponentDef`, it has
 the `DontSnapshot` policy.
 
+To list definitions rather than members, query the schema markers: `ComponentDef` tags every
+registered definition and `ModuleDef` tags installed modules' definitions
+(see [Modules](./modules.md#what-a-module-is)). `entity.has(ModuleDef)` tells a module from a plain
+component.
+
 ## Wire encoding
 
 `@vworlds/vecs-wire` uses reflection as a **per-class-chain fallback**: if any class in the chain

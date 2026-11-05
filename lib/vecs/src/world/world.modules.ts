@@ -1,3 +1,4 @@
+import { ModuleDef } from "../component_def.js";
 import { type EID } from "../entity/index.js";
 import { type Module, type ModuleClass, type ModuleConfig } from "../module.js";
 import { Singleton } from "../modules/singleton.js";
@@ -18,8 +19,9 @@ export class Modules extends Components {
   /**
    * Install a module once and run its synchronous init inside its entity scope.
    * Registers `ModuleClass` as a component type in the module id pool, creates
-   * the module with its world and definition entity, stores it as the class's
-   * Singleton value on that entity (read with world.get/has) and runs init.
+   * the module with its world and definition entity, tags that entity with
+   * `ModuleDef`, stores the module as the class's Singleton value on it (read
+   * with world.get/has) and runs init.
    * Constructor-installed core modules are unscoped; later modules parent all
    * newly created entities, including nested modules, to `mod.entity`.
    * Existing entities stay put.
@@ -68,9 +70,13 @@ export class Modules extends Components {
     return mod;
   }
 
-  /** @internal Core modules are prepared after their trait installers have bootstrapped. */
+  /**
+   * @internal Tag the definition with `ModuleDef` and store the module as its
+   * Singleton value. Core modules are prepared after their trait installers
+   * have bootstrapped.
+   */
   protected _installModuleSingleton(mod: Module<any>): void {
-    mod.entity.add(Singleton).attach(mod);
+    mod.entity.add(mod.world.component(ModuleDef)).add(Singleton).attach(mod);
   }
 }
 

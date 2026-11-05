@@ -1,5 +1,5 @@
 import { type Entity } from "../entity/index.js";
-import { Trait } from "../component_def.js";
+import { ModuleDef, Trait } from "../component_def.js";
 import { Module } from "../module.js";
 
 /**
@@ -48,7 +48,7 @@ export class SingletonModule extends Module {
           }
         });
         // `World.module` attaches the module instance it constructed.
-        if (!(targetMeta.Class.prototype instanceof Module)) {
+        if (!target.has(ModuleDef)) {
           target.add(target);
         }
       });

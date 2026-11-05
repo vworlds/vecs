@@ -213,7 +213,9 @@ it("does not scan carrier definitions to classify components", () => {
   const registry = local.registry();
   const has = definitions.map((c) => vi.spyOn(c, "has"));
   expect(local.command("vecs_components", {}) as unknown[]).toHaveLength(registry.size);
-  expect(has.reduce((sum, spy) => sum + spy.mock.calls.length, 0)).toBe(0);
+  // Only the O(1) `ModuleDef` tag check, never a scan over other definitions.
+  const scans = has.flatMap((spy) => spy.mock.calls).filter(([ref]) => ref !== v.ModuleDef);
+  expect(scans).toEqual([]);
   has.forEach((spy) => spy.mockRestore());
   world.dispose();
 });

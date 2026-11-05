@@ -1,7 +1,7 @@
 import {
   type Component,
   ComponentDef,
-  Module,
+  ModuleDef,
   DependsOn,
   type Entity,
   Trait,
@@ -151,7 +151,7 @@ export class LocalWorld {
         return {
           name,
           eid: component.eid,
-          kind: isModuleEntity(component)
+          kind: component.has(ModuleDef)
             ? "module"
             : component.meta.isRelationship
               ? "relationship"
@@ -278,12 +278,11 @@ export class LocalWorld {
     cache: Map<Entity, Entity | undefined>
   ): Entity | undefined {
     const path = new Set<Entity>();
-    while (parent && !isModuleEntity(parent) && !cache.has(parent) && !path.has(parent)) {
+    while (parent && !parent.has(ModuleDef) && !cache.has(parent) && !path.has(parent)) {
       path.add(parent);
       parent = parent.parent;
     }
-    const module =
-      parent && isModuleEntity(parent) ? parent : parent ? cache.get(parent) : undefined;
+    const module = parent?.has(ModuleDef) ? parent : parent ? cache.get(parent) : undefined;
     for (const entity of path) {
       cache.set(entity, module);
     }
@@ -376,9 +375,4 @@ export function query(value: unknown, registry: Map<string, Component>, watch = 
     default:
       throw new Error(`Unknown query operator ${operator}`);
   }
-}
-
-/** Whether `entity` is a module class's definition entity: modules are not entities. */
-function isModuleEntity(entity: Entity): boolean {
-  return entity.isComponent && entity.meta.Class.prototype instanceof Module;
 }

@@ -57,8 +57,3 @@ export abstract class Module<Config extends object | undefined = undefined> {
    */
   public abstract init(config: Config): void;
 }
-
-/** @internal Whether `entity` is the definition entity of a module class. */
-export function _isModuleDefinition(entity: Entity): boolean {
-  return entity.isComponent && entity.meta.Class.prototype instanceof Module;
-}

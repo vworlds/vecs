@@ -76,7 +76,8 @@ for (const definition of definitions) {
 ```
 
 Every registered component and module entity carries the tag, including built-ins and
-`ComponentDef` itself. The query tracks later registrations and destroyed definitions incrementally;
+`ComponentDef` itself. Installed modules' definitions also carry
+[`ModuleDef`](./modules.md#what-a-module-is): add `.with(ModuleDef)` to list modules only. The query tracks later registrations and destroyed definitions incrementally;
 iterating it visits definitions only, not ordinary game, query, system, or phase entities.
 Registration adds one tag per class; worlds that never query it need no reflection query.
 

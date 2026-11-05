@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  ComponentDef,
   Entity,
   IdentityModule,
+  ModuleDef,
   Module,
   OnSnapshot,
   Singleton,
@@ -116,6 +118,31 @@ describe("World.module", () => {
     expect(feature.definition).toBe(world.component(Feature));
     expect(feature.initEntity).toBe(feature.entity);
     expect(feature.positions.entity.parent).toBeUndefined();
+  });
+
+  it("tags installed module definitions, core modules included, with ModuleDef", () => {
+    class Position {}
+    class Feature extends Module {
+      public init(): void {}
+    }
+    class Uninstalled extends Module {
+      public init(): void {}
+    }
+
+    const world = new World();
+    const feature = world.module(Feature);
+    const modules = world.query("Modules").with(ModuleDef).build();
+
+    expect(feature.entity.has(ModuleDef)).toBe(true);
+    expect(feature.entity.has(ComponentDef)).toBe(true);
+    for (const Class of [IdentityModule, SingletonModule]) {
+      expect(world.module(Class).entity.has(ModuleDef)).toBe(true);
+    }
+    expect(world.component(Position).has(ModuleDef)).toBe(false);
+    expect(world.component(Uninstalled).has(ModuleDef)).toBe(false);
+    expect(world.component(ModuleDef).has(ModuleDef)).toBe(false);
+    expect([...modules].map((entity) => entity.meta.Class)).toContain(Feature);
+    expect([...modules].every((entity) => entity.get(entity) instanceof Module)).toBe(true);
   });
 
   it("refuses a module class registered only as a component", () => {

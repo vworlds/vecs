@@ -1,6 +1,7 @@
 import {
   World,
   ComponentDef,
+  ModuleDef,
   Trait,
   type ComponentClass,
   type EID,
@@ -19,7 +20,7 @@ export interface RegisteredNetworkComponent {
 }
 
 export interface NetworkWorldOptions extends Omit<WorldOptions, "idPools"> {
-  /** Wire component allowlist. Local schema metadata (`ComponentDef`, `Trait`) is rejected. */
+  /** Wire component allowlist. Local schema metadata (`ComponentDef`, `ModuleDef`, `Trait`) is rejected. */
   networkComponents?: readonly ComponentClass[];
   entityIdStart?: EID;
   /**
@@ -68,6 +69,9 @@ export class NetworkWorld extends World {
     const networkComponents = options.networkComponents ?? [];
     if (networkComponents.includes(ComponentDef)) {
       throw new Error("ComponentDef is local schema metadata and cannot be networked");
+    }
+    if (networkComponents.includes(ModuleDef)) {
+      throw new Error("ModuleDef is local schema metadata and cannot be networked");
     }
     if (networkComponents.includes(Trait)) {
       throw new Error("Trait is local schema metadata and cannot be networked");

@@ -40,7 +40,16 @@ constructs the module with `world` and `entity`, stores it on that entity as the
 not an entity; `world.component(M)` returns the definition entity, the same as `mod.entity`.
 Subsequent calls return the existing module instance; passing a config again after the first
 registration throws. `world.get(M)` returns `world.module(M)`, and `world.has(M)` reports whether
-that value is present. Snapshots never capture a module value: the snapshot policy resolves every
+that value is present.
+
+Installation also tags the definition entity with the built-in `ModuleDef` marker
+(`lib/vecs/src/component_def.ts`), core modules included. Every definition carries `ComponentDef`;
+only installed modules also carry `ModuleDef`. Identify a module's definition with
+`entity.has(ModuleDef)`, and enumerate installed modules with
+`world.query("Modules").with(ModuleDef).build()`. A class registered with `world.component(M)` but
+never passed to `world.module` is not tagged. `ModuleDef` is local schema metadata, like
+`ComponentDef`: excluded from subtree snapshots and rejected in `networkComponents`. Snapshots
+never capture a module value: the snapshot policy resolves every
 `Module` subclass to `DontSnapshot` by class, so live module instances are never captured or
 restored as data.
 Install new modules outside `progress()` and `defer`; installation also throws during a command
@@ -129,7 +138,7 @@ one health-bar entity per existing ship. Those health bars remain roots; an enti
 in `init` is a child of the module.
 
 ```ts
-import { Entity, Module, World } from "@vworlds/vecs";
+import { Entity, Module, ModuleDef, World } from "@vworlds/vecs";
 
 class Position {}
 class Feature extends Module {
@@ -146,7 +155,7 @@ world.entity("camera").parent === feature.entity; // true
 function owningModule(entity: Entity): Module | undefined {
   const visited = new Set<Entity>();
   for (let parent = entity.parent; parent && !visited.has(parent); parent = parent.parent) {
-    if (parent.isComponent && parent.meta.Class.prototype instanceof Module) {
+    if (parent.has(ModuleDef)) {
       return parent.get(parent) as Module | undefined;
     }
     visited.add(parent);
@@ -234,3 +243,4 @@ All are exported, so a custom world setup can reuse them.
 | `world.scope(parent, fn)`                                                      | Parent all synchronous creations in `fn`; existing lookups are unchanged.                                   |
 | `ModuleConfig<T>`                                                              | Utility type extracting a module's config type.                                                             |
 | `ModuleClass<T>`                                                               | Constructor type `world.module` accepts: `new (world, entity) => T`.                                        |
+| `ModuleDef`                                                                    | Tag on every installed module's definition entity; test with `entity.has(ModuleDef)`.                       |
