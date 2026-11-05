@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ComponentDef,
+  DontSnapshot,
   Entity,
   IdentityModule,
   ModuleDef,
@@ -63,7 +64,7 @@ describe("World.module", () => {
       Singleton,
       Position,
     ]);
-    expect(feature.has(OnSnapshot)).toBe(false);
+    expect(feature.target(OnSnapshot)).toBe(source.component(DontSnapshot));
     expect(() => source.snapshotSubtree(root, { components: [Feature] })).toThrow(/DontSnapshot/);
     const destination = new World();
     destination.component(Position);

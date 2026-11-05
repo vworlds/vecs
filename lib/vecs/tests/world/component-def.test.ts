@@ -18,7 +18,14 @@ describe("ComponentDef", () => {
     const ordinary = world.entity().add(Position);
     world.system("ordinary-system").with(Position);
     const definitions = world.query("Definitions").with(ComponentDef).build();
-    const expected = world.entities.values().filter((entity) => entity.isComponent);
+    // Independent of the tag: definitions are what the class registry holds.
+    const expected = [...world._classRegistry.values()];
+    expect(world.entities.values().filter((entity) => entity.isComponent)).toEqual(
+      expect.arrayContaining(expected)
+    );
+    expect(world.entities.values().filter((entity) => entity.isComponent)).toHaveLength(
+      expected.length
+    );
 
     expect(new Set(definitions)).toEqual(new Set(expected));
     expect([...definitions]).toContain(world.component(ComponentDef));
@@ -76,13 +83,16 @@ describe("ComponentDef", () => {
     const destination = new World();
     source.component(Position);
     destination.component(Position);
-    // Definitions cannot be snapshot roots. Exercise the marker's exclusion
-    // policy on an ordinary carrier instead, so the policy itself is covered.
-    const carrier = source.entity().add(ComponentDef).set(Position, { x: 42 });
-    const snapshot = source.snapshotSubtree(carrier);
+    // Definitions cannot be snapshot roots, and the tag is what identifies
+    // one. Exercise the marker's exclusion policy on a hand-tagged child of an
+    // ordinary root instead, so the policy itself is covered.
+    const root = source.entity();
+    const carrier = source.entity().add(ComponentDef).set(Position, { x: 42 }).childOf(root);
+    const snapshot = source.snapshotSubtree(root);
 
-    expect(snapshot.entities[0].components.map((component) => component.Class)).toEqual([Position]);
-    const restored = source.restoreSubtree(destination, snapshot).roots[0];
+    const record = snapshot.entities.find((entity) => entity.source === carrier)!;
+    expect(record.components.map((component) => component.Class)).toEqual([Position]);
+    const restored = source.restoreSubtree(destination, snapshot).sourceToDestination.get(carrier)!;
     expect(restored.get(Position)).toEqual({ x: 42 });
     expect(restored.has(ComponentDef)).toBe(false);
     expect(destination.component(Position).has(ComponentDef)).toBe(true);

@@ -1,5 +1,5 @@
 import { CleanupPolicy } from "../component_meta.js";
-import { Trait } from "../component_def.js";
+import { ComponentDef, ModuleDef, Trait } from "../component_def.js";
 import { type EID, type Entity } from "../entity/index.js";
 import { Module } from "../module.js";
 import {
@@ -242,6 +242,9 @@ export class RelationshipsModule extends Module {
 
     this._registerCleanupPolicies();
     childOf.add(OnDeleteTarget, Delete);
+    // Schema markers stay while any definition carries them: declared, not left to the default.
+    world.component(ComponentDef).add(OnDelete, Throw);
+    world.component(ModuleDef).add(OnDelete, Throw);
   }
 
   /**

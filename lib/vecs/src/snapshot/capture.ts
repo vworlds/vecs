@@ -259,7 +259,7 @@ function _captureData(policy: ResolvedSnapshotPolicy, instance: object, owner: s
  * @internal Metadata for a component slot that can be captured, or `undefined`
  * for slots that carry no transferable data of their own: interface aliases
  * (the concrete type is captured once) and entity-as-component-key slots
- * (class `Object`, an empty placeholder).
+ * (an empty placeholder; the key is not its class's registered definition).
  */
 function _capturableMeta(world: World, ceid: EID): ComponentMeta | undefined {
   const component = world.getEntity(ceid);
@@ -267,7 +267,7 @@ function _capturableMeta(world: World, ceid: EID): ComponentMeta | undefined {
     return undefined;
   }
   const meta = component.meta;
-  if (meta._isInterface || meta.Class === Object) {
+  if (meta._isInterface || world._classRegistry.get(meta.Class) !== component) {
     return undefined;
   }
   return meta;

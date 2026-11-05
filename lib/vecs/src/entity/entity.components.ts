@@ -16,8 +16,12 @@ import { Relationships } from "./entity.relationships.js";
 import type { EID, Entity } from "./entity.js";
 
 export class Components extends Relationships {
-  /** @internal Lazily track whether a dirty relationship also had an explicit data write. */
-  protected _relationshipDataWrites?: Set<ComponentMeta>;
+  /**
+   * @internal Track whether a dirty relationship also had an explicit data write.
+   * The set is created lazily, but the field is initialised so every entity keeps
+   * one hidden class.
+   */
+  protected _relationshipDataWrites: Set<ComponentMeta> | undefined = undefined;
 
   /**
    * @internal Apply an `Attach` command: store the provided component instance,

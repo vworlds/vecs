@@ -1,3 +1,4 @@
+import { ComponentDef } from "../component_def.js";
 import { ChildOf } from "../modules/relationship_types.js";
 import { IdentityEntity } from "./entity.identity.js";
 
@@ -59,12 +60,13 @@ export class Entity extends IdentityEntity {
 
   /**
    * True if this entity is the definition entity of a registered component or
-   * module class, as returned by {@link World.component}: it owns a
-   * {@link ComponentMeta} for that class. Plain entities used as component
-   * keys are not components.
+   * module class, as returned by {@link World.component}: it carries the
+   * {@link ComponentDef} tag registration attaches. Plain entities used as
+   * component keys are not components, and a destroyed definition no longer is.
    */
   public get isComponent(): boolean {
-    return this._meta !== undefined && this._meta.Class !== Object;
+    const componentDef = this.world.getEntity(ComponentDef);
+    return componentDef !== undefined && this.componentBitmask.has(componentDef.eid);
   }
 
   /** True if this entity has been destroyed (marked for deletion). */

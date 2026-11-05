@@ -62,10 +62,10 @@ export class World extends Pipeline {
     } finally {
       this._initializingModules = false;
     }
-    // Preserve bootstrap registration order/ids; Singleton must have its policy
-    // hook installed before core modules claim the trait.
-    // A partial bootstrap without the installer cannot apply its policy.
-    if (this.getEntity(SingletonModule)) {
+    // Preserve bootstrap registration order/ids; Singleton and OnSnapshot must
+    // have their policy hooks installed before core modules claim these traits.
+    // A partial bootstrap without these installers cannot apply their policies.
+    if (this.getEntity(SingletonModule) && this.getEntity(SnapshotModule)) {
       this._coreModules.forEach((mod) => this._installModuleSingleton(mod));
     }
     this._coreModules.length = 0;

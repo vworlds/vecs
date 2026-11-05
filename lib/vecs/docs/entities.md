@@ -243,11 +243,11 @@ earlier modules' values and all world infrastructure remain available.
 
 **Pass 2** destroys remaining infrastructure (`lib/vecs/src/world/world.disposal.ts`):
 
-| Infrastructure                | Recognized by                                                             |
-| ----------------------------- | ------------------------------------------------------------------------- |
-| Component and module entities | `entity.isComponent`: they own the `ComponentMeta` of a registered class. |
-| Query and system entities     | They carry the `Query` component.                                         |
-| Phase entities                | They carry the `Phase` component.                                         |
+| Infrastructure                | Recognized by                                            |
+| ----------------------------- | -------------------------------------------------------- |
+| Component and module entities | `entity.isComponent`: they carry the `ComponentDef` tag. |
+| Query and system entities     | They carry the `Query` component.                        |
+| Phase entities                | They carry the `Phase` component.                        |
 
 Data stored on component entities (including singletons set with `world.set`) is removed once,
 after queued application cleanup and the module step. Module values have already been removed,

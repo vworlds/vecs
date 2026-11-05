@@ -10,7 +10,6 @@
 import type { ComponentMeta, ComponentInstance } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
 import type { Entity } from "../entity/index.js";
-import { Module } from "../module.js";
 import type { World } from "../world/world.js";
 
 /**
@@ -153,9 +152,6 @@ export function _declareSnapshotPolicy(
  *   callbacks, which would otherwise restore as a silently empty component.
  */
 export function _resolveSnapshotPolicy(world: World, meta: ComponentMeta): ResolvedSnapshotPolicy {
-  if (meta.Class.prototype instanceof Module) {
-    return NO_SNAPSHOT;
-  }
   const onSnapshot = world.component(OnSnapshot);
   const declaration = world.getEntity(meta.eid)?.get(onSnapshot.eid) as OnSnapshot | undefined;
   if (declaration === undefined) {

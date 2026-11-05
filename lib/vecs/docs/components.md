@@ -55,8 +55,10 @@ same class return the same entity. It is an ordinary `Entity`, typed as
 `Component<T> = ComponentDeclarations<T> & Entity`: the type adds the declaration builders
 (`member`, `range`, `unit`, `values`, `description`, `snapshotPolicy`) and the `on` / `off`
 overloads narrowed to `T`. `Component` is a type, not a class, so there is nothing to test with
-`instanceof`. Check `entity.isComponent` instead: it is `true` when the entity is the definition
-of a registered component or module class. The same class can be registered independently in multiple
+`instanceof`. Check `entity.isComponent` instead: it is `true` when the entity carries the
+`ComponentDef` tag below, which registration adds to the definition of every registered component
+or module class (including a registered `Object`). An entity used only as a component key does not
+carry it. The same class can be registered independently in multiple
 worlds — metadata is world-specific. Passing an explicit id for an already-registered class (with
 a different id) throws, as does passing a name with no matching component entity.
 
@@ -81,11 +83,15 @@ Every registered component and module entity carries the tag, including built-in
 iterating it visits definitions only, not ordinary game, query, system, or phase entities.
 Registration adds one tag per class; worlds that never query it need no reflection query.
 
-Treat `ComponentDef` as world-managed schema metadata: do not add or remove it yourself.
+Treat `ComponentDef` as world-managed schema metadata: do not add or remove it yourself. Adding it
+by hand makes an entity read as a definition through `isComponent`. Both `ComponentDef` and
+`ModuleDef` declare `(OnDelete, Throw)` explicitly: destroying either marker's definition entity
+while a definition carries it throws, rather than relying on the default policy.
 Its `DontSnapshot` policy excludes it from subtree snapshots, and `NetworkWorld` rejects it in
 `networkComponents`. Each destination world tags its own locally registered definitions instead.
-Component entities themselves remain invalid subtree snapshot roots. The tag does not change
-[world disposal priorities](./entities.md#disposing-a-world).
+Component entities themselves remain invalid subtree snapshot roots. Through `isComponent`, the
+tag is also how [world disposal](./entities.md#disposing-a-world) recognises definitions as
+infrastructure.
 
 To reflect only policy definitions, combine `ComponentDef` with the declarative `Trait` marker:
 

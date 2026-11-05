@@ -32,7 +32,7 @@ behavior. [Components](./components.md).
 
 **Component entity** — the plain entity backing a registered component class; returned by
 `world.component(C)`, typed `Component<C>`, and carrying the class's hooks and `ComponentMeta`.
-`entity.isComponent` identifies it.
+`entity.isComponent`, which reads the `ComponentDef` tag, identifies it.
 [Components](./components.md#registration-worldcomponent).
 
 **Deferred mode / flush** — inside systems, `forEach`, and `defer` blocks, entity mutations are

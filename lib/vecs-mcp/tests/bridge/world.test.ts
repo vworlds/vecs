@@ -115,8 +115,11 @@ it("classifies all built-ins by declaration, independently of their usage", () =
     }
   }
   for (const name of groups[0][0]) {
-    // Module values are excluded from snapshots by class, not an `OnSnapshot` edge.
-    expect(rows.get(name)?.traits).toEqual([{ name: "Singleton" }]);
+    expect(rows.get(name)?.traits).toContainEqual({ name: "Singleton" });
+    expect(rows.get(name)?.traits).toContainEqual({
+      name: "OnSnapshot",
+      targets: ["DontSnapshot"],
+    });
   }
   expect(rows.get("ChildOf")?.traits).toContainEqual({
     name: "OnDeleteTarget",

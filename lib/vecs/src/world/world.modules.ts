@@ -1,7 +1,9 @@
+import { type Component } from "../component.js";
 import { ModuleDef } from "../component_def.js";
 import { type EID } from "../entity/index.js";
 import { type Module, type ModuleClass, type ModuleConfig } from "../module.js";
 import { Singleton } from "../modules/singleton.js";
+import { DontSnapshot } from "../modules/snapshot_types.js";
 import { Components } from "./world.components.js";
 import type { World } from "./world.js";
 
@@ -28,7 +30,7 @@ export class Modules extends Components {
    * Subsequent calls return the existing instance; passing config again throws.
    * New installations throw while deferred; call outside progress() and defer.
    * Existing-instance lookups remain available while deferred.
-   * Module values are never captured by snapshots. Release a module's resources
+   * The definition is declared DontSnapshot, so module values are never captured. Release a module's resources
    * with a remove hook on its entity or a static vecs_remove; dispose removes
    * module values after application cleanup, in reverse install order.
    *
@@ -71,12 +73,16 @@ export class Modules extends Components {
   }
 
   /**
-   * @internal Tag the definition with `ModuleDef` and store the module as its
-   * Singleton value. Core modules are prepared after their trait installers
+   * @internal Declare the definition `DontSnapshot`, tag it with `ModuleDef`
+   * and store the module as its Singleton value. Core modules are prepared after their trait installers
    * have bootstrapped.
    */
   protected _installModuleSingleton(mod: Module<any>): void {
-    mod.entity.add(mod.world.component(ModuleDef)).add(Singleton).attach(mod);
+    (mod.entity as Component)
+      .snapshotPolicy(DontSnapshot)
+      .add(mod.world.component(ModuleDef))
+      .add(Singleton)
+      .attach(mod);
   }
 }
 

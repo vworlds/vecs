@@ -3,7 +3,16 @@ import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { describe, expect, it } from "vitest";
-import { Entity, Module, World } from "@vworlds/vecs";
+import {
+  DontSnapshot,
+  Entity,
+  Exclusive,
+  Module,
+  Relationship,
+  Singleton,
+  Trait,
+  World,
+} from "@vworlds/vecs";
 
 const libRoot = fileURLToPath(new URL("../../lib/", import.meta.url));
 
@@ -64,6 +73,69 @@ describe("Entity is the only runtime entity class", () => {
     expect(subclasses).toEqual([]);
     // The walk reaches the packages' module classes, so a miss is not an empty scan.
     expect(modules).toBeGreaterThan(5);
+  });
+
+  it("keeps one prototype and hidden class for entities after every mutation path", () => {
+    class Position {
+      x = 0;
+    }
+    class Velocity {
+      x = 0;
+    }
+    class Likes extends Relationship {
+      weight = 0;
+    }
+    class Owner extends Relationship {}
+    class Clock {
+      now = 0;
+    }
+    class Audited {}
+    class Feature extends Module {
+      public init(): void {}
+    }
+    const world = new World();
+    world.component(Position);
+    world.component(Velocity);
+    world.component(Likes);
+    world.component(Owner).add(Exclusive);
+    world.component(Audited).add(Trait);
+    const fresh = world.entity();
+    const target = world.entity();
+    const other = world.entity();
+    const paths: Record<string, Entity> = {
+      "add/remove/set": world.entity().add(Position).set(Velocity, { x: 1 }),
+      "edge add and remove": world.entity().add(Likes, target).add(Likes, other),
+      "deferred relationship modified": world.entity().add(Likes, target),
+      ensure: world.entity(),
+      attach: world.entity().attach(new Position()),
+      "module entity after install": world.module(Feature).entity,
+      "definition after declaring traits": world
+        .component(
+          class Declared extends Relationship {
+            value = 0;
+          }
+        )
+        .add(Audited)
+        .add(Exclusive)
+        .member("value", "f32")
+        .range(0, 1)
+        .snapshotPolicy(DontSnapshot),
+      "singleton carrier": world.component(Clock).add(Singleton),
+    };
+    paths["add/remove/set"].remove(Position);
+    paths["edge add and remove"].remove(Likes, other);
+    paths["edge add and remove"].add(Owner, target).add(Owner, other);
+    world.defer(() => paths["deferred relationship modified"].modified(Likes));
+    world.defer(() => {
+      paths.ensure.ensure(Position).x = 2;
+    });
+    world.set(Clock, { now: 1 });
+    target.destroy();
+
+    for (const [path, entity] of Object.entries(paths)) {
+      expect(Object.getPrototypeOf(entity), path).toBe(Entity.prototype);
+      expect(haveSameMap(entity, fresh), path).toBe(true);
+    }
   });
 
   it("gives plain, definition and module entities one prototype and hidden class", () => {

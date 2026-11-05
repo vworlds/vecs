@@ -82,7 +82,11 @@ export class Lifecycle extends Components {
 
       this._components.clear();
 
-      if (entityMeta && entityMeta.usageCount === 0 && entityMeta.Class !== Object) {
+      if (
+        entityMeta &&
+        entityMeta.usageCount === 0 &&
+        this.world._classRegistry.get(entityMeta.Class) === this
+      ) {
         this.world._classRegistry.delete(entityMeta.Class);
       }
 

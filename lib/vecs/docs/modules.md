@@ -49,8 +49,8 @@ only installed modules also carry `ModuleDef`. Identify a module's definition wi
 `world.query("Modules").with(ModuleDef).build()`. A class registered with `world.component(M)` but
 never passed to `world.module` is not tagged. `ModuleDef` is local schema metadata, like
 `ComponentDef`: excluded from subtree snapshots and rejected in `networkComponents`. Snapshots
-never capture a module value: the snapshot policy resolves every
-`Module` subclass to `DontSnapshot` by class, so live module instances are never captured or
+never capture a module value: installation declares `snapshotPolicy(DontSnapshot)` on the
+definition entity, like any other component, so live module instances are never captured or
 restored as data.
 Install new modules outside `progress()` and `defer`; installation also throws during a command
 drain, before registering anything. Looking up an already installed module works in any of those

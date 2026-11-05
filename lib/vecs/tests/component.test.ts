@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { Entity, Module, World } from "../src/index.js";
+import { ComponentDef, Entity, Module, ModuleDef, OnDelete, Throw, World } from "../src/index.js";
 
 class Health {
   hp = 10;
@@ -241,8 +241,63 @@ describe("Entity.isComponent", () => {
     expect(key.meta.Class).toBe(Object);
     expect(key.isComponent).toBe(false);
     expect(Object.getPrototypeOf(definition)).toBe(Entity.prototype);
+    expect(destroyed.has(ComponentDef)).toBe(true);
     destroyed.destroy();
-    expect(destroyed.isComponent).toBe(true);
+    expect(destroyed.isComponent).toBe(false);
+  });
+
+  it("treats a registered Object class as a component, not as an entity key", () => {
+    const world = new World();
+    const definition = world.component(Object);
+    definition.name = "ObjectDefinition";
+    const key = world.entity();
+    world.entity().add(key);
+
+    expect(definition.isComponent).toBe(true);
+    expect(definition.meta.Class).toBe(Object);
+    expect(key.meta.Class).toBe(Object);
+    expect(key.isComponent).toBe(false);
+    expect(world.component("ObjectDefinition")).toBe(definition);
+    expect(() => world.snapshotSubtree(definition)).toThrow(/Cannot snapshot component entity/);
+
+    const carrier = world.entity().add(Object);
+    const snapshot = world.snapshotSubtree(carrier);
+    expect(snapshot.entities[0].components.map((component) => component.Class)).toEqual([Object]);
+
+    carrier.destroy();
+    definition.destroy();
+    expect(world.getEntity(Object)).toBeUndefined();
+  });
+
+  it("disposes a registered Object definition as infrastructure", () => {
+    const world = new World();
+    const definition = world.component(Object);
+    const removed: Entity[] = [];
+    definition.on("remove", (entity) => removed.push(entity));
+    const carrier = world.entity().add(Object);
+
+    world.dispose();
+
+    expect(removed).toEqual([carrier]);
+    expect(definition.destroyed).toBe(true);
+    expect(world.entities.size).toBe(0);
+  });
+
+  it("throws when destroying a schema marker that a definition carries", () => {
+    class Feature extends Module {
+      public init(): void {}
+    }
+    const world = new World();
+    world.component(Health);
+    world.module(Feature);
+
+    for (const Marker of [ComponentDef, ModuleDef]) {
+      const marker = world.component(Marker);
+      expect(marker.meta._onDelete, Marker.name).toBe("throw");
+      expect(marker.target(OnDelete), Marker.name).toBe(world.component(Throw));
+      expect(() => marker.destroy(), Marker.name).toThrow("component eid is still in use");
+      expect(marker.alive, Marker.name).toBe(true);
+    }
   });
 
   it("does not install the declaration builders as own properties", () => {
