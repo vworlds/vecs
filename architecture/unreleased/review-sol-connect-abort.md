@@ -1,1 +1,0 @@
-- [vecs-client] Fixed: `connectDgram` rejects and closes the socket when cancellation occurs synchronously as the transport starts, rather than waiting indefinitely for a connection that may never settle.

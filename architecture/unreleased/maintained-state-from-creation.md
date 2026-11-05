@@ -1,1 +1,0 @@
-- [vecs] Docs: The design guide adds "Maintained state exists from creation" (§4) and a matching §8 anti-pattern: a component a system maintains exists from entity creation with its neutral value, so the system requires and injects it instead of `has`/`set` on first use.

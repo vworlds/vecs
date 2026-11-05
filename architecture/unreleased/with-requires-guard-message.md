@@ -1,1 +1,0 @@
-- [vecs] Fixed: The With and Requires attach guards now name the component they check (the bringer, e.g. "while the bringer Helmet is in use") instead of calling it "the target component", which the guard never read.

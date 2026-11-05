@@ -1,1 +1,0 @@
-- [vecs-protocol] Fixed: CidLayout.pack errors are prefixed `cid.pack` instead of `cid_pack`, the global helper this release removed; the messages themselves are unchanged.
