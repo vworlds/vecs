@@ -57,7 +57,7 @@ same class return the same entity. It is an ordinary `Entity`, typed as
 overloads narrowed to `T`. `Component` is a type, not a class, so there is nothing to test with
 `instanceof`. Check `entity.isComponent` instead: it is `true` when the entity carries the
 `ComponentDef` tag below, which registration adds to the definition of every registered component
-or module class (including a registered `Object`). An entity used only as a component key does not
+or module class. An entity used only as a component key does not
 carry it. The same class can be registered independently in multiple
 worlds — metadata is world-specific. Passing an explicit id for an already-registered class (with
 a different id) throws, as does passing a name with no matching component entity.

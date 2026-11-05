@@ -246,35 +246,37 @@ describe("Entity.isComponent", () => {
     expect(destroyed.isComponent).toBe(false);
   });
 
-  it("treats a registered Object class as a component, not as an entity key", () => {
+  it("identifies a definition through lookup, capture and unregistration, unlike a key", () => {
+    class Tagged {
+      value = 1;
+    }
     const world = new World();
-    const definition = world.component(Object);
-    definition.name = "ObjectDefinition";
+    const definition = world.component(Tagged);
+    definition.name = "TaggedDefinition";
     const key = world.entity();
     world.entity().add(key);
 
     expect(definition.isComponent).toBe(true);
-    expect(definition.meta.Class).toBe(Object);
-    expect(key.meta.Class).toBe(Object);
     expect(key.isComponent).toBe(false);
-    expect(world.component("ObjectDefinition")).toBe(definition);
+    expect(world.component("TaggedDefinition")).toBe(definition);
     expect(() => world.snapshotSubtree(definition)).toThrow(/Cannot snapshot component entity/);
 
-    const carrier = world.entity().add(Object);
+    const carrier = world.entity().add(Tagged).add(key);
     const snapshot = world.snapshotSubtree(carrier);
-    expect(snapshot.entities[0].components.map((component) => component.Class)).toEqual([Object]);
+    expect(snapshot.entities[0].components.map((component) => component.Class)).toEqual([Tagged]);
 
     carrier.destroy();
     definition.destroy();
-    expect(world.getEntity(Object)).toBeUndefined();
+    expect(world.getEntity(Tagged)).toBeUndefined();
   });
 
-  it("disposes a registered Object definition as infrastructure", () => {
+  it("disposes a definition as infrastructure, after its carriers", () => {
+    class Tagged {}
     const world = new World();
-    const definition = world.component(Object);
+    const definition = world.component(Tagged);
     const removed: Entity[] = [];
     definition.on("remove", (entity) => removed.push(entity));
-    const carrier = world.entity().add(Object);
+    const carrier = world.entity().add(Tagged);
 
     world.dispose();
 
