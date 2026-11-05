@@ -51,5 +51,5 @@ update predicates"), which made `update(C)` append `with(C)`. Settled in
 
 **How to apply.** Put `C` in `with` when the system should hold only entities that carry it; leave it
 out and watch with `onEnter`/`onRemove` when the system holds its `with` entities either way. Migrate
-older call sites with `scripts/codemods/update-explicit-with.mjs`, which keeps their meaning. See
+older call sites with the [migration script from v1.0.63](https://github.com/vworlds/vecs/blob/v1.0.63/scripts/codemods/update-explicit-with.mjs), which keeps their meaning. See
 [`with` builds membership, `update` watches](../lib/vecs/docs/design-guide.md#with-builds-membership-update-watches).
