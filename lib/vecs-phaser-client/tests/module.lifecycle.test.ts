@@ -19,7 +19,7 @@ describe("PhaserRenderModule lifecycle", () => {
     world.dispose();
     expect(object.isDestroyed).toBe(true);
     expect(object.calls.filter((call) => call.method === "destroy")).toHaveLength(1);
-    expect(module.destroyed).toBe(true);
+    expect(module.entity.destroyed).toBe(true);
     expect(world.entities.values()).toEqual([]);
   });
 

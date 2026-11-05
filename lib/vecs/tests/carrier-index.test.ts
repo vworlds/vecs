@@ -86,7 +86,7 @@ describe("component carrier index", () => {
     expect(world.get(Data)).toEqual(new Data());
     expect(component.meta.usageCount).toBe(1);
     expect(world.get(Feature)).toBe(feature);
-    expect(feature.meta.usageCount).toBe(1);
+    expect(feature.entity.meta.usageCount).toBe(1);
     expect(() => world.entity().add(Data)).toThrow("Cannot add singleton component");
   });
 

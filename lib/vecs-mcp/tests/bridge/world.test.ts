@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { Component, World } from "@vworlds/vecs";
+import { type Component, World } from "@vworlds/vecs";
 import * as v from "@vworlds/vecs";
 import { LocalWorld } from "../../src/bridge/world.js";
 
@@ -10,7 +10,7 @@ it("reflects live component definitions with identical duplicate naming and no e
   expect(local.registry().get("Duplicate")).toBe(a);
   const b = world.component(class Duplicate {});
   const expected = [...world.entities.values()].filter(
-    (entity): entity is Component => entity instanceof Component
+    (entity): entity is Component => entity.isComponent
   );
   const counts = new Map<string, number>();
   expected.forEach((c) => counts.set(c.meta.Class.name, (counts.get(c.meta.Class.name) ?? 0) + 1));
@@ -145,7 +145,7 @@ it("reports only declared traits, uniform pair targets, duplicate keys and neare
   const world = new World();
   world.module(v.SnapshotModule);
   const root = world.module(Root);
-  const middle = world.entity().childOf(root);
+  const middle = world.entity().childOf(root.entity);
   world.component(Audited).add(v.Trait);
   world.component(Ordinary);
   const ordinaryKey = world.entity();
@@ -216,7 +216,9 @@ it("does not scan carrier definitions to classify components", () => {
   const registry = local.registry();
   const has = definitions.map((c) => vi.spyOn(c, "has"));
   expect(local.command("vecs_components", {}) as unknown[]).toHaveLength(registry.size);
-  expect(has.reduce((sum, spy) => sum + spy.mock.calls.length, 0)).toBe(0);
+  // Only the O(1) `ModuleDef` tag check, never a scan over other definitions.
+  const scans = has.flatMap((spy) => spy.mock.calls).filter(([ref]) => ref !== v.ModuleDef);
+  expect(scans).toEqual([]);
   has.forEach((spy) => spy.mockRestore());
   world.dispose();
 });

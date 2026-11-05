@@ -1,14 +1,16 @@
 import {
-  Component,
+  type Component,
   type ComponentClass,
   type ComponentInstance,
   type ComponentMeta,
   type ComponentType,
   type HookEvent,
 } from "../component.js";
+// Installs the `Component` declaration builders on `Entity.prototype`.
+import "../component.js";
 import { ComponentDef, Trait } from "../component_def.js";
 import { Relationship, _slotHandlers } from "../component_meta.js";
-import { Entity, RESERVED_EID, type EID, type EntityClass } from "../entity/index.js";
+import { Entity, RESERVED_EID, type EID } from "../entity/index.js";
 import {
   _defaultNormalize,
   _defaultValidate,
@@ -38,7 +40,7 @@ export class Components extends Entities {
    * Register a component class with this world, or look up a previously
    * registered component entity.
    *
-   * On the first call with a given class, a new `Component` entity is created
+   * On the first call with a given class, a new definition entity is created
    * and its id is drawn from the `"component"` id pool (1–899 by default).
    * Subsequent calls with the same class return the same entity. The same class
    * may be registered independently in multiple worlds.
@@ -59,11 +61,11 @@ export class Components extends Entities {
    *
    * Passing a **string** resolves an already-registered component entity by
    * name (set via `world.component(C).name = "..."`). Throws if no entity with
-   * that name exists or if the named entity is not a `Component` entity.
+   * that name exists or if the named entity is not a component definition ({@link Entity.isComponent}).
    *
    * @param ComponentClass - The component class to register or retrieve.
    * @param ceid - Optional explicit numeric component entity id.
-   * @returns The `Component` entity for the given class.
+   * @returns The definition entity for the given class, typed as {@link Component}.
    *
    * @example
    * ```ts
@@ -88,14 +90,14 @@ export class Components extends Entities {
     if (typeof ComponentClassOrName === "string") {
       const entity = this.entity(ComponentClassOrName);
 
-      if (!(entity instanceof Component)) {
+      if (!entity.isComponent) {
         throw new Error(`Entity named '${ComponentClassOrName}' is not a component entity`);
       }
 
       return entity as unknown as Component<T>;
     }
 
-    return this._component<Component<T>>(Component, ComponentClassOrName, ceid);
+    return this._component(ComponentClassOrName, ceid) as Component<T>;
   }
 
   /**
@@ -225,19 +227,18 @@ export class Components extends Entities {
     }
   }
 
-  /** @internal Register a component-like entity in the requested id pool. */
-  protected _component<T extends Entity>(
+  /** @internal Register a component class's definition entity in the requested id pool. */
+  protected _component(
     this: World,
-    Constructor: EntityClass<T>,
     ComponentClass: ComponentType,
     ceid?: EID,
     pool: IdPool = this._componentPool
-  ): T {
+  ): Entity {
     if (ceid === RESERVED_EID) {
       throw new Error(`Component eid ${ceid} is reserved`);
     }
 
-    const existingComponent = this._classRegistry.get(ComponentClass) as T | undefined;
+    const existingComponent = this._classRegistry.get(ComponentClass);
     if (existingComponent) {
       if (ceid === undefined || ceid === existingComponent.eid) {
         return existingComponent;
@@ -260,7 +261,7 @@ export class Components extends Entities {
       }
       this._reserveEid(ceid);
     }
-    const component = new Constructor(this, ceid, ComponentClass);
+    const component = new Entity(this, ceid, ComponentClass);
     this._entities.set(ceid, component);
     this._classRegistry.set(ComponentClass, component);
     for (const [event, hook] of staticHooks) {
@@ -272,7 +273,7 @@ export class Components extends Entities {
     this.component(ComponentDef);
     this.component(Trait);
     component.add(ComponentDef);
-    _attachVecsStruct(component as unknown as Component);
+    _attachVecsStruct(component);
     const parent = this._scope;
     if (parent !== undefined) {
       component.childOf(parent);
@@ -280,7 +281,7 @@ export class Components extends Entities {
     // Component-definition entities are first-class entities: notify so any
     // live world-rooted query/term picks them up reactively (reflection),
     // exactly like an ordinary `world.entity()`.
-    this._notifyEntityCreated(component as unknown as Entity);
+    this._notifyEntityCreated(component);
     return component;
   }
 

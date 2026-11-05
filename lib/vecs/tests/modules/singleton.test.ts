@@ -14,7 +14,7 @@ describe("SingletonModule", () => {
     const world = new World();
     const mod = world.module(SingletonModule);
 
-    expect(mod).toBe(world.entity(mod.eid));
+    expect(mod.entity).toBe(world.entity(mod.entity.eid));
     expect(world.component(Singleton).meta.Class).toBe(Singleton);
   });
 

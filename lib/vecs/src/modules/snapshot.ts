@@ -4,7 +4,7 @@
 // imports it, so it must not reach back through `module.ts`.
 
 import { Module } from "../module.js";
-import { ComponentDef, Trait } from "../component_def.js";
+import { ComponentDef, ModuleDef, Trait } from "../component_def.js";
 import { Query } from "../query/index.js";
 import { System } from "../system.js";
 import { type World } from "../world/world.js";
@@ -61,6 +61,7 @@ export class SnapshotModule extends Module {
     world.component(Query).snapshotPolicy(DontSnapshot);
     world.component(System).snapshotPolicy(DontSnapshot);
     world.component(ComponentDef).snapshotPolicy(DontSnapshot);
+    world.component(ModuleDef).snapshotPolicy(DontSnapshot);
     world.component(Trait).snapshotPolicy(DontSnapshot);
   }
 }

@@ -20,9 +20,9 @@ describe("World.scope", () => {
     const world = new World();
     expect(world.component(Identity).parent).toBeUndefined();
     const feature = world.module(Feature);
-    expect(feature.parent).toBeUndefined();
+    expect(feature.entity.parent).toBeUndefined();
     expect(feature.created.map((entity) => entity.parent)).toEqual(
-      feature.created.map(() => feature)
+      feature.created.map(() => feature.entity)
     );
     expect(world.entity().parent).toBeUndefined();
   });
@@ -51,7 +51,7 @@ describe("World.scope", () => {
     world.component(Ship);
     const ships = [world.entity().add(Ship), world.entity().add(Ship)];
     const module = world.module(HealthBars);
-    expect(module.direct.parent).toBe(module);
+    expect(module.direct.parent).toBe(module.entity);
     expect(module.entered).toHaveLength(ships.length);
     expect(module.iterated).toHaveLength(ships.length);
     for (const entity of [...module.entered, ...module.iterated]) {
@@ -88,13 +88,17 @@ describe("World.scope", () => {
       public init(): void {}
     }
     const world = new World();
-    const existing = [world.entity("existing"), world.component(Position), world.module(Existing)];
+    const existing = [
+      world.entity("existing"),
+      world.component(Position),
+      world.module(Existing).entity,
+    ];
     const parent = world.entity();
     world.scope(parent, () => {
       expect(world.entity("existing")).toBe(existing[0]);
       expect(world.getOrCreateEntity(existing[0].eid)).toBe(existing[0]);
       expect(world.component(Position)).toBe(existing[1]);
-      expect(world.module(Existing)).toBe(existing[2]);
+      expect(world.module(Existing).entity).toBe(existing[2]);
     });
     expect(existing.map((entity) => entity.parent)).toEqual([undefined, undefined, undefined]);
   });
@@ -112,7 +116,7 @@ describe("World.scope", () => {
     const world = new World();
     const feature = world.module(Feature);
     expect(feature.value.parent).toBe(world.component(Region));
-    expect(feature.value.parent?.parent).toBe(feature);
+    expect(feature.value.parent?.parent).toBe(feature.entity);
     const resident = world.entity().add(Region, feature.value);
     expect(resident.target(Region)).toBe(feature.value);
   });
@@ -132,9 +136,9 @@ describe("World.scope", () => {
     const world = new World();
     const outer = world.module(Outer);
     const inner = world.module(Inner);
-    expect(inner.parent).toBe(outer);
-    expect(world.entity("inner").parent).toBe(inner);
-    expect(world.entity("outer").parent).toBe(outer);
+    expect(inner.entity.parent).toBe(outer.entity);
+    expect(world.entity("inner").parent).toBe(inner.entity);
+    expect(world.entity("outer").parent).toBe(outer.entity);
   });
 
   it("refuses new deferred modules without installing anything and remains usable", () => {
@@ -157,8 +161,8 @@ describe("World.scope", () => {
     const query = world.queries.find((candidate) => candidate.name === "scoped positions")!;
     expect(query.built).toBe(true);
     expect([...query]).toEqual([world.entity("positioned")]);
-    expect(query.entity.parent).toBe(module);
-    expect(world.component(Position).parent).toBe(module);
+    expect(query.entity.parent).toBe(module.entity);
+    expect(world.component(Position).parent).toBe(module.entity);
     world.progress(0, 16);
     expect(world.entity().parent).toBeUndefined();
   });
@@ -189,7 +193,7 @@ describe("World.scope", () => {
     expect(invoked).toBe(false);
     expect(world.deferred).toBe(false);
     const feature = world.module(Feature);
-    expect(world.entity("feature-child").parent).toBe(feature);
+    expect(world.entity("feature-child").parent).toBe(feature.entity);
     world.scope(parent, () => expect(world.entity().parent).toBe(parent));
     world.progress(16, 16);
     expect(ticks).toBe(2);
@@ -258,7 +262,7 @@ describe("World.scope", () => {
     expect(() => component.destroy()).toThrow("component eid is still in use");
     expect(() => world.clearAllEntities()).not.toThrow();
     expect(removed).toBe(1);
-    expect([module, component, child].every((entity) => entity.destroyed)).toBe(true);
+    expect([module.entity, component, child].every((entity) => entity.destroyed)).toBe(true);
     expect(world.entities.values()).toEqual([]);
   });
 
@@ -267,14 +271,14 @@ describe("World.scope", () => {
     class Feature extends Module {
       public init(): void {
         const key = this.world.component(Key);
-        this.add(key); // key must follow carrier module, which must follow its child key
+        this.entity.add(key); // key must follow carrier module, which must follow its child key
       }
     }
     const world = new World();
     const module = world.module(Feature);
     expect(() => world.component(Key).destroy()).toThrow("component eid is still in use");
     expect(() => world.clearAllEntities()).toThrow("dependencies cannot be ordered");
-    expect(module.alive).toBe(true);
+    expect(module.entity.alive).toBe(true);
     expect(world.component(Key).alive).toBe(true);
     // Only dispose's final pass suspends the policies and resolves this cycle.
     expect(() => world.dispose()).not.toThrow();
@@ -310,7 +314,7 @@ describe("World.scope", () => {
         world.entity(),
         world.getOrCreateEntity(5000),
         world.component(Position),
-        world.module(Feature),
+        world.module(Feature).entity,
         world.query("scoped query").with(Position).entity,
         world.system("scoped system").entity,
       ];
@@ -320,7 +324,7 @@ describe("World.scope", () => {
       expect(entity.parent).toBe(parent);
     }
     expect(created.map((entity) => entity.parent)).toEqual(created.map(() => parent));
-    expect(world.entity("module-child").parent).toBe(world.module(Feature));
+    expect(world.entity("module-child").parent).toBe(world.module(Feature).entity);
     expect(observed).toEqual(expect.arrayContaining([...created, world.entity("module-child")]));
   });
 

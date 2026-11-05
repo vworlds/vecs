@@ -1,5 +1,4 @@
 import { SilenceSource } from "../modules/relationships.js";
-import { Module } from "../module.js";
 import { IdentityModule } from "../modules/identity.js";
 import { ImplementsModule } from "../modules/implements.js";
 import { PipelineModule } from "../modules/pipeline.js";
@@ -67,11 +66,8 @@ export class World extends Pipeline {
     // have their policy hooks installed before core modules claim these traits.
     // A partial bootstrap without these installers cannot apply their policies.
     if (this.getEntity(SingletonModule) && this.getEntity(SnapshotModule)) {
-      for (const entity of this._classRegistry.values()) {
-        if (entity instanceof Module) {
-          this._installModuleSingleton(entity);
-        }
-      }
+      this._coreModules.forEach((mod) => this._installModuleSingleton(mod));
     }
+    this._coreModules.length = 0;
   }
 }

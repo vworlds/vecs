@@ -72,7 +72,8 @@ For synchronous world teardown and its allowed call sites, see
 
 For local schema reflection, query [`ComponentDef`](./docs/components.md#reflecting-on-component-definitions)
 to enumerate registered component and module entities, and combine it with `Trait` to enumerate
-explicitly declared policy components.
+explicitly declared policy components, or with [`ModuleDef`](./docs/modules.md#what-a-module-is) to
+enumerate installed modules.
 To reflect on a component's members, declare their types with `@type` or `component.member(...)`
 and read [`VecsStruct`](./docs/reflection.md) through a world or `VecsStruct.of(C)` without one;
 `world.validate` and `world.normalize` check and fix

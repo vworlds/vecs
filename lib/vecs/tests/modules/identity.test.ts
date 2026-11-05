@@ -7,7 +7,7 @@ describe("IdentityModule", () => {
     const entity = world.entity().set(Identity, { name: "player" });
     const mod = world.module(IdentityModule);
 
-    expect(mod).toBe(world.entity(mod.eid));
+    expect(mod.entity).toBe(world.entity(mod.entity.eid));
     expect(entity.get(Identity)?.name).toBe("player");
   });
 

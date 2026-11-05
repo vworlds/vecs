@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { type Entity, Module, Query, Singleton, World } from "../src/index.js";
 
 describe("module remove hooks", () => {
-  it("fires instance and static hooks once with the module as entity and value", () => {
+  it("fires instance and static hooks once with the definition entity and the module value", () => {
     const removed = vi.fn();
     class Feature extends Module {
       public static vecs_remove(entity: Entity, mod: Feature): void {
@@ -16,12 +16,12 @@ describe("module remove hooks", () => {
     const world = new World();
     const feature = world.module(Feature);
     const instanceRemoved = vi.fn();
-    feature.on("remove", instanceRemoved);
+    feature.entity.on("remove", instanceRemoved);
     world.module(NoHook);
     world.dispose();
     world.dispose();
-    expect(removed.mock.calls).toEqual([[feature, feature]]);
-    expect(instanceRemoved.mock.calls).toEqual([[feature, feature]]);
+    expect(removed.mock.calls).toEqual([[feature.entity, feature]]);
+    expect(instanceRemoved.mock.calls).toEqual([[feature.entity, feature]]);
     expect(world.has(Feature)).toBe(false);
     expect(world.entities.size).toBe(0);
   });
@@ -33,14 +33,14 @@ describe("module remove hooks", () => {
     class QueuedCleanup {}
     class First extends Module {
       public init(): void {
-        this.on("remove", () => order.push("first"));
+        this.entity.on("remove", () => order.push("first"));
       }
     }
     class Child extends Module {
       public init(): void {
-        this.on("remove", () => {
-          expect(this.parent).toBe(this.world.module(Parent));
-          expect(this.world.get(Parent)).toBe(this.parent);
+        this.entity.on("remove", () => {
+          expect(this.entity.parent).toBe(this.world.module(Parent).entity);
+          expect(this.world.get(Parent)?.entity).toBe(this.entity.parent);
           expect(this.world.get(First)).toBe(this.world.module(First));
           expect(this.world.get(Resource)).toBe(resource);
           expect(this.world.getEntity(Query)?.destroyed).toBe(false);
@@ -51,12 +51,12 @@ describe("module remove hooks", () => {
     class Parent extends Module {
       public init(): void {
         this.world.module(Child);
-        this.on("remove", () => order.push("parent"));
+        this.entity.on("remove", () => order.push("parent"));
       }
     }
     class Last extends Module {
       public init(): void {
-        this.on("remove", () => order.push("last"));
+        this.entity.on("remove", () => order.push("last"));
       }
     }
     const world = new World();
@@ -90,7 +90,7 @@ describe("module remove hooks", () => {
     });
     class Feature extends Module {
       public init(): void {
-        this.on("remove", removed);
+        this.entity.on("remove", removed);
       }
     }
     const world = new World();

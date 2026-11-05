@@ -50,10 +50,10 @@ world
   .unit("m/s");
 ```
 
-The fluent form follows Flecs: `.member(name, type)` returns the `Component` itself, and each
-modifier (`.range`, `.description`, `.unit`, `.values`) applies to the member most recently
-declared with `.member` on that component entity, in that world. Because the chain stays on the
-`Component`, it can carry on with `.on(…)` or any other component method:
+The fluent form follows Flecs: `.member(name, type)` returns the definition entity itself, typed as
+`Component<T>`, and each modifier (`.range`, `.description`, `.unit`, `.values`) applies to the
+member most recently declared with `.member` on that component entity, in that world. Because the
+chain stays on the definition entity, it can carry on with `.on(…)` or any other entity method:
 
 ```ts
 class Score {
@@ -128,6 +128,11 @@ The definition is **per class, for the whole process**:
 declarations keep their component ids. Look it up with `world.getEntity(VecsStruct)`, because
 `entity.get(VecsStruct)` throws in a world that has never registered it. Like `ComponentDef`, it has
 the `DontSnapshot` policy.
+
+To list definitions rather than members, query the schema markers: `ComponentDef` tags every
+registered definition and `ModuleDef` tags installed modules' definitions
+(see [Modules](./modules.md#what-a-module-is)). `entity.has(ModuleDef)` tells a module from a plain
+component.
 
 ## Wire encoding
 
@@ -258,7 +263,7 @@ These names are declared once, as `MemberScalarType`; `@vworlds/vecs-wire` reuse
 | `@unit(text)`        | `.unit(text)`                        | `unit`        |
 | `@values([...])`     | `.values([...])`                     | `values`      |
 
-Each fluent call returns the `Component`, and each modifier applies to the member last declared
+Each fluent call returns the definition entity, and each modifier applies to the member last declared
 with `.member` on it. A `range` needs a numeric type and is inclusive. For `u64` and `i64` it is stored as `bigint`.
 `values` needs an `enum` type.
 

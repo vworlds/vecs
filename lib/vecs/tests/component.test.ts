@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { World } from "../src/index.js";
+import { ComponentDef, Entity, Module, ModuleDef, OnDelete, Throw, World } from "../src/index.js";
 
 class Health {
   hp = 10;
@@ -221,5 +221,93 @@ describe("Hook", () => {
       "first set",
       "first remove",
     ]);
+  });
+});
+
+describe("Entity.isComponent", () => {
+  it("is true only for definition entities, which are plain entities", () => {
+    class Feature extends Module {
+      public init(): void {}
+    }
+    const world = new World();
+    const definition = world.component(Health);
+    const key = world.entity();
+    world.entity().add(key);
+    const destroyed = world.component(class Dropped {});
+
+    expect(definition.isComponent).toBe(true);
+    expect(world.module(Feature).entity.isComponent).toBe(true);
+    expect(world.entity().isComponent).toBe(false);
+    expect(key.meta.Class).toBe(Object);
+    expect(key.isComponent).toBe(false);
+    expect(Object.getPrototypeOf(definition)).toBe(Entity.prototype);
+    expect(destroyed.has(ComponentDef)).toBe(true);
+    destroyed.destroy();
+    expect(destroyed.isComponent).toBe(false);
+  });
+
+  it("identifies a definition through lookup, capture and unregistration, unlike a key", () => {
+    class Tagged {
+      value = 1;
+    }
+    const world = new World();
+    const definition = world.component(Tagged);
+    definition.name = "TaggedDefinition";
+    const key = world.entity();
+    world.entity().add(key);
+
+    expect(definition.isComponent).toBe(true);
+    expect(key.isComponent).toBe(false);
+    expect(world.component("TaggedDefinition")).toBe(definition);
+    expect(() => world.snapshotSubtree(definition)).toThrow(/Cannot snapshot component entity/);
+
+    const carrier = world.entity().add(Tagged).add(key);
+    const snapshot = world.snapshotSubtree(carrier);
+    expect(snapshot.entities[0].components.map((component) => component.Class)).toEqual([Tagged]);
+
+    carrier.destroy();
+    definition.destroy();
+    expect(world.getEntity(Tagged)).toBeUndefined();
+  });
+
+  it("disposes a definition as infrastructure, after its carriers", () => {
+    class Tagged {}
+    const world = new World();
+    const definition = world.component(Tagged);
+    const removed: Entity[] = [];
+    definition.on("remove", (entity) => removed.push(entity));
+    const carrier = world.entity().add(Tagged);
+
+    world.dispose();
+
+    expect(removed).toEqual([carrier]);
+    expect(definition.destroyed).toBe(true);
+    expect(world.entities.size).toBe(0);
+  });
+
+  it("throws when destroying a schema marker that a definition carries", () => {
+    class Feature extends Module {
+      public init(): void {}
+    }
+    const world = new World();
+    world.component(Health);
+    world.module(Feature);
+
+    for (const Marker of [ComponentDef, ModuleDef]) {
+      const marker = world.component(Marker);
+      expect(marker.meta._onDelete, Marker.name).toBe("throw");
+      expect(marker.target(OnDelete), Marker.name).toBe(world.component(Throw));
+      expect(() => marker.destroy(), Marker.name).toThrow("component eid is still in use");
+      expect(marker.alive, Marker.name).toBe(true);
+    }
+  });
+
+  it("does not install the declaration builders as own properties", () => {
+    const world = new World();
+    const definition = world.component(Health).member("hp", "u8").range(0, 100);
+
+    expect(Object.keys(definition)).toEqual(Object.keys(world.entity()));
+    expect(Object.keys(Entity.prototype)).not.toContain("member");
+    expect(definition.meta._currentMember).toBe("hp");
   });
 });

@@ -46,19 +46,26 @@ const meta = world.component(Position).meta;
 
 // Name the component entity, then resolve it by string later:
 world.component(Position).name = "Position";
-world.component("Position"); // returns the same Component entity
+world.component("Position"); // returns the same definition entity
 ```
 
-`world.component(Class)` (`lib/vecs/src/world/world.components.ts`) returns the **`Component`
+`world.component(Class)` (`lib/vecs/src/world/world.components.ts`) returns the **definition
 entity** for that class, creating and registering it on the first call. Subsequent calls with the
-same class return the same entity. The same class can be registered independently in multiple
+same class return the same entity. It is an ordinary `Entity`, typed as
+`Component<T> = ComponentDeclarations<T> & Entity`: the type adds the declaration builders
+(`member`, `range`, `unit`, `values`, `description`, `snapshotPolicy`) and the `on` / `off`
+overloads narrowed to `T`. `Component` is a type, not a class, so there is nothing to test with
+`instanceof`. Check `entity.isComponent` instead: it is `true` when the entity carries the
+`ComponentDef` tag below, which registration adds to the definition of every registered component
+or module class. An entity used only as a component key does not
+carry it. The same class can be registered independently in multiple
 worlds — metadata is world-specific. Passing an explicit id for an already-registered class (with
 a different id) throws, as does passing a name with no matching component entity.
 
 ### Reflecting on component definitions
 
 Use the built-in `ComponentDef` tag to query registered definitions rather than scanning every
-entity with an `instanceof Component` predicate:
+entity with an `isComponent` predicate:
 
 ```ts
 import { ComponentDef, World } from "@vworlds/vecs";
@@ -71,15 +78,20 @@ for (const definition of definitions) {
 ```
 
 Every registered component and module entity carries the tag, including built-ins and
-`ComponentDef` itself. The query tracks later registrations and destroyed definitions incrementally;
+`ComponentDef` itself. Installed modules' definitions also carry
+[`ModuleDef`](./modules.md#what-a-module-is): add `.with(ModuleDef)` to list modules only. The query tracks later registrations and destroyed definitions incrementally;
 iterating it visits definitions only, not ordinary game, query, system, or phase entities.
 Registration adds one tag per class; worlds that never query it need no reflection query.
 
-Treat `ComponentDef` as world-managed schema metadata: do not add or remove it yourself.
+Treat `ComponentDef` as world-managed schema metadata: do not add or remove it yourself. Adding it
+by hand makes an entity read as a definition through `isComponent`. Both `ComponentDef` and
+`ModuleDef` declare `(OnDelete, Throw)` explicitly: destroying either marker's definition entity
+while a definition carries it throws, rather than relying on the default policy.
 Its `DontSnapshot` policy excludes it from subtree snapshots, and `NetworkWorld` rejects it in
 `networkComponents`. Each destination world tags its own locally registered definitions instead.
-Component entities themselves remain invalid subtree snapshot roots. The tag does not change
-[world disposal priorities](./entities.md#disposing-a-world).
+Component entities themselves remain invalid subtree snapshot roots. Through `isComponent`, the
+tag is also how [world disposal](./entities.md#disposing-a-world) recognises definitions as
+infrastructure.
 
 To reflect only policy definitions, combine `ComponentDef` with the declarative `Trait` marker:
 
@@ -98,7 +110,7 @@ a trait. See [Component traits](#component-traits-policy-on-component-entities) 
 
 Components created during a module's `init` become its `ChildOf` children, through
 [`world.scope`](./modules.md#scopes-and-module-provenance). Read `world.component(C).parent`,
-or walk parents to the nearest `Module` when an explicit hierarchy intervenes (for example
+or walk parents to the nearest module definition entity when an explicit hierarchy intervenes (for example
 `OneOf` values). Existing registrations are never reparented by a second module. There is no
 registrar list or per-trait audit; trait additions do not create separate entities. Vecs' own
 constructor-installed built-in modules remain unscoped.
@@ -138,7 +150,7 @@ is reserved.
 
 ## Hooks: component and relationship edges
 
-The `Component` entity exposes lifecycle hooks fired for every entity carrying the component:
+The definition entity exposes lifecycle hooks fired for every entity carrying the component:
 
 ```ts
 world

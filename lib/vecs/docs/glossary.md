@@ -30,8 +30,9 @@ relationship, via `{ with: ..., cascade: Rel }`.
 **Component** — a registered plain data class with a no-argument constructor; pure data, no
 behavior. [Components](./components.md).
 
-**Component entity** — the entity backing a registered component class; returned by
-`world.component(C)` and carrying the class's hooks and `ComponentMeta`.
+**Component entity** — the plain entity backing a registered component class; returned by
+`world.component(C)`, typed `Component<C>`, and carrying the class's hooks and `ComponentMeta`.
+`entity.isComponent`, which reads the `ComponentDef` tag, identifies it.
 [Components](./components.md#registration-worldcomponent).
 
 **Deferred mode / flush** — inside systems, `forEach`, and `defer` blocks, entity mutations are
@@ -79,7 +80,8 @@ visited entity and the source entity of each injected slot.
 [Systems](./systems.md#the-iter-cursor).
 
 **Module** — a packaging unit (`class M extends Module<Config>`) whose `init()` registers
-components, systems, and policy once per world. [Modules](./modules.md).
+components, systems, and policy once per world. A module is a plain object, not an entity; its
+definition entity is `mod.entity`. [Modules](./modules.md).
 
 **Owned target entity** — an explicitly created zero-or-one aggregate entity targeted through a
 relationship carrying both `Exclusive` and `OwnedTarget`. It is parented to the source and destroyed

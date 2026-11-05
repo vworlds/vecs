@@ -1,7 +1,7 @@
 import {
   type Component,
   ComponentDef,
-  Module,
+  ModuleDef,
   DependsOn,
   type Entity,
   Trait,
@@ -124,7 +124,7 @@ export class LocalWorld {
 
   private _components(filter?: string): unknown[] {
     const registry = this.registry();
-    const provenance = new Map<Entity, Module | undefined>();
+    const provenance = new Map<Entity, Entity | undefined>();
     return [...registry]
       .filter(([name]) => filter === undefined || name.includes(filter))
       .map(([name, component]) => {
@@ -151,14 +151,13 @@ export class LocalWorld {
         return {
           name,
           eid: component.eid,
-          kind:
-            component instanceof Module
-              ? "module"
-              : component.meta.isRelationship
-                ? "relationship"
-                : "component",
+          kind: component.has(ModuleDef)
+            ? "module"
+            : component.meta.isRelationship
+              ? "relationship"
+              : "component",
           trait: this._traits.has(component),
-          ...(parent instanceof Module ? { module: parent.meta.Class.name } : {}),
+          ...(parent === undefined ? {} : { module: parent.meta.Class.name }),
           carriers: component.instanceCount(),
           traits,
           schema,
@@ -273,16 +272,17 @@ export class LocalWorld {
     }));
   }
 
+  /** The nearest module definition entity at or above `parent`, through `ChildOf`. */
   private _module(
     parent: Entity | undefined,
-    cache: Map<Entity, Module | undefined>
-  ): Module | undefined {
+    cache: Map<Entity, Entity | undefined>
+  ): Entity | undefined {
     const path = new Set<Entity>();
-    while (parent && !(parent instanceof Module) && !cache.has(parent) && !path.has(parent)) {
+    while (parent && !parent.has(ModuleDef) && !cache.has(parent) && !path.has(parent)) {
       path.add(parent);
       parent = parent.parent;
     }
-    const module = parent instanceof Module ? parent : parent ? cache.get(parent) : undefined;
+    const module = parent?.has(ModuleDef) ? parent : parent ? cache.get(parent) : undefined;
     for (const entity of path) {
       cache.set(entity, module);
     }

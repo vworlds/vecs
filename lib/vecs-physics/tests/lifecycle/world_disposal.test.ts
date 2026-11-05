@@ -18,11 +18,11 @@ describe("physics world disposal", () => {
     const world = new World();
     expect(world.component(Identity).parent).toBeUndefined();
     const physics = world.module(PhysicsModule);
-    expect(world.component(Body).parent?.eid).toBe(world.module(PhysicsSnapshotModule).eid);
+    expect(world.component(Body).parent?.eid).toBe(world.module(PhysicsSnapshotModule).entity.eid);
     expect(world.component(PhysicsEngine).parent?.eid).toBe(
-      world.module(PhysicsSnapshotModule).eid
+      world.module(PhysicsSnapshotModule).entity.eid
     );
-    expect(world.module(BodyModule).parent?.eid).toBe(physics.eid);
+    expect(world.module(BodyModule).entity.parent?.eid).toBe(physics.entity.eid);
     const engine = getPhysicsEngine(world);
     const release = vi.spyOn(engine, "dispose");
     let removed = 0;
