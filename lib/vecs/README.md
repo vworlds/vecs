@@ -90,7 +90,6 @@ their own [remove hooks](./docs/modules.md#releasing-resources) during world dis
 For opt-in timings and cadence run counts, see [Measuring systems](./docs/systems.md#measuring-systems).
 
 For Node clients that need replicated Phaser poses, see [Headless clients](../vecs-phaser-client/README.md#headless-clients).
-For Phaser world-pixel origins and resize camera setup, see the [Coordinate model](../vecs-phaser-client/README.md#coordinate-model).
 For server keepalive gates and the idle replicated-state clock, see [Replication](../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate).
 For independent schemas in one process and the `world.cid` packing API, see
 [Per-world component ids](../vecs-protocol/docs/frames.md#per-world-component-ids).

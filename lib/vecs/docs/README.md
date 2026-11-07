@@ -46,7 +46,6 @@ For reference comparisons, safe diagnostics and Vitest setup, see [Testing entit
 ## Map
 
 For Node clients that need replicated Phaser poses, see [Headless clients](../../vecs-phaser-client/README.md#headless-clients).
-For Phaser world-pixel origins and resize camera setup, see the [Coordinate model](../../vecs-phaser-client/README.md#coordinate-model).
 
 For physics integration, see the [post-step pose-change view](../../vecs-physics/docs/queries.md#pose-changes)
 after reading the execution-model and systems guides.
