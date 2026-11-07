@@ -84,7 +84,9 @@ other anti-patterns and pitfalls; each rule below links to the detail.
   ([Cost of `.without`](../../docs/queries-and-filters.md#the-cost-of-not-and-without))
 - `entity.modified(C)` and `getMut(C)` coalesce into one `update` per drain; every `entity.set(C, …)`
   routes its own, and the system inbox never merges events. Write in place plus `modified`, or
-  compare before `set`, and do not add per-tick dedupe batches when producers use `modified`/`getMut`.
+  use `assign` for periodically rewritten watched/networked state (props merge; instances supply
+  all fields; equal candidates are silent). Use `set` for creation or an intentional notification,
+  and do not add per-tick dedupe batches when producers use `assign`/`modified`/`getMut`.
   ([Repeated writes](../../docs/systems.md#repeated-writes-in-one-tick))
 - A system's `enter` reaches only entities still in its query when the system drains. An entity
   that left the query or died first gets neither `enter` nor the paired `exit`, and a re-entry

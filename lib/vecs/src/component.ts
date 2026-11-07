@@ -8,6 +8,7 @@ import {
   type TraitEvent,
   type TraitHookOptions,
   type NormalizeHandler,
+  type EqualsHandler,
   type TargetHandler,
   type ValidateHandler,
 } from "./component_meta.js";
@@ -37,6 +38,7 @@ export {
   type HookEventMap,
   type HookHandler,
   type NormalizeHandler,
+  type EqualsHandler,
   type TargetHandler,
   type ValidateHandler,
 } from "./component_meta.js";
@@ -44,8 +46,9 @@ export {
 /**
  * A per-component event map that narrows `add` / `remove` / `set` handlers to
  * the instance type `T` produces, narrows `validate` / `normalize` handlers to
- * that instance type, and narrows `targetAdd` / `targetRemove` handlers to
- * `T`'s relationship instance type when `T` produces a relationship.
+ * that instance type, compares that type for `equals`, and narrows `targetAdd` /
+ * `targetRemove` handlers to `T`'s relationship instance type when `T` produces
+ * a relationship.
  */
 type ComponentEventMap<T extends ComponentType> = {
   add: HookHandler<InstanceType<T>>;
@@ -55,6 +58,7 @@ type ComponentEventMap<T extends ComponentType> = {
   targetRemove: TargetHandler<InstanceType<T> & Relationship>;
   validate: ValidateHandler<InstanceType<T>>;
   normalize: NormalizeHandler<InstanceType<T>>;
+  equals: EqualsHandler<InstanceType<T>>;
 };
 
 /** Callbacks declared alongside the {@link CustomSnapshot} policy value. */
@@ -119,7 +123,8 @@ export interface ComponentDeclarations<T extends ComponentType = ComponentType> 
   member<K extends keyof InstanceType<T> & string>(name: K, type: MemberType): this;
 
   /**
-   * Register a handler for a hook event, with the handler signature narrowed
+   * Register a handler for a hook event (`equals` replaces its single handler),
+   * with the handler signature narrowed
    * to this component's instance type (for `add` / `remove` / `set`) or its
    * relationship instance type (for the `target*` events). See
    * {@link ComponentMeta.on} for full semantics.

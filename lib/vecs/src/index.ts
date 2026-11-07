@@ -54,6 +54,7 @@ export {
   type HookEventMap,
   type HookHandler,
   type NormalizeHandler,
+  type EqualsHandler,
   type TargetHandler,
   type ValidateHandler,
 } from "./component.js";

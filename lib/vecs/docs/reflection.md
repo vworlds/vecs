@@ -219,6 +219,7 @@ hooks run ahead of the hooks you add with `.on(…)`, and they cover every publi
 | `vecs_targetRemove` | `targetRemove` | `(source, relationship, target) => void`    |
 | `vecs_validate`     | `validate`     | `(component) => true \| string \| string[]` |
 | `vecs_normalize`    | `normalize`    | `(component) => void`                       |
+| `vecs_equals`       | `equals`       | `(stored, candidate) => boolean`            |
 
 ```ts
 class Health {
@@ -234,6 +235,9 @@ Statics are called with the class as `this`, and component instances never store
 `vecs_targetAdd` and `vecs_targetRemove` require a [relationship](./relationships.md) class.
 Registering one on any other class throws. Like any explicit hook, `vecs_validate` and
 `vecs_normalize` replace the default.
+
+`vecs_equals` supplies the single verdict handler for changed-only writes; unlike the other
+hooks, `.on("equals", fn)` replaces it. See [equality for assign](./components.md#equality-for-assign).
 
 ## Reference
 
