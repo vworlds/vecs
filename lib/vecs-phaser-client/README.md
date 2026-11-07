@@ -10,6 +10,39 @@ here at the Phaser frontier.
 Depends on `@vworlds/vecs-phaser` and `@vworlds/vecs-client`. Requires `phaser@^4.1.0` as
 a peer dependency (provided by the application).
 
+## Coordinate model
+
+Keep server positions in meters (+y up). `CoordSpace` converts them to Phaser **world
+pixels** (+y down): `x = origin.x + pixelsPerMeter * meterX` and
+`y = origin.y - pixelsPerMeter * meterY`. Relative offsets and lengths use only the
+pixel scale; rotations negate the server angle.
+
+`PhaserRenderModule` shares one `CoordSpace` across its renderers and sync systems.
+Its origin defaults to the scene center **when the module initializes**, preserving
+the initial rendering. Resizing the canvas never changes that origin, so stationary,
+moving and newly created objects stay aligned without re-projecting every entity.
+Pass `origin` in world pixels to choose an explicit mapping:
+
+```ts
+const origin = { x: 0, y: 0 };
+world.module(PhaserRenderModule, { scene, pixelsPerMeter: 64, origin });
+
+function updateCamera(): void {
+  scene.cameras.main.centerOn(origin.x, origin.y);
+  scene.cameras.main.setZoom(1);
+}
+updateCamera();
+scene.scale.on("resize", updateCamera);
+scene.events.once("shutdown", () => scene.scale.off("resize", updateCamera));
+```
+
+Handle viewport placement through the camera: call `centerOn` after resize to keep
+the chosen origin centered, and choose camera zoom to fit your game. The origin is
+copied during initialization; mutating the supplied object later does not move it.
+For direct use, `new CoordSpace(scene, pixelsPerMeter, origin)` has the same defaults.
+See [`CoordSpace`](./src/coord_space.ts) and
+[`PhaserRenderModuleConfig`](./src/modules/phaser_render.ts) for the API reference.
+
 ## Asset Loading
 
 Load server-owned assets before connecting the world, then pass the resolved catalog to
