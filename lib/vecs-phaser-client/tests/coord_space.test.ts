@@ -97,27 +97,35 @@ describe("CoordSpace", () => {
     });
   });
 
-  describe("resize reflects in subsequent calls", () => {
+  it("keeps the construction-time center after resize", () => {
     const scale = { width: 800, height: 600 };
     const scene = { scale } as unknown as Phaser.Scene;
     const cs = new CoordSpace(scene, 64);
 
-    it("x(0) = 400 before resize", () => {
-      expect(cs.x(0)).toBe(400);
-    });
+    expect([cs.x(0), cs.y(0)]).toEqual([400, 300]);
+    scale.width = 1024;
+    scale.height = 768;
+    expect([cs.x(0), cs.y(0)]).toEqual([400, 300]);
+    expect([cs.x(-2), cs.y(2)]).toEqual([272, 172]);
+  });
 
-    it("y(0) = 300 before resize", () => {
-      expect(cs.y(0)).toBe(300);
-    });
+  it.each([
+    { x: 0, y: 0 },
+    { x: -100, y: 200 },
+  ])("snapshots custom origin %j without changing relative or angle conversions", (origin) => {
+    const scale = { width: 1920, height: 1080 };
+    const scene = { scale } as unknown as Phaser.Scene;
+    const { x, y } = origin;
+    const cs = new CoordSpace(scene, 32, origin);
+    origin.x += 1000;
+    origin.y += 1000;
+    scale.width = 2560;
+    scale.height = 1440;
 
-    it("x(0) = 512 after resize to 1024×768", () => {
-      scale.width = 1024;
-      scale.height = 768;
-      expect(cs.x(0)).toBe(512);
-    });
-
-    it("y(0) = 384 after resize to 1024×768", () => {
-      expect(cs.y(0)).toBe(384);
-    });
+    expect([cs.x(0), cs.y(0)]).toEqual([x, y]);
+    expect([cs.x(2), cs.y(-3)]).toEqual([x + 64, y + 96]);
+    expect([cs.rx(2), cs.ry(-3), cs.len(0.5)]).toEqual([64, 96, 16]);
+    expect(cs.rot(Math.PI / 2)).toBe(-Math.PI / 2);
+    expect(cs.deg(Math.PI / 2)).toBeCloseTo(-90);
   });
 });

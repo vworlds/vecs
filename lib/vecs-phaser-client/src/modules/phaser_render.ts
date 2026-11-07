@@ -17,20 +17,24 @@ import { TextModule } from "./text.js";
 import { TriangleModule } from "./triangle.js";
 import { SyncModule } from "./sync.js";
 
+/** Scene, assets and fixed meter-to-world-pixel mapping for all render modules. */
 export interface PhaserRenderModuleConfig {
   readonly catalog?: Catalog;
   readonly scene: Phaser.Scene;
   readonly pixelsPerMeter?: number;
+  /** Fixed world-pixel origin; defaults to the scene center when the module initializes. */
+  readonly origin?: { x: number; y: number };
 }
 
 /**
  * Owns attached Phaser GameObjects and releases them through component remove hooks.
+ * Snapshots one fixed coordinate origin at initialization; camera controls handle resize.
  * Container teardown detaches children first so surviving DrawIn entities keep their
  * GameObjects on the scene display list; ownership cascades still destroy owned children.
  */
 export class PhaserRenderModule extends Module<PhaserRenderModuleConfig> {
   public init(config: PhaserRenderModuleConfig): void {
-    const coords = new CoordSpace(config.scene, config.pixelsPerMeter);
+    const coords = new CoordSpace(config.scene, config.pixelsPerMeter, config.origin);
     const world = this.world;
 
     [

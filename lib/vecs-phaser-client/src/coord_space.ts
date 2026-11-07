@@ -1,31 +1,39 @@
 import type Phaser from "phaser";
 
 /**
- * Converts between server-side meter coordinates (+y up, origin at center)
- * and Phaser screen-pixel coordinates (+y down, origin at top-left).
+ * Converts server-side meter coordinates (+y up) to Phaser world pixels (+y down).
  *
- * The server origin (0, 0) maps to the scene center. All coordinate reads
- * happen on every call so that canvas resizes are reflected immediately.
+ * The server origin (0, 0) maps to a fixed pixel origin, defaulting to the scene
+ * center at construction. Canvas resizing never changes this mapping; use the
+ * Phaser camera to control screen placement and zoom.
  *
- * See architecture/README.md §4 for the full coordinate model and formulas.
+ * See ../README.md#coordinate-model for the coordinate model and camera setup.
  */
 export class CoordSpace {
-  private readonly _scene: Phaser.Scene;
+  private readonly _originX: number;
+  private readonly _originY: number;
   private readonly _ppm: number;
 
-  constructor(scene: Phaser.Scene, ppm: number = 64) {
-    this._scene = scene;
+  /**
+   * Snapshot the pixel origin; later changes to scene.scale or origin are ignored.
+   * @param scene Scene whose initial center supplies the default origin.
+   * @param ppm Pixels per meter (default 64).
+   * @param origin Fixed Phaser world-pixel position of server (0, 0).
+   */
+  constructor(scene: Phaser.Scene, ppm: number = 64, origin?: { x: number; y: number }) {
+    this._originX = origin?.x ?? scene.scale.width / 2;
+    this._originY = origin?.y ?? scene.scale.height / 2;
     this._ppm = ppm;
   }
 
-  /** Absolute X pixel: scene center + ppm * meter-x. */
+  /** Absolute world X pixel: fixed origin x + ppm * meter-x. */
   x(mx: number): number {
-    return this._scene.scale.width / 2 + this._ppm * mx;
+    return this._originX + this._ppm * mx;
   }
 
-  /** Absolute Y pixel: scene center - ppm * meter-y (Y flip). */
+  /** Absolute world Y pixel: fixed origin y - ppm * meter-y (Y flip). */
   y(my: number): number {
-    return this._scene.scale.height / 2 - this._ppm * my;
+    return this._originY - this._ppm * my;
   }
 
   /** Length in pixels: ppm * meters. */
