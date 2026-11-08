@@ -3,6 +3,11 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## v1.0.64 (2026-11-08)
+
+- [vecs-phaser-client] Fixed: Keep the coordinate origin fixed across canvas resizes so stationary, moving and new objects stay aligned; accept an explicit world-pixel origin in `PhaserRenderModule` and `CoordSpace`.
+- [repo] Removed: Retire the one-release update migration codemod and its fixture tests; the migration documentation links to the script preserved at v1.0.63 (#522).
+
 ## v1.0.63 (2026-11-05)
 
 - [vecs] Changed: BREAKING CHANGE: `Module` no longer extends `Component` or `Entity`; it is a plain class with `world` and `entity` (its definition entity), constructed by `world.module` before field initializers run. `world.module(A)` returns the module instance, which is not an entity; `world.component(A)` and `mod.entity` return the definition entity. Inside a module, `this.on` / `this.off` / `this.parent` / `this.set` / `this.add` become `this.entity.…`; module scope and `world.scope` take `mod.entity`. Static `vecs_*` hooks, `world.get(A)` / `world.has(A)`, `init(config)` and the reverse-installation disposal order are unchanged; remove hooks receive `(mod.entity, mod)` (#520).
