@@ -14,6 +14,7 @@ import {
 import { Relationship } from "../component_meta.js";
 import { Relationships } from "./entity.relationships.js";
 import type { EID, Entity } from "./entity.js";
+import { _assignEqual } from "./assign.js";
 
 export class Components extends Relationships {
   /**
@@ -233,6 +234,20 @@ export class Components extends Relationships {
     }
   }
 
+  /** @internal Apply a changed-only Set command using the committed value. */
+  public _assign(this: Entity, meta: ComponentMeta, value: ComponentInstance): void {
+    if (this._destroyed) {
+      return;
+    }
+    const stored = this._components.get(meta.eid);
+    if (stored === undefined) {
+      this._set(meta, value);
+    } else if (!_assignEqual(meta, stored, value) && !this._destroyed) {
+      Object.assign(stored, value);
+      this._markModified(meta);
+    }
+  }
+
   /**
    * Attach a component to this entity if it is not already present.
    *
@@ -299,6 +314,7 @@ export class Components extends Relationships {
         entity: this,
         meta: componentMeta,
         props: undefined,
+        changedOnly: false,
       });
     } else {
       this._set(componentMeta, undefined);
@@ -643,6 +659,45 @@ export class Components extends Relationships {
   }
 
   /**
+   * Merge props, or copy all fields of an instance of `Class`, only when the
+   * resulting value differs. Keeps the stored instance's identity. An absent
+   * component is added like `set`; equal writes fire no hooks or updates.
+   * Differences use the `equals` hook or a lazily compiled field-wise `===`
+   * comparer (declared VecsStruct members, otherwise fresh-instance own fields).
+   * Repeated differences before a deferred drain's notification coalesce.
+   * The comparison runs when the queued Set is applied, not when enqueued.
+   * Relationships and interface aliases are rejected; dying entities drop writes.
+   * @returns This entity, for chaining.
+   */
+  public assign<C extends ComponentClass>(Class: C, value: Partial<InstanceType<C>>): this;
+  /** Changed-only write by numeric component id. See {@link assign}. */
+  public assign(ceid: EID, value: Partial<ComponentInstance>): this;
+  /** Changed-only write by component definition entity. See {@link assign}. */
+  public assign(entity: Entity, value: Partial<ComponentInstance>): this;
+  public assign(this: Entity, ref: ComponentRef, value: Partial<ComponentInstance>): this {
+    if (this._destroyed) {
+      return this as unknown as this;
+    }
+    const meta = this.world.entity(ref).meta;
+    if (meta.isRelationship) {
+      throw new Error("Entity.assign cannot mutate Relationship components; use set");
+    }
+    this._throwIfInterface(meta, "assign");
+    if (this.world.deferred) {
+      this.world._enqueue({
+        kind: CommandKind.Set,
+        entity: this,
+        meta,
+        props: value,
+        changedOnly: true,
+      });
+    } else {
+      this._assign(meta, value);
+    }
+    return this as unknown as this;
+  }
+
+  /**
    * Attach a component (creating it if necessary), copy `props` onto the
    * instance, and fire the `onSet` hook plus any `update` callbacks for the
    * component type.
@@ -676,6 +731,7 @@ export class Components extends Relationships {
         entity: this,
         meta: componentMeta,
         props,
+        changedOnly: false,
       });
     } else {
       this._set(componentMeta, props);

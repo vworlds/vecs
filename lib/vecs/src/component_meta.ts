@@ -2,6 +2,7 @@ import { BitPtr } from "./util/bitset.js";
 import type { ComponentTerm } from "./terms/component_term.js";
 import type { EID, Entity } from "./entity/index.js";
 import type { ValidationResult } from "./reflection/defaults.js";
+import type { AssignState } from "./entity/assign.js";
 
 /**
  * @internal The cleanup policy a component entity's meta stores. Declare it
@@ -150,6 +151,19 @@ export type NormalizeHandler<C extends ComponentInstance = ComponentInstance> = 
   component: C
 ) => void;
 
+/**
+ * Compare stored and candidate values for `Entity.assign`. Return true to skip
+ * the write. Treat both arguments as read-only; the candidate is borrowed scratch
+ * storage for props and must not be retained. `on("equals")` replaces the single
+ * handler (including `static vecs_equals`); `off` restores field-wise `===`.
+ * Props candidates populate only the compiled component field list (VecsStruct
+ * members, or fresh-instance own enumerable fields), not extra props keys.
+ */
+export type EqualsHandler<C extends ComponentInstance = ComponentInstance> = (
+  stored: Readonly<C>,
+  candidate: Readonly<C>
+) => boolean;
+
 /** A component instance. Components are plain objects created with a no-arg constructor. */
 export type ComponentInstance = object;
 
@@ -176,6 +190,8 @@ export interface HookEventMap {
   validate: ValidateHandler;
   /** Fixes a component in place; run by {@link World.normalize}, never on `set`. */
   normalize: NormalizeHandler;
+  /** Compared only by `Entity.assign`, never by `set`. */
+  equals: EqualsHandler;
 }
 
 /** Event names accepted by {@link ComponentMeta.on} / {@link ComponentMeta.off}. */
@@ -337,8 +353,9 @@ export class Implements {
  *   .on("set", (e, c) => syncSprite(e, c));
  * ```
  *
- * Multiple handlers may be registered for the same event: they fire in
- * registration order, after the built-in relationship traits' handlers.
+ * Except for the single-verdict `equals` hook, multiple handlers may be
+ * registered for the same event: they fire in registration order, after the
+ * built-in relationship traits' handlers.
  * Remove a handler with {@link ComponentMeta.off} by the same reference used
  * to register it. Callers rarely need to remove handlers.
  *
@@ -430,12 +447,16 @@ export class ComponentMeta {
    */
   public readonly _term: ComponentTerm;
 
+  /** @internal Lazy assign hook and comparison machinery; assigned last to preserve existing offsets. */
+  public _assign: AssignState | undefined;
+
   constructor(Class: ComponentType, ceid: EID, term: ComponentTerm) {
     this.Class = Class;
     this.eid = ceid;
     this.bitPtr = new BitPtr(ceid);
     this.isRelationship = Class.prototype instanceof Relationship;
     this._term = term;
+    this._assign = undefined;
   }
 
   /** Number of entities currently carrying this component eid, including during add hooks. */
@@ -446,8 +467,8 @@ export class ComponentMeta {
   /**
    * Register a handler for a hook event.
    *
-   * Multiple handlers may be registered for the same event; they fire in
-   * registration order, after the handlers of the built-in relationship traits
+   * Except for `equals`, multiple handlers may be registered for the same event;
+   * they fire in registration order, after the built-in relationship traits
    * (`Exclusive`, `Traversable`, `OwnedTarget`, `With`, `Requires`, `OneOf`,
    * `OnDelete`, `OnDeleteTarget`). Removing a
    * handler is via {@link off} with the same reference. When a trait's
@@ -463,8 +484,12 @@ export class ComponentMeta {
    * {@link World.isValid} and {@link World.normalize}, never on `set`. The first
    * one registered replaces the default hook derived from member metadata.
    *
+   * `equals(stored, candidate)` supplies the single verdict for `assign`.
+   * Registration replaces any previous handler, including `static vecs_equals`.
+   * Never retain or mutate its borrowed candidate. It is not run by `set`.
+   *
    * @param event - One of `add`, `remove`, `set`, `targetAdd`, `targetRemove`,
-   *   `validate`, `normalize`.
+   *   `validate`, `normalize`, `equals`.
    * @param handler - Handler whose signature is constrained by `event`.
    * @returns This meta, for chaining.
    */
@@ -506,6 +531,9 @@ export class ComponentMeta {
     }
     const handler = handlerOrOptions;
     switch (event) {
+      case "equals":
+        (this._assign ??= { hook: undefined, compiled: undefined }).hook = handler as EqualsHandler;
+        break;
       case "add":
         this._onAdd = _installHook(this._onAdd, handler as HookHandler);
         break;
@@ -548,6 +576,8 @@ export class ComponentMeta {
   /**
    * Remove a previously-registered handler by reference. Idempotent: removing
    * an unregistered handler is a no-op.
+   * Removing the current `equals` handler restores the default comparer, not a
+   * previously replaced handler or static.
    *
    * @param event - The event the handler was registered for.
    * @param handler - The exact handler reference passed to {@link on}.
@@ -555,6 +585,11 @@ export class ComponentMeta {
    */
   public off<E extends HookEvent>(event: E, handler: HookEventMap[E]): this {
     switch (event) {
+      case "equals":
+        if (this._assign?.hook === handler) {
+          this._assign.hook = undefined;
+        }
+        break;
       case "add":
         this._onAdd = _removeHook(this._onAdd, handler as HookHandler);
         break;

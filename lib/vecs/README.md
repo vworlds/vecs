@@ -102,7 +102,8 @@ The full documentation lives in [`docs/`](./docs/README.md). Recommended reading
 1. [Getting started](./docs/getting-started.md) — install to first ticking world.
 2. [Concepts](./docs/concepts.md) — the mental model.
 3. [Execution model](./docs/execution-model.md) — phases, deferred mutation, event routing.
-4. Subsystem guides: [Components and traits](./docs/components.md) · [Entities](./docs/entities.md) ·
+4. Subsystem guides: [Components and traits](./docs/components.md) · [Entities](./docs/entities.md)
+   (including [changed-only `assign`](./docs/entities.md#assign-write-only-when-changed)) ·
    [Systems](./docs/systems.md) · [Queries and filters](./docs/queries-and-filters.md) ·
    [Relationships, edges, targets, and ownership](./docs/relationships.md) · [Modules](./docs/modules.md) ·
    [Subtree snapshots](./docs/snapshots.md) · [Component reflection](./docs/reflection.md)

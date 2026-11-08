@@ -165,7 +165,11 @@ export class Deferred extends Queries {
         cmd.onCreate?.(cmd.entity);
         return;
       case CommandKind.Set:
-        cmd.entity._set(cmd.meta, cmd.props);
+        if (cmd.changedOnly) {
+          cmd.entity._assign(cmd.meta, cmd.props!);
+        } else {
+          cmd.entity._set(cmd.meta, cmd.props);
+        }
         return;
       case CommandKind.Modified:
         cmd.entity._modified(cmd.meta);

@@ -160,17 +160,39 @@ world
   .on("remove", (entity, sprite) => sprite.destroy(scene, entity));
 ```
 
-| Hook     | Fires when…                                                                                                                                                        |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `add`    | The component is first attached (`add`, or `set` on an entity that lacked an ordinary component).                                                                  |
-| `set`    | `entity.set(C, props)` applies ordinary data, `entity.attach(instance)` stores an instance, `entity.modified(C)` is called, or `getMut` / `ensure` marks it dirty. |
-| `remove` | The component is detached (`entity.remove(C)`), or the owning entity is destroyed.                                                                                 |
+| Hook     | Fires when…                                                                                                                                                                                     |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `add`    | The component is first attached (`add`, or `set` on an entity that lacked an ordinary component).                                                                                               |
+| `set`    | `entity.set(C, props)` applies ordinary data, `assign` adds or changes it, `entity.attach(instance)` stores an instance, `entity.modified(C)` is called, or `getMut` / `ensure` marks it dirty. |
+| `remove` | The component is detached (`entity.remove(C)`), or the owning entity is destroyed.                                                                                                              |
 
 Two more events, `validate` and `normalize`, check or fix a component instance. They run only
 through `world.validate` and `world.normalize`, never on a mutation; see
 [Component reflection](./reflection.md#validating-and-normalizing). A class can also declare any hook
 as a static `vecs_<event>` method, which runs ahead of hooks added with `on`; see
 [`vecs_` statics](./reflection.md#vecs_-statics).
+
+### Equality for `assign`
+
+Use a single `equals(stored, candidate) => boolean` hook to define when
+[`entity.assign`](./entities.md#assign-write-only-when-changed) skips a write:
+
+```ts
+world.component(Position).on("equals", (a, b) => a.x === b.x && a.y === b.y);
+```
+
+A `static vecs_equals(a, b)` method initializes the hook at registration, like
+`vecs_validate` and `vecs_normalize`. Unlike the multi-handler events, `.on("equals", fn)`
+**replaces** the current handler, including the static. `.off("equals", fn)` removes that
+exact handler and restores the default field-wise comparer, not the static. Removing a
+different function has no effect. `set` never invokes `equals`.
+
+Treat both arguments as read-only and do not retain the candidate: props comparisons borrow
+reusable scratch storage populated with the compiled component fields, not extra props keys.
+A nested `assign` of the same class uses a separate reusable slot.
+See the entity guide for default field selection and deferred comparison semantics.
+
+### Lifecycle hook execution
 
 Relationship component entities additionally expose the `targetAdd` and `targetRemove` events. Both
 receive `(source, relationshipInstance, target)` after the edge and reverse index reach their new
@@ -503,12 +525,12 @@ interface markers for polymorphic dispatch — is in the
 A `Component<T>` is an `Entity` subclass, so the full [entity API](./entities.md#reference)
 applies. On top of it:
 
-| Member                | Description                                                                                                                                                                                                                      |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `member(name, type)`  | Declare a member for [reflection](./reflection.md) and return the component; `.range` / `.description` / `.unit` / `.values` then apply to it.                                                                                   |
-| `on(event, handler)`  | Register a handler for `add` / `remove` / `set` / `targetAdd` / `targetRemove` / `validate` / `normalize`, appended after the handlers already registered. Rejects `target*` events on non-relationships. Returns the component. |
-| `off(event, handler)` | Remove a previously-registered handler by reference. Idempotent. Returns the component.                                                                                                                                          |
-| `meta`                | The `ComponentMeta` bookkeeping record.                                                                                                                                                                                          |
+| Member                | Description                                                                                                                                                                                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `member(name, type)`  | Declare a member for [reflection](./reflection.md) and return the component; `.range` / `.description` / `.unit` / `.values` then apply to it.                                                                                                                           |
+| `on(event, handler)`  | Register a handler for `add` / `remove` / `set` / `targetAdd` / `targetRemove` / `validate` / `normalize`, appended after existing handlers. `equals` instead replaces its single verdict handler. Rejects `target*` events on non-relationships. Returns the component. |
+| `off(event, handler)` | Remove a previously-registered handler by reference. Idempotent. Returns the component.                                                                                                                                                                                  |
+| `meta`                | The `ComponentMeta` bookkeeping record.                                                                                                                                                                                                                                  |
 
 ### `ComponentMeta` (`lib/vecs/src/component_meta.ts`)
 

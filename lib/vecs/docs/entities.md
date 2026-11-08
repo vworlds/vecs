@@ -67,6 +67,7 @@ and keep the world's own entities, see [Disposing a world](#disposing-a-world).
 ```ts
 e.add(Position); // attach with default field values (idempotent)
 e.set(Position, { x: 100 }); // attach if needed, assign props, fire onSet/update
+e.assign(Position, { x: 100 }); // merge only if changed; equal values are silent
 e.add(FriendOf, friend); // relationship edges require an explicit target
 e.remove(FriendOf, friend); // remove one relationship edge
 e.get(Position); // Readonly<Position> | undefined
@@ -98,6 +99,37 @@ Relationships use a stricter API: `add(R, target)` creates a unique edge, `remov
 removes one edge, and `remove(R)` removes every edge. `set(R, props)` updates only ordinary fields
 on an existing relationship and never creates or changes edges. See
 [Relationships](./relationships.md#adding-removing-and-setting).
+
+### `assign`: write only when changed
+
+Use `e.assign(C, value)` for periodically rewritten watched or networked state. Props merge
+with the stored value; an instance (`value instanceof C`) supplies the complete candidate,
+including its default fields. Both forms copy onto the stored instance, keeping injected
+references valid. An absent component is added with the same hooks and query entry as `set`.
+
+```ts
+e.assign(Position, { x: 5 }); // keep the stored y
+e.assign(Position, new Position()); // reset x and y to their class defaults
+```
+
+An equal candidate fires no `set` hook, routes no `update`, sets no dirty bit and produces no
+replication delta. A difference is marked through the existing dirty bit: multiple differing
+assigns before a pending notification routes give one update. Outside deferred mode each
+difference notifies immediately. Use `set` to create explicitly or intentionally notify even
+when values are equal; use `getMut` / `ensure` for imperative mutations.
+
+Comparison runs when the queued Set command applies, so earlier queued writes are visible.
+The [equals hook](./components.md#equality-for-assign) controls comparison. Without a hook,
+the first comparison compiles and caches a per-field `===` comparer from declared `VecsStruct`
+members, or otherwise a fresh instance's own enumerable fields. Nested objects compare by
+reference (`NaN` differs from itself). Default props comparisons check supplied component fields
+directly, without constructing a merged candidate. Custom hooks borrow reusable scratch storage
+populated only with the compiled component fields, not extra props keys. Instance candidates are
+compared directly. Nested assigns cannot overwrite an outer scratch candidate.
+
+Like `set`, `assign` accepts a class, numeric component id or component entity ref. Like
+`ensure`, it rejects relationships and `Implements` interface aliases. A dying entity drops
+the write before these checks.
 
 ### `getMut` and `ensure`: mutating in place
 
@@ -309,6 +341,7 @@ is reset in `finally`. Successful disposal leaves nothing, including component-c
 | `add(ref)` / `add(Relationship, target)`       | Attach an ordinary component, or add one explicit relationship edge. `target` accepts any `ComponentRef` resolved eagerly via `world.entity(target)`. Returns `this`. |
 | `attach(instance)` / `attach(Class, instance)` | Store an existing instance, replacing any previous one; fires set-side events. Returns `this`.                                                                        |
 | `set(ref, props)`                              | Attach/set ordinary data; relationships must exist and only ordinary fields are assigned.                                                                             |
+| `assign(ref, propsOrInstance)`                 | Changed-only ordinary data write; see [`assign`](#assign-write-only-when-changed).                                                                                    |
 | `get(ref)`                                     | Read-only component lookup, or `undefined`.                                                                                                                           |
 | `getMut(ref)` / `getMut(ref, callback)`        | Mutable lookup that marks the component modified. Callback form required outside deferred mode.                                                                       |
 | `ensure(ref)` / `ensure(ref, callback)`        | Mutable lookup that creates when missing. Callback form required outside deferred mode.                                                                               |

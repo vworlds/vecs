@@ -26,6 +26,7 @@ import { type World } from "./world.js";
 
 /** Hook events a class can implement as a static `vecs_<event>` method. */
 const STATIC_HOOK_EVENTS: readonly HookEvent[] = [
+  "equals",
   "add",
   "set",
   "remove",

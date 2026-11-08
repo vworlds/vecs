@@ -363,7 +363,7 @@ either order. The update routes after queued mutations apply, so even synchronou
 the committed edge set. First-edge entry, last-edge exit and per-edge hooks are not coalesced.
 Each `entity.set(C, …)` queues
 its own command and routes its own `update`, so three `set` calls give three callbacks. Write in
-place plus `modified` (or `getMut`) to get one callback per tick, or compare before `set`. When
+place plus `modified` (or `getMut`) to get one callback per tick, or use `assign` for changed-only writes. When
 producers already use `modified`/`getMut`, do not add a defensive per-tick dedupe or batching layer
 on the consumer side. See [Systems](./systems.md#repeated-writes-in-one-tick).
 
@@ -532,8 +532,8 @@ For processing-time semantics, cadence accumulation, and callback support, see
 // ❌ scans every body every tick, even if it didn't move
 .with(PhysicsPosition, RenderPosition).each([...], (e, [...]) => { if (changed) e.set(...) });
 
-// ✅ fires only when physics actually moved the body (compare before writing a networked B: see §7)
-.with(PhysicsPosition, RenderPosition).update({ watch: PhysicsPosition }, (e, p) => e.set(RenderPosition, { x: p.x, y: p.y }));
+// ✅ reacts to physics changes; assign also skips equal render values (see §7)
+.with(PhysicsPosition, RenderPosition).update({ watch: PhysicsPosition }, (e, p) => e.assign(RenderPosition, { x: p.x, y: p.y }));
 ```
 
 When the work really is per-tick (a held input, a cooldown, a charge), narrow the query with a tag
@@ -838,14 +838,16 @@ it, so it is non-nullable, see §4), and write only when `B` differs from `A`:
 );
 ```
 
-Every write is a modification, even with an equal value: both `set` and `modified` fire `onSet`,
-route `update` events to every watching system and replicate a networked component. So a sync into a
-networked or watched `B` compares before it writes. The injected `B` is the live instance, so assign
-into it and call `entity.modified(B)`: that has the same effects as `set` without the props literal
-and the deferred copy, and a second event for the same entity in one drain finds the first write
-applied and writes nothing. Always pair an in-place write with `modified`: assignment alone notifies
-nobody, so hooks, watchers and replication never see it. Use `set` when you do not hold the instance,
-or when the write should create the component.
+Both `set` and `modified` notify even with equal values. For periodically rewritten watched or
+networked state, prefer `entity.assign(B, propsOrInstance)`: it owns the comparison and skips equal
+writes, keeping the stored instance's identity. Props merge; a class instance supplies all fields.
+Differences coalesce through the dirty bit. Use `set` for explicit creation or an intentional
+notification, even if equal. See [`assign`](./entities.md#assign-write-only-when-changed) and the
+[`equals` hook](./components.md#equality-for-assign).
+
+When you already hold an injected mutable instance, the compare-and-mutate pattern above avoids
+the props literal and deferred copy. Always pair an in-place write with `modified`: assignment
+alone notifies nobody, so hooks, watchers and replication never see it.
 
 Leave `onEnter: true` off (or set `onEnter: false`) only when a separate `.enter(...)` already initializes `B`,
 or when the callback is intentionally "future changes only."
@@ -994,8 +996,9 @@ system after whatever produces the entity/companion.
 - **A write marks the component modified, even with an equal value.** `set`, and an in-place
   assignment followed by `modified`, fire `onSet`, route `update` events to every watching system and
   replicate a networked component. A writer that runs every tick and copies a value into a networked
-  or watched component (simulation output, a derived pose) should compare first and write only when
-  the value changed (see §7). An in-place assignment without `modified` notifies nobody.
+  or watched component (simulation output, a derived pose) should use `assign` for changed-only
+  writes, or compare before an in-place mutation plus `modified` (see §7). Use `set` for creation
+  or an intentional notification. An in-place assignment without `modified` notifies nobody.
 - **`getMut` marks the component modified even without a callback and even if you write nothing.**
   Calling it every tick fires `onSet`, `update` watchers and replication every tick. Read with `get`;
   call `getMut` only when a change is intended (see

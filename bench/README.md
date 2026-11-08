@@ -3,6 +3,25 @@
 Headless, deterministic benchmarks that run against the built `dist` output of the vecs packages,
 the same JavaScript a consumer installs.
 
+## Changed-only component writes
+
+Run `node --import ./bench/register-dist.mjs bench/assign.ts` after building. It
+compares `assign` and `set` on a four-field component, with equal or alternating
+different props and instances, one synchronous watcher, and immediate or deferred
+execution (100 writes per drain). Candidates are reused to exclude caller allocation.
+`ASSIGN_RESULT` reports median nanoseconds per write over five rounds, including
+enqueue and drain, and checks exact update counts. `BENCH_WRITES` (1,000,000) and
+`BENCH_WARMUP_WRITES` (100,000) must be positive multiples of 100. Pass `set` to
+measure an older build without `assign`; alternate base/head with `BENCH_VECS_ROOT`.
+
+The default run also includes a mixed drain case (`mixed` runs only that case):
+each 100-command batch alternates 50 `set` writes to one entity and 50 `assign`
+writes to another, using the same component metadata and one watcher. It checks
+500,000 updates for equal assigns and 510,000 for differing assigns. Both props
+and instances are measured. In addition to total nanoseconds per command,
+`drainNsPerWrite` times only `endDefer` (two clock reads per batch); compare
+alternating builds to expose mixed-command shape costs.
+
 ## Idle systems
 
 Run `node --import ./bench/register-dist.mjs bench/idle-systems.ts` after building.
