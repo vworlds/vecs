@@ -20,6 +20,16 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
+          # The step below caches ~/.npm with a fallback key; setup-node's own cache has none.
+          package-manager-cache: false
+      # Same npm download cache as ci.yml.
+      - name: Cache npm downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-node24-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            npm-${{ runner.os }}-node24-
       - name: Install dependencies
         run: npm ci
       - name: Run stress correctness tests
