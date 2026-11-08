@@ -314,6 +314,7 @@ export class Components extends Relationships {
         entity: this,
         meta: componentMeta,
         props: undefined,
+        changedOnly: false,
       });
     } else {
       this._set(componentMeta, undefined);
@@ -730,6 +731,7 @@ export class Components extends Relationships {
         entity: this,
         meta: componentMeta,
         props,
+        changedOnly: false,
       });
     } else {
       this._set(componentMeta, props);

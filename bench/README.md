@@ -14,6 +14,14 @@ enqueue and drain, and checks exact update counts. `BENCH_WRITES` (1,000,000) an
 `BENCH_WARMUP_WRITES` (100,000) must be positive multiples of 100. Pass `set` to
 measure an older build without `assign`; alternate base/head with `BENCH_VECS_ROOT`.
 
+The default run also includes a mixed drain case (`mixed` runs only that case):
+each 100-command batch alternates 50 `set` writes to one entity and 50 `assign`
+writes to another, using the same component metadata and one watcher. It checks
+500,000 updates for equal assigns and 510,000 for differing assigns. Both props
+and instances are measured. In addition to total nanoseconds per command,
+`drainNsPerWrite` times only `endDefer` (two clock reads per batch); compare
+alternating builds to expose mixed-command shape costs.
+
 ## Idle systems
 
 Run `node --import ./bench/register-dist.mjs bench/idle-systems.ts` after building.

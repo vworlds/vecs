@@ -188,7 +188,8 @@ exact handler and restores the default field-wise comparer, not the static. Remo
 different function has no effect. `set` never invokes `equals`.
 
 Treat both arguments as read-only and do not retain the candidate: props comparisons borrow
-reusable scratch storage. A nested `assign` of the same class uses a separate reusable slot.
+reusable scratch storage populated with the compiled component fields, not extra props keys.
+A nested `assign` of the same class uses a separate reusable slot.
 See the entity guide for default field selection and deferred comparison semantics.
 
 ### Lifecycle hook execution

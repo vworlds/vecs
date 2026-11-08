@@ -156,6 +156,8 @@ export type NormalizeHandler<C extends ComponentInstance = ComponentInstance> = 
  * the write. Treat both arguments as read-only; the candidate is borrowed scratch
  * storage for props and must not be retained. `on("equals")` replaces the single
  * handler (including `static vecs_equals`); `off` restores field-wise `===`.
+ * Props candidates populate only the compiled component field list (VecsStruct
+ * members, or fresh-instance own enumerable fields), not extra props keys.
  */
 export type EqualsHandler<C extends ComponentInstance = ComponentInstance> = (
   stored: Readonly<C>,

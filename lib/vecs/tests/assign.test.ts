@@ -121,6 +121,42 @@ describe.each([false, true])("assign (deferred=%s)", (deferred) => {
     expect(set).toHaveBeenCalledTimes(3);
   });
 
+  it("distinguishes omitted props from explicit undefined", () => {
+    class Optional {
+      value: number | undefined = 1;
+      other = 2;
+    }
+    const { world, write } = setup();
+    const set = vi.fn();
+    world.component(Optional).on("set", set);
+    const entity = world.entity().add(Optional);
+    write(() => entity.assign(Optional, {}));
+    expect(set).not.toHaveBeenCalled();
+    write(() => entity.assign(Optional, { value: undefined }));
+    expect(entity.get(Optional)).toEqual({ value: undefined, other: 2 });
+    expect(set).toHaveBeenCalledTimes(1);
+    write(() => entity.assign(Optional, { value: undefined }));
+    expect(set).toHaveBeenCalledTimes(1);
+  });
+
+  it("merges only component fields for custom hooks, without leaking extra props keys", () => {
+    const { component, entity, write } = setup();
+    const candidates: Position[] = [];
+    component.on("equals", (stored, candidate) => {
+      expect(candidate).toBeInstanceOf(Position);
+      candidates.push({ ...candidate });
+      return stored.x === candidate.x && stored.y === candidate.y;
+    });
+    write(() => entity.assign(component, { x: 3, extra: "not a component field" }));
+    write(() => entity.assign(component, { y: 4 }));
+    expect(candidates).toEqual([
+      { x: 3, y: 2 },
+      { x: 3, y: 4 },
+    ]);
+    // Only comparison is schema-limited; a differing write still copies all props as set does.
+    expect(entity.get(component)).toEqual({ x: 3, y: 4, extra: "not a component field" });
+  });
+
   it("allows live remove-hook writes but drops dying-entity remove-hook writes", () => {
     const { world, entity, component, write } = setup();
     const remove = vi.fn((removed: typeof entity) => removed.assign(Position, { x: 9 }));
@@ -215,6 +251,25 @@ it("reuses scratch after warmup, including nested comparisons and thrown hooks",
   expect(constructions).toBe(warmed);
   expect(outer.get(Counted)?.x).toBe(1);
   expect(inner.get(Counted)?.x).toBe(2);
+});
+
+it("does not construct scratch for default props comparison", () => {
+  let constructions = 0;
+  class Counted {
+    x = 0;
+    constructor() {
+      constructions++;
+    }
+  }
+  const world = new World();
+  world.component(Counted).member("x", "i32");
+  const entity = world.entity().add(Counted);
+  expect(constructions).toBe(1);
+  entity.assign(Counted, {});
+  entity.assign(Counted, { x: 0 });
+  entity.assign(Counted, { x: 1 });
+  expect(entity.get(Counted)?.x).toBe(1);
+  expect(constructions).toBe(1);
 });
 
 it("compares at application time after earlier queued writes and coalesces differences", () => {

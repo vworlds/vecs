@@ -53,8 +53,8 @@ type CommandBody =
       meta: ComponentMeta;
       /** Properties to assign. `undefined` for `entity.add(C)` (ensure-exists, no data). */
       props: Partial<ComponentInstance> | undefined;
-      /** Compare at application time for `assign`; ordinary `set` leaves it absent. */
-      changedOnly?: boolean;
+      /** Compare at application time for `assign`; false for ordinary `set` / `add`. */
+      changedOnly: boolean;
     }
   | {
       kind: CommandKind.Attach;

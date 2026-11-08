@@ -122,8 +122,10 @@ Comparison runs when the queued Set command applies, so earlier queued writes ar
 The [equals hook](./components.md#equality-for-assign) controls comparison. Without a hook,
 the first comparison compiles and caches a per-field `===` comparer from declared `VecsStruct`
 members, or otherwise a fresh instance's own enumerable fields. Nested objects compare by
-reference (`NaN` differs from itself). Props use reusable scratch storage; instance candidates
-are compared directly. Nested assigns cannot overwrite an outer scratch candidate.
+reference (`NaN` differs from itself). Default props comparisons check supplied component fields
+directly, without constructing a merged candidate. Custom hooks borrow reusable scratch storage
+populated only with the compiled component fields, not extra props keys. Instance candidates are
+compared directly. Nested assigns cannot overwrite an outer scratch candidate.
 
 Like `set`, `assign` accepts a class, numeric component id or component entity ref. Like
 `ensure`, it rejects relationships and `Implements` interface aliases. A dying entity drops
