@@ -6,8 +6,14 @@ import type {
 } from "../component_meta.js";
 import { VecsStruct } from "../reflection/vecs_struct.js";
 
-/** @internal Per-component lazy assign machinery. Scratch slots are reused at each nesting depth. */
+/** @internal Single lazy metadata slot for both the verdict hook and compiled functions. */
 export interface AssignState {
+  hook: EqualsHandler | undefined;
+  compiled: CompiledAssign | undefined;
+}
+
+/** Per-component comparison machinery. Scratch slots are reused at each nesting depth. */
+interface CompiledAssign {
   equals: EqualsHandler;
   propsEqual: (stored: ComponentInstance, props: ComponentInstance) => boolean;
   merge: (
@@ -25,21 +31,22 @@ export function _assignEqual(
   stored: ComponentInstance,
   value: ComponentInstance
 ): boolean {
+  const state = (meta._assign ??= { hook: undefined, compiled: undefined });
   if (value instanceof meta.Class) {
-    const equals = meta._onEquals ?? (meta._assignState ??= compile(meta)).equals;
+    const equals = state.hook ?? (state.compiled ??= compile(meta)).equals;
     return equals(stored, value);
   }
-  const state = (meta._assignState ??= compile(meta));
-  const equals = meta._onEquals;
+  const compiled = (state.compiled ??= compile(meta));
+  const equals = state.hook;
   if (equals === undefined) {
-    return state.propsEqual(stored, value);
+    return compiled.propsEqual(stored, value);
   }
-  return propsWithHook(meta, state, equals, stored, value);
+  return propsWithHook(meta, compiled, equals, stored, value);
 }
 
 function propsWithHook(
   meta: ComponentMeta,
-  state: AssignState,
+  state: CompiledAssign,
   equals: EqualsHandler,
   stored: ComponentInstance,
   value: ComponentInstance
@@ -56,7 +63,7 @@ function propsWithHook(
   }
 }
 
-function compile(meta: ComponentMeta): AssignState {
+function compile(meta: ComponentMeta): CompiledAssign {
   const fields = Object.keys(
     VecsStruct.of(meta.Class)?.members ?? new (meta.Class as ComponentClass)()
   );
@@ -71,7 +78,7 @@ function compile(meta: ComponentMeta): AssignState {
       "s",
       "p",
       `return ${fields.map((field, i) => `(!(${JSON.stringify(field)} in p) || p${accessors[i]} === s${accessors[i]})`).join(" && ") || "true"};`
-    ) as AssignState["propsEqual"],
+    ) as CompiledAssign["propsEqual"],
     merge: new Function(
       "c",
       "s",
@@ -82,7 +89,7 @@ function compile(meta: ComponentMeta): AssignState {
             `c${accessors[i]} = ${JSON.stringify(field)} in p ? p${accessors[i]} : s${accessors[i]};`
         )
         .join("\n")
-    ) as AssignState["merge"],
+    ) as CompiledAssign["merge"],
     scratch: undefined,
     depth: 0,
   };

@@ -423,10 +423,6 @@ export class ComponentMeta {
   public _validateIsDefault = false;
   /** @internal Whether `_onNormalize` holds only the metadata-derived default. */
   public _normalizeIsDefault = false;
-  /** @internal Optional single verdict hook for assign. */
-  public _onEquals: EqualsHandler | undefined = undefined;
-  /** @internal Lazily compiled comparison and pooled scratch storage, only for assign. */
-  public _assignState: AssignState | undefined = undefined;
   /**
    * @internal The member most recently declared with `Component.member` on
    * this component's definition entity, which the member modifiers apply to.
@@ -451,12 +447,16 @@ export class ComponentMeta {
    */
   public readonly _term: ComponentTerm;
 
+  /** @internal Lazy assign hook and comparison machinery; assigned last to preserve existing offsets. */
+  public _assign: AssignState | undefined;
+
   constructor(Class: ComponentType, ceid: EID, term: ComponentTerm) {
     this.Class = Class;
     this.eid = ceid;
     this.bitPtr = new BitPtr(ceid);
     this.isRelationship = Class.prototype instanceof Relationship;
     this._term = term;
+    this._assign = undefined;
   }
 
   /** Number of entities currently carrying this component eid, including during add hooks. */
@@ -532,7 +532,7 @@ export class ComponentMeta {
     const handler = handlerOrOptions;
     switch (event) {
       case "equals":
-        this._onEquals = handler as EqualsHandler;
+        (this._assign ??= { hook: undefined, compiled: undefined }).hook = handler as EqualsHandler;
         break;
       case "add":
         this._onAdd = _installHook(this._onAdd, handler as HookHandler);
@@ -586,8 +586,8 @@ export class ComponentMeta {
   public off<E extends HookEvent>(event: E, handler: HookEventMap[E]): this {
     switch (event) {
       case "equals":
-        if (this._onEquals === handler) {
-          this._onEquals = undefined;
+        if (this._assign?.hook === handler) {
+          this._assign.hook = undefined;
         }
         break;
       case "add":
