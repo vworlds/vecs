@@ -181,6 +181,43 @@ orchestrator with a false QUERY ERROR; SILENT alerts and silent Progress updates
 are suppressed while a worker session is active; and `watch` acknowledges a bundle
 as soon as stdout is written, so re-arming no longer redelivers a late-window bundle.
 
+## rc.16 and rc.17
+
+rc.16 is **breaking** for tracks: migration `0010` turns `Track` into a managed
+single-select, maintained with `vmethod track create|finish|list`. After the migration,
+a named session needs an existing option. Board 4 is shared, so `0010` waits until
+vecs and SpaceRocks both pin rc.16 or later. Whichever adoption lands second runs
+`vmethod board migrate`, which refuses before then. Only open, non-archived cards keep
+their `Track` value; closed and archived ones lose it. Until the migration, text
+membership keeps working, but the `track` verbs refuse.
+
+Other changes that matter here:
+
+- `suggest-model` and `open-task` steer around model families with at-risk quota,
+  naming each one skipped.
+- LAUNCH waits two minutes after a linked task PR merges, so the merge can close the
+  issue first.
+- `wait-checks` reports red as soon as a trusted job fails.
+
+rc.17:
+
+- **Idle stop.** `watch` exits with an `IDLE:` line after `watch.idleMinutes` (default 60) without delivered wakes, and the idle clock survives re-arms. On IDLE:
+  - if the owner has written in chat since the time it names, re-arm at once with
+    `watch --resume`;
+  - otherwise don't re-arm. When they next write, run `watch --replay previous`, then
+    `watch --resume`.
+
+  An ordinary expiry is still re-armed with plain `watch`.
+
+- **Inline review threads.** Answer each inline comment in its own thread:
+  `vmethod review <pr> answer|ask|changes|owner --in-reply-to <…#discussion_rN>`, or
+  `vmethod post <pr> <file> --in-reply-to <url>`. `read pr` and `read comment` show the
+  path, line range, diff hunk and reply URL.
+- **Learnings.** `learnings submit` finds its fork by its verified relationship with
+  the central repository, creates an alternate private fork when a detached repository
+  holds the usual name (`VecsMaster/vmethod`), and keeps staged records when a
+  submission is refused.
+
 ## Pilot gaps and remaining rollout
 
 rc.3 resolves the rc.1 gaps:
