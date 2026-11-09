@@ -8,6 +8,7 @@ import type { getTerm as GetTermFn } from "./build.js";
 export type CompositePrecheck = (terms: readonly QueryDSL[]) => {
   hasDiamond: boolean;
   containsTarget: boolean;
+  containsAnyOf: boolean;
   info: MergedInfo;
 };
 
@@ -23,7 +24,7 @@ export type CompositeTermCtor = new (
  * Shared build logic for the `all` / `any` composite terms.
  *
  * Runs the diamond pre-check and either short-circuits to a merged
- * `PredicateTerm` (when a leaf diamond is detected and no target term is
+ * `PredicateTerm` (when a leaf diamond or dynamic `anyOf` is detected and no target term is
  * involved) or constructs the requested composite node from its child terms.
  * `AllTerm` and `AnyTerm` differ only in which constructor they pass.
  *
@@ -48,7 +49,7 @@ export function buildCompositeTerm(
   onDestroy: (term: Term) => void
 ): Term {
   const checked = precheck(terms);
-  if (checked.hasDiamond && !checked.containsTarget) {
+  if ((checked.hasDiamond || checked.containsAnyOf) && !checked.containsTarget) {
     return PredicateTerm.buildMerged(world, originalDSL, key, checked.info, getTerm, onDestroy);
   }
   const children = terms.map((dsl) => getTerm(world, dsl));

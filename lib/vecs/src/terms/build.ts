@@ -12,7 +12,7 @@
  * the cost of maintaining them is paid once, not once per query.
  *
  * **Composite terms** (`AllTerm`, `AnyTerm`, `NotTerm`, `OnlyTerm`,
- * `PredicateTerm`, `TargetTerm`) are cached under a canonical DSL key so
+ * `PredicateTerm`, `TargetTerm`, `AnyOfTerm`) are cached under a canonical DSL key so
  * equivalent queries deduplicate to the same node in the graph. Lifetime
  * follows consumer count: the last `unsubscribe` call destroys the term and
  * cascades destruction to any children whose consumer count also reaches zero.
@@ -50,6 +50,7 @@ import type { World } from "../world/index.js";
 import type { EID, Entity } from "../entity/index.js";
 import { AllTerm } from "./all_term.js";
 import { AnyTerm } from "./any_term.js";
+import { AnyOfTerm } from "./any_of_term.js";
 import { ComponentTerm } from "./component_term.js";
 import { EmptyTerm } from "./empty_term.js";
 import { NotTerm } from "./not_term.js";
@@ -210,6 +211,9 @@ function _dispatch(world: World, dsl: QueryDSL, key: string): Term {
   if ("any" in dsl) {
     return AnyTerm.build(world, dsl.any, key, dsl, getTerm, _allAnyPrecheck, onDestroy);
   }
+  if ("anyOf" in dsl) {
+    return new AnyOfTerm(world, key, getTerm(world, dsl.anyOf), onDestroy);
+  }
   if ("not" in dsl) {
     return NotTerm.build(world, dsl.not, key, getTerm, onDestroy);
   }
@@ -296,6 +300,9 @@ type DslAnalysis = {
   dependsOnWorld: boolean;
   containsOnly: boolean;
   containsTarget: boolean;
+  containsAnyOf: boolean;
+  anyOfNodes: readonly QueryDSL[];
+  watchEids: ReadonlySet<EID>;
 };
 
 /**
@@ -320,6 +327,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
       dependsOnWorld: true,
       containsOnly: false,
       containsTarget: false,
+      containsAnyOf: false,
+      anyOfNodes: [],
+      watchEids: new Set(),
     };
   }
   if (dsl === false) {
@@ -329,6 +339,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
       dependsOnWorld: false,
       containsOnly: false,
       containsTarget: false,
+      containsAnyOf: false,
+      anyOfNodes: [],
+      watchEids: new Set(),
     };
   }
   if (typeof dsl === "number") {
@@ -338,6 +351,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
       dependsOnWorld: false,
       containsOnly: false,
       containsTarget: false,
+      containsAnyOf: false,
+      anyOfNodes: [],
+      watchEids: new Set(),
     };
   }
   if (dsl instanceof Array) {
@@ -349,6 +365,18 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
   if ("any" in dsl) {
     return _mergeAnalyses(dsl.any.map(_analyzeDSL));
   }
+  if ("anyOf" in dsl) {
+    return {
+      leafKeys: new Set(),
+      componentEids: new Set(),
+      dependsOnWorld: false,
+      containsOnly: false,
+      containsTarget: false,
+      containsAnyOf: true,
+      anyOfNodes: [dsl],
+      watchEids: new Set(),
+    };
+  }
   if ("not" in dsl) {
     return _mergeAnalyses([
       {
@@ -357,6 +385,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
         dependsOnWorld: true,
         containsOnly: false,
         containsTarget: false,
+        containsAnyOf: false,
+        anyOfNodes: [],
+        watchEids: new Set(),
       },
       _analyzeDSL(dsl.not),
     ]);
@@ -369,6 +400,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
       dependsOnWorld: false as boolean,
       containsOnly: false as boolean,
       containsTarget: false as boolean,
+      containsAnyOf: false,
+      anyOfNodes: [],
+      watchEids: new Set<EID>(),
     }));
     return _mergeAnalyses([
       ...childAnalyses,
@@ -378,18 +412,24 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
         dependsOnWorld: true,
         containsOnly: true,
         containsTarget: false,
+        containsAnyOf: false,
+        anyOfNodes: [],
+        watchEids: new Set(),
       },
     ]);
   }
   if ("test" in dsl) {
     const watch = normalizeWatch(dsl.watch);
-    return _mergeAnalyses([
+    const analysis = _mergeAnalyses([
       {
         leafKeys: new Set([WORLD_LEAF]),
         componentEids: new Set(),
         dependsOnWorld: true,
         containsOnly: false,
         containsTarget: false,
+        containsAnyOf: false,
+        anyOfNodes: [],
+        watchEids: new Set(),
       },
       ...watch.map((ceid) => ({
         leafKeys: new Set([`C:${ceid}`]) as Set<string>,
@@ -397,8 +437,13 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
         dependsOnWorld: false as boolean,
         containsOnly: false as boolean,
         containsTarget: false as boolean,
+        containsAnyOf: false,
+        anyOfNodes: [],
+        watchEids: new Set<EID>(),
       })),
     ]);
+    analysis.watchEids = new Set(watch);
+    return analysis;
   }
   if ("target" in dsl && Array.isArray((dsl as any).target)) {
     const d = dsl as { target: readonly [ComponentRef, QueryDSL] };
@@ -410,6 +455,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
         dependsOnWorld: false,
         containsOnly: false,
         containsTarget: true,
+        containsAnyOf: false,
+        anyOfNodes: [],
+        watchEids: new Set(),
       },
       { ..._analyzeDSL(d.target[1]), containsTarget: true },
     ]);
@@ -420,6 +468,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
     dependsOnWorld: false,
     containsOnly: false,
     containsTarget: false,
+    containsAnyOf: false,
+    anyOfNodes: [],
+    watchEids: new Set(),
   };
 }
 
@@ -431,12 +482,17 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
  * `_hasDiamond` spot reconvergent leaves.
  */
 function _mergeAnalyses(analyses: DslAnalysis[]): DslAnalysis {
+  const anyOfNodes: QueryDSL[] = [];
+  const watchEids = new Set<EID>();
   const merged: DslAnalysis = {
     leafKeys: new Set(),
     componentEids: new Set(),
     dependsOnWorld: false,
     containsOnly: false,
     containsTarget: false,
+    containsAnyOf: false,
+    anyOfNodes,
+    watchEids,
   };
   for (const a of analyses) {
     a.leafKeys.forEach((k) => merged.leafKeys.add(k));
@@ -444,6 +500,9 @@ function _mergeAnalyses(analyses: DslAnalysis[]): DslAnalysis {
     merged.dependsOnWorld ||= a.dependsOnWorld;
     merged.containsOnly ||= a.containsOnly;
     merged.containsTarget ||= a.containsTarget;
+    merged.containsAnyOf ||= a.containsAnyOf;
+    anyOfNodes.push(...a.anyOfNodes);
+    a.watchEids.forEach((eid) => watchEids.add(eid));
   }
   return merged;
 }
@@ -478,7 +537,8 @@ function _hasDiamond(analyses: DslAnalysis[]): boolean {
  * caller should invoke `PredicateTerm.buildMerged` with the returned `info`
  * instead of building the composite tree.
  *
- * `target` terms are excluded from collapsing because `TargetTerm` uses a
+ * Dynamic `anyOf` subtrees also collapse, since their leaves can overlap any
+ * sibling at runtime. `target` terms are excluded from collapsing because `TargetTerm` uses a
  * non-standard event routing strategy (it fans out from the inner term to all
  * sources) that cannot be reproduced by a plain compiled predicate.
  *
@@ -488,6 +548,7 @@ function _hasDiamond(analyses: DslAnalysis[]): boolean {
 function _allAnyPrecheck(terms: readonly QueryDSL[]): {
   hasDiamond: boolean;
   containsTarget: boolean;
+  containsAnyOf: boolean;
   info: MergedInfo;
 } {
   const analyses = terms.map(_analyzeDSL);
@@ -497,10 +558,13 @@ function _allAnyPrecheck(terms: readonly QueryDSL[]): {
   return {
     hasDiamond: diamond,
     containsTarget,
+    containsAnyOf: merged.containsAnyOf,
     info: {
       componentEids: merged.componentEids,
       dependsOnWorld: merged.dependsOnWorld,
       containsOnly: merged.containsOnly,
+      watchEids: merged.watchEids,
+      anyOfNodes: merged.anyOfNodes,
     },
   };
 }

@@ -339,6 +339,13 @@ upkeep is paid once per distinct exclusion, plus one membership check per query 
 
 Details: [Queries and filters](./queries-and-filters.md#the-cost-of-not-and-without).
 
+When modules register component types independently, select their holders with
+`{ anyOf: [YourTrait] }` and put `YourTrait` on each contributing component definition.
+This replaces one enlistment system per type and a derived membership tag: the query
+tracks late registrations and unmarking itself. See
+[dynamic component sets](./queries-and-filters.md#dynamic-component-sets-with-anyof)
+for selectivity costs, injection limits and the tracked/filter boundary.
+
 ### Reactive callbacks: `enter` / `update` / `exit`
 
 - **`enter`** — fires once when an entity _becomes_ a member. Use it for one-time setup

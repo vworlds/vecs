@@ -58,6 +58,7 @@ export type TermKind =
   | "empty"
   | "all"
   | "any"
+  | "anyOf"
   | "not"
   | "only"
   | "predicate"

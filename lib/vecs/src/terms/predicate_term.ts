@@ -1,9 +1,10 @@
-import { _compile, type EntityTestFunc, type QueryDSL } from "../dsl.js";
+import { _compile, getDSLCacheKey, type EntityTestFunc, type QueryDSL } from "../dsl.js";
 import type { EID, Entity } from "../entity/index.js";
 import type { World } from "../world/index.js";
 import { Term } from "./term.js";
 import { WorldTerm } from "./world_term.js";
 import type { getTerm as GetTermFn } from "./build.js";
+import type { AnyOfTerm } from "./any_of_term.js";
 
 /**
  * Analysis summary derived from a collapsed `all`/`any` subtree.
@@ -16,6 +17,10 @@ export type MergedInfo = {
   componentEids: ReadonlySet<EID>;
   dependsOnWorld: boolean;
   containsOnly: boolean;
+  /** Leaves whose data changes invalidate an explicit `test` predicate. */
+  watchEids: ReadonlySet<EID>;
+  /** Dynamic bindings to subscribe to, without analysing their inner key queries. */
+  anyOfNodes: readonly QueryDSL[];
 };
 
 /**
@@ -52,13 +57,18 @@ export class PredicateTerm extends Term {
     worldTerm: Term | undefined,
     watchedTerms: readonly Term[],
     usesShapeRefresh: boolean,
-    onDestroy: (term: Term) => void
+    onDestroy: (term: Term) => void,
+    membershipTerms: readonly Term[] = []
   ) {
     super(world, key, kind, false, onDestroy);
     this._predicate = predicate;
     this._worldTerm = worldTerm;
     this._usesShapeRefresh = usesShapeRefresh;
     this._setChildren(worldTerm ? [worldTerm, ...watchedTerms] : watchedTerms);
+    for (const term of membershipTerms) {
+      this._children.push(term);
+      this._addChildCleanup(term.subscribe({ onTermEvent: (_, entity) => this._sync(entity) }));
+    }
     if (usesShapeRefresh && worldTerm instanceof WorldTerm) {
       this._addChildCleanup(worldTerm.subscribeShape(this));
     }
@@ -124,9 +134,22 @@ export class PredicateTerm extends Term {
     getTerm: typeof GetTermFn,
     onDestroy: (term: Term) => void
   ): PredicateTerm {
-    const predicate = _compile(world, dsl);
+    const anyOfTerms = new Map<string, AnyOfTerm>();
+    for (const node of info.anyOfNodes) {
+      const nodeKey = getDSLCacheKey(node, world);
+      if (!anyOfTerms.has(nodeKey)) {
+        anyOfTerms.set(nodeKey, getTerm(world, node) as AnyOfTerm);
+      }
+    }
+    const predicate = _compile(world, dsl, (node) => anyOfTerms.get(getDSLCacheKey(node, world))!);
     const worldTerm = info.dependsOnWorld ? getTerm(world, true) : undefined;
-    const watchedTerms = [...info.componentEids].map((ceid) => getTerm(world, ceid));
+    const watchedTerms = [...info.watchEids].map((ceid) => getTerm(world, ceid));
+    const membershipTerms = [
+      ...[...info.componentEids]
+        .filter((ceid) => !info.watchEids.has(ceid))
+        .map((ceid) => getTerm(world, ceid)),
+      ...anyOfTerms.values(),
+    ];
     return new PredicateTerm(
       world,
       key,
@@ -135,7 +158,8 @@ export class PredicateTerm extends Term {
       worldTerm,
       watchedTerms,
       info.containsOnly,
-      onDestroy
+      onDestroy,
+      membershipTerms
     );
   }
 
@@ -145,14 +169,10 @@ export class PredicateTerm extends Term {
   }
 
   /**
-   * @internal React to a child term refresh.
-   *
-   * For the plain-predicate variant (`_usesShapeRefresh === false`) only
-   * component-kind children trigger a re-evaluation — shape changes on the
-   * world leaf are irrelevant. For the merged variant, world-kind refreshes
-   * are also relevant when the subtree contained an `only(...)` node (because
-   * `only` is sensitive to which components an entity currently has, not just
-   * whether a specific one is present).
+   * @internal Only explicit test-watch leaves subscribe to component refreshes.
+   * Membership leaves and dynamic bindings use event-only subscriptions, so
+   * data writes to them never re-evaluate the compiled membership predicate.
+   * World refreshes matter only for `only`, which also observes the shape channel.
    */
   protected override _onChildRefresh(entity: Entity, child: Term): void {
     if (child.kind === "component" || (this._usesShapeRefresh && child.kind === "world")) {
