@@ -300,9 +300,9 @@ type DslAnalysis = {
   dependsOnWorld: boolean;
   containsOnly: boolean;
   containsTarget: boolean;
-  containsAnyOf?: boolean;
-  anyOfNodes?: readonly QueryDSL[];
-  watchEids?: ReadonlySet<EID>;
+  containsAnyOf: boolean;
+  anyOfNodes: readonly QueryDSL[];
+  watchEids: ReadonlySet<EID>;
 };
 
 /**
@@ -327,6 +327,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
       dependsOnWorld: true,
       containsOnly: false,
       containsTarget: false,
+      containsAnyOf: false,
+      anyOfNodes: [],
+      watchEids: new Set(),
     };
   }
   if (dsl === false) {
@@ -336,6 +339,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
       dependsOnWorld: false,
       containsOnly: false,
       containsTarget: false,
+      containsAnyOf: false,
+      anyOfNodes: [],
+      watchEids: new Set(),
     };
   }
   if (typeof dsl === "number") {
@@ -345,6 +351,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
       dependsOnWorld: false,
       containsOnly: false,
       containsTarget: false,
+      containsAnyOf: false,
+      anyOfNodes: [],
+      watchEids: new Set(),
     };
   }
   if (dsl instanceof Array) {
@@ -365,6 +374,7 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
       containsTarget: false,
       containsAnyOf: true,
       anyOfNodes: [dsl],
+      watchEids: new Set(),
     };
   }
   if ("not" in dsl) {
@@ -375,6 +385,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
         dependsOnWorld: true,
         containsOnly: false,
         containsTarget: false,
+        containsAnyOf: false,
+        anyOfNodes: [],
+        watchEids: new Set(),
       },
       _analyzeDSL(dsl.not),
     ]);
@@ -387,6 +400,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
       dependsOnWorld: false as boolean,
       containsOnly: false as boolean,
       containsTarget: false as boolean,
+      containsAnyOf: false,
+      anyOfNodes: [],
+      watchEids: new Set<EID>(),
     }));
     return _mergeAnalyses([
       ...childAnalyses,
@@ -396,6 +412,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
         dependsOnWorld: true,
         containsOnly: true,
         containsTarget: false,
+        containsAnyOf: false,
+        anyOfNodes: [],
+        watchEids: new Set(),
       },
     ]);
   }
@@ -408,6 +427,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
         dependsOnWorld: true,
         containsOnly: false,
         containsTarget: false,
+        containsAnyOf: false,
+        anyOfNodes: [],
+        watchEids: new Set(),
       },
       ...watch.map((ceid) => ({
         leafKeys: new Set([`C:${ceid}`]) as Set<string>,
@@ -415,6 +437,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
         dependsOnWorld: false as boolean,
         containsOnly: false as boolean,
         containsTarget: false as boolean,
+        containsAnyOf: false,
+        anyOfNodes: [],
+        watchEids: new Set<EID>(),
       })),
     ]);
     analysis.watchEids = new Set(watch);
@@ -430,6 +455,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
         dependsOnWorld: false,
         containsOnly: false,
         containsTarget: true,
+        containsAnyOf: false,
+        anyOfNodes: [],
+        watchEids: new Set(),
       },
       { ..._analyzeDSL(d.target[1]), containsTarget: true },
     ]);
@@ -440,6 +468,9 @@ function _analyzeDSL(dsl: QueryDSL): DslAnalysis {
     dependsOnWorld: false,
     containsOnly: false,
     containsTarget: false,
+    containsAnyOf: false,
+    anyOfNodes: [],
+    watchEids: new Set(),
   };
 }
 
@@ -470,8 +501,8 @@ function _mergeAnalyses(analyses: DslAnalysis[]): DslAnalysis {
     merged.containsOnly ||= a.containsOnly;
     merged.containsTarget ||= a.containsTarget;
     merged.containsAnyOf ||= a.containsAnyOf;
-    anyOfNodes.push(...(a.anyOfNodes ?? []));
-    a.watchEids?.forEach((eid) => watchEids.add(eid));
+    anyOfNodes.push(...a.anyOfNodes);
+    a.watchEids.forEach((eid) => watchEids.add(eid));
   }
   return merged;
 }
@@ -527,13 +558,13 @@ function _allAnyPrecheck(terms: readonly QueryDSL[]): {
   return {
     hasDiamond: diamond,
     containsTarget,
-    containsAnyOf: merged.containsAnyOf ?? false,
+    containsAnyOf: merged.containsAnyOf,
     info: {
       componentEids: merged.componentEids,
       dependsOnWorld: merged.dependsOnWorld,
       containsOnly: merged.containsOnly,
-      watchEids: merged.watchEids ?? new Set(),
-      anyOfNodes: merged.anyOfNodes ?? [],
+      watchEids: merged.watchEids,
+      anyOfNodes: merged.anyOfNodes,
     },
   };
 }

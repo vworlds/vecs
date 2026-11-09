@@ -193,24 +193,22 @@ describe.each([false, true])("anyOf (deferred=%s)", (deferred) => {
     q.destroy();
   });
 
-  for (const reverse of [false, true]) {
-    it(`is glitch-free in all/not, any and all/Ship (reverse=${reverse})`, () => {
+  for (const lateMark of [false, true]) {
+    it(`is glitch-free in all/not, any and all/Ship (lateMark=${lateMark})`, () => {
       const w = setup();
-      w.component(First).add(Trait);
+      if (!lateMark) {
+        w.component(First).add(Trait);
+      }
       const dynamic = { anyOf: Trait } as const;
       const expressions: QueryDSL[] = [
         { all: [dynamic, { not: First }] },
         { any: [First, dynamic] },
         { all: [[Ship], dynamic] },
       ];
-      if (reverse) {
-        record(w.getTerm(First));
-        record(w.getTerm({ not: First }));
-      }
       const records = expressions.map((dsl) => record(w.getTerm(dsl)));
-      if (!reverse) {
-        record(w.getTerm(First));
-        record(w.getTerm({ not: First }));
+      if (lateMark) {
+        // Append the dynamic key consumer AFTER the merged terms' static leaf consumers.
+        mutate(w, () => w.component(First).add(Trait));
       }
       const e = w.entity().add(Ship);
       const change = (fn: () => void, expected: number[][]) => {
@@ -219,6 +217,11 @@ describe.each([false, true])("anyOf (deferred=%s)", (deferred) => {
         expect(records.map((r) => r.events.map(([kind]) => kind))).toEqual(expected);
       };
       change(() => e.add(First), [[], [TermEventKind.Enter], [TermEventKind.Enter]]);
+      change(() => e.remove(First), [[], [TermEventKind.Exit], [TermEventKind.Exit]]);
+      change(() => e.add(First), [[], [TermEventKind.Enter], [TermEventKind.Enter]]);
+      // Keep a holder while moving the key subscription to the end of the leaf's consumers.
+      change(() => w.component(First).remove(Trait), [[], [], [TermEventKind.Exit]]);
+      change(() => w.component(First).add(Trait), [[], [], [TermEventKind.Enter]]);
       change(() => e.remove(First), [[], [TermEventKind.Exit], [TermEventKind.Exit]]);
     });
   }

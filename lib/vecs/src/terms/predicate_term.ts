@@ -1,4 +1,4 @@
-import { _compile, type EntityTestFunc, type QueryDSL } from "../dsl.js";
+import { _compile, getDSLCacheKey, type EntityTestFunc, type QueryDSL } from "../dsl.js";
 import type { EID, Entity } from "../entity/index.js";
 import type { World } from "../world/index.js";
 import { Term } from "./term.js";
@@ -136,10 +136,12 @@ export class PredicateTerm extends Term {
   ): PredicateTerm {
     const anyOfTerms = new Map<string, AnyOfTerm>();
     for (const node of info.anyOfNodes) {
-      const term = getTerm(world, node) as AnyOfTerm;
-      anyOfTerms.set(term.key, term);
+      const nodeKey = getDSLCacheKey(node, world);
+      if (!anyOfTerms.has(nodeKey)) {
+        anyOfTerms.set(nodeKey, getTerm(world, node) as AnyOfTerm);
+      }
     }
-    const predicate = _compile(world, dsl, (node) => getTerm(world, node) as AnyOfTerm);
+    const predicate = _compile(world, dsl, (node) => anyOfTerms.get(getDSLCacheKey(node, world))!);
     const worldTerm = info.dependsOnWorld ? getTerm(world, true) : undefined;
     const watchedTerms = [...info.watchEids].map((ceid) => getTerm(world, ceid));
     const membershipTerms = [

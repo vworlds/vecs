@@ -62,6 +62,8 @@ for (let round = 1; round <= rounds; round++) {
           }
           return e;
         });
+        const updateX = variant.includes("sibling") || variant === "diamond";
+        const updateComponents = entities.map((_, i) => (updateX ? X : components[i % keys]));
         const mutate = (fn: () => void) => {
           if (deferred) {
             w.defer(fn);
@@ -90,7 +92,7 @@ for (let round = 1; round <= rounds; round++) {
                 } else if (operation === "exit") {
                   e.remove(c);
                 } else {
-                  e.modified(variant.includes("sibling") || variant === "diamond" ? X : c);
+                  e.modified(updateComponents[i]);
                 }
               }
             });
