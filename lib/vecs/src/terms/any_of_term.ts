@@ -54,7 +54,10 @@ export class AnyOfTerm extends Term {
     }
     const leaf = this.world._getComponentTerm(key);
     this._keys.push(key);
-    this._keyUnsubscribes.set(key, leaf.subscribe({ onTermEvent: (_, e) => this._sync(e) }));
+    this._keyUnsubscribes.set(
+      key,
+      leaf.subscribe({ onTermEvent: (_, e) => this._sync(e), _resyncsOnEvent: true })
+    );
     for (const holder of leaf) {
       this._sync(holder);
     }
