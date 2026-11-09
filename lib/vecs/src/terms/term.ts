@@ -43,6 +43,13 @@ export interface TermConsumer {
    * refresh delivery while no event is in flight.
    */
   readonly _refreshesOnlyInFlight?: boolean;
+  /**
+   * @internal `true` when {@link onTermEvent} only re-evaluates membership
+   * (composite parents), so a redundant event is harmless. A leaf whose staged
+   * member is removed during its add hooks tells these consumers too, because
+   * they may have read the staged membership.
+   */
+  readonly _resyncsOnEvent?: boolean;
 }
 
 export type TermKind =
@@ -293,6 +300,7 @@ export abstract class Term implements TermConsumer {
           onTermEvent: (kind, entity) => this._onChildEvent(kind, entity, child),
           onTermRefresh: (entity) => this._onChildRefresh(entity, child),
           _refreshesOnlyInFlight: refreshesOnlyInFlight,
+          _resyncsOnEvent: true,
         })
       );
     });

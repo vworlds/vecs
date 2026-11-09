@@ -17,9 +17,11 @@ import { Term, TermEventKind, type TermConsumer } from "./term.js";
  *   propagation follows them, so direct leaf queries can see the new member
  *   inside a hook before its enter callback fires. Each entity is entered
  *   and exited exactly once per consumer: removing a still-staged entity
- *   exits it only from consumers that subscribed during the hook (and so
- *   already saw it), and propagation then skips both those consumers and
- *   any entity no longer staged.
+ *   exits it from consumers that subscribed during the hook (and so already
+ *   saw it) and from composite parents, which may have read the staged
+ *   membership and re-evaluate idempotently. Propagation then skips the
+ *   consumers that subscribed during the hook and any entity no longer
+ *   staged.
  * - **Data-only** changes (`componentChanged`) emit only a refresh hint via
  *   `_emitRefresh`, which wakes predicate terms watching this component
  *   without triggering a membership re-evaluation in terms that do not care
@@ -167,8 +169,10 @@ export class ComponentTerm extends Term {
   }
 
   /**
-   * Remove `entity` if it is still staged, exiting it only from the consumers
-   * that saw it during its add hooks. Returns `false` when it is not staged.
+   * Remove `entity` if it is still staged, exiting it from the consumers that
+   * saw it during its add hooks and from composite parents, which may have
+   * read the staged membership and re-evaluate without a duplicate exit.
+   * Returns `false` when it is not staged.
    */
   private _unstage(entity: Entity): boolean {
     const index = this._staged.lastIndexOf(entity);
@@ -177,9 +181,11 @@ export class ComponentTerm extends Term {
     }
     const consumers = this._removeStaged(index);
     this._entities.delete(entity);
-    if (consumers !== undefined) {
-      this._emitTo(TermEventKind.Exit, entity, (consumer) => consumers.includes(consumer));
-    }
+    this._emitTo(
+      TermEventKind.Exit,
+      entity,
+      (consumer) => consumer._resyncsOnEvent === true || consumers?.includes(consumer) === true
+    );
     return true;
   }
 }
