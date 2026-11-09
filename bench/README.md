@@ -3,6 +3,20 @@
 Headless, deterministic benchmarks that run against the built `dist` output of the vecs packages,
 the same JavaScript a consumer installs.
 
+## Dynamic component sets
+
+Run `node --import ./bench/register-dist.mjs bench/any-of.ts` after building. It compares
+`anyOf` over N keys with a static `any` for enter, exit and `modified` writes, plus
+`[X, anyOf]` against `[X, static-any]` for writes to `X`. The existing diamond
+`any(X, all(X, Extra))` measures non-watched refresh costs; pass `diamond` to run only
+that case against an older build with `BENCH_VECS_ROOT`. No update callback is installed,
+so updates price membership maintenance rather than explicit watch dispatch.
+`ANYOF_RESULT` reports each round's nanoseconds per write and exact transition counts.
+`BENCH_KEYS` (16), `BENCH_WRITES` (200,000), `BENCH_WARMUP_WRITES` (20,000), and
+`BENCH_ROUNDS` (5) accept positive integers. Modes alternate order per round; deferred
+runs include enqueue and drain in 100-write batches. Setup and inverse operations are
+outside timing. Compare base/head diamond runs in alternating processes.
+
 ## Changed-only component writes
 
 Run `node --import ./bench/register-dist.mjs bench/assign.ts` after building. It

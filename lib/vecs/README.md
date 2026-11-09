@@ -61,6 +61,9 @@ world.progress(performance.now(), 16); // call once per frame
 
 ## Documentation
 
+Select holders of dynamically contributed component types with
+[`anyOf`](./docs/queries-and-filters.md#dynamic-component-sets-with-anyof).
+
 Use the type returned by `groupBy`, [`GroupedQuery`](./docs/queries-and-filters.md#grouped-queries-groupby),
 for typed live bucket access; it is not a runtime class.
 

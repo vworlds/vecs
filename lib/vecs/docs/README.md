@@ -25,7 +25,8 @@ Read in this order the first time through:
      [execution-order, cadence, callback, and watched-component introspection](./systems.md#introspection) and
      [opt-in timing and run counts](./systems.md#measuring-systems).
    - [Queries and filters](./queries-and-filters.md) — the query DSL, live queries, one-shot
-     filters, [grouped query types and live buckets](./queries-and-filters.md#grouped-queries-groupby), `Bitset`.
+     filters, [dynamic component sets with `anyOf`](./queries-and-filters.md#dynamic-component-sets-with-anyof),
+     [grouped query types and live buckets](./queries-and-filters.md#grouped-queries-groupby), `Bitset`.
    - [Relationships](./relationships.md) — links, target creation and projection, ownership, hierarchy,
      cleanup cascades.
    - [Modules](./modules.md) — packaging features, composition, scopes, singleton values and resource teardown, built-in modules.
