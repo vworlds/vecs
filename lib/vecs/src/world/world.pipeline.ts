@@ -29,8 +29,9 @@ export class Pipeline extends Disposal {
   /**
    * This world's every-frame clock. Systems without an explicit cadence use it,
    * so `system.cadence === system.world.alwaysTickSource` identifies the
-   * default cadence. Each world owns its own, so nested `progress` calls never
-   * share deltas.
+   * default cadence; prefer `system.hasDefaultCadence` for that check.
+   * A rate source over this clock exposes it unchanged through `source`.
+   * Each world owns its own, so nested `progress` calls never share deltas.
    */
   public get alwaysTickSource(): ITickSource {
     return this._alwaysTickSource;

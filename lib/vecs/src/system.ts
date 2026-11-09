@@ -28,12 +28,7 @@ import { ON_UPDATE, Phase } from "./modules/pipeline.js";
 import { DependsOn } from "./modules/relationships.js";
 import { OrderedSet } from "./util/ordered_set.js";
 import { type World } from "./world/index.js";
-import {
-  ALWAYS_TICK_SOURCE,
-  IntervalTickSource,
-  type ITickSource,
-  RateTickSource,
-} from "./timer.js";
+import { IntervalTickSource, type ITickSource, RateTickSource } from "./timer.js";
 
 export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 
@@ -148,18 +143,18 @@ export class System<R extends ComponentType[] = []>
   }
 
   /**
-   * Current cadence clock. Use {@link hasDefaultCadence} to recognise
-   * the default every-frame cadence; interval/rate configuration replaces it.
+   * Current cadence clock, initially {@link World.alwaysTickSource}.
+   * Use {@link hasDefaultCadence} to recognise the default every-frame cadence;
+   * interval/rate configuration replaces it.
    */
   public get cadence(): ITickSource {
-    // Deprecation window: report the legacy constant for the world's default clock.
-    return this.hasDefaultCadence ? ALWAYS_TICK_SOURCE : this._tickSource;
+    return this._tickSource;
   }
 
   /**
-   * True when this system runs on its world's every-frame clock, i.e. no
-   * interval, rate or tick source was configured. Prefer this over comparing
-   * {@link cadence} by identity.
+   * True when this system runs on its world's every-frame clock, including
+   * after explicitly restoring that clock with {@link tickSource}.
+   * Prefer this over comparing {@link cadence} by identity.
    */
   public get hasDefaultCadence(): boolean {
     return this._tickSource === this.world.alwaysTickSource;
@@ -491,9 +486,7 @@ export class System<R extends ComponentType[] = []>
   public rate(n: number, source: ITickSource): this;
   public rate(n: number, source?: ITickSource): this {
     this._assertConfigurable();
-    this._setTickSource(
-      new RateTickSource(n, source ? this._resolveSource(source) : this._tickSource)
-    );
+    this._setTickSource(new RateTickSource(n, source ?? this._tickSource));
     return this;
   }
 
@@ -520,13 +513,8 @@ export class System<R extends ComponentType[] = []>
     return this;
   }
 
-  /** Map the deprecated module constant to this system's world clock. */
-  private _resolveSource(source: ITickSource): ITickSource {
-    return source === ALWAYS_TICK_SOURCE ? this.world.alwaysTickSource : source;
-  }
-
   private _setTickSource(source: ITickSource): void {
-    this._tickSource = this._resolveSource(source);
+    this._tickSource = source;
     this._tickSource._register(this.world);
   }
 

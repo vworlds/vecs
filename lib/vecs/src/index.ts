@@ -119,13 +119,7 @@ export {
 } from "./modules/pipeline.js";
 export { getDSLKey, fnv1a32 } from "./dsl.js";
 export { Term, TermEventKind, type TermConsumer } from "./terms/term.js";
-export {
-  ALWAYS_TICK_SOURCE,
-  AlwaysTickSource,
-  IntervalTickSource,
-  RateTickSource,
-  type ITickSource,
-} from "./timer.js";
+export { AlwaysTickSource, IntervalTickSource, RateTickSource, type ITickSource } from "./timer.js";
 export { ArrayMap, IterableArrayMap } from "./util/array_map.js";
 export { Bitset } from "./util/bitset.js";
 export { Events, type EventListener, type EventNames } from "./util/events.js";
