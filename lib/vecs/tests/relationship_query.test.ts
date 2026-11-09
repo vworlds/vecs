@@ -25,6 +25,86 @@ function setup() {
 }
 
 describe("Relationship queries", () => {
+  describe.each(["immediate", "deferred"] as const)("two-hop target tracking (%s)", (mode) => {
+    function setupTwoHop() {
+      const { w } = setup();
+      class A extends Relationship {}
+      class B extends Relationship {}
+      w.component(A).add(Exclusive);
+      w.component(B).add(Exclusive);
+      const leaf = w.entity();
+      const middle = w.entity().add(B, leaf);
+      const source = w.entity().add(A, middle);
+      const events: [string, Entity][] = [];
+      const q = w
+        .query("two-hop")
+        .with({ target: [A, { target: [B, Tag] }] })
+        .enter((e) => events.push(["enter", e]))
+        .exit((e) => events.push(["exit", e]))
+        .build();
+
+      function change(mutate: () => void, matches: boolean) {
+        const before = q.has(source);
+        events.length = 0;
+        if (mode === "deferred") {
+          w.defer(() => {
+            mutate();
+            expect(q.has(source)).toBe(before);
+            expect(events).toEqual([]);
+          });
+        } else {
+          mutate();
+        }
+        expect(q.has(source)).toBe(matches);
+        expect(events).toEqual(before === matches ? [] : [[matches ? "enter" : "exit", source]]);
+      }
+
+      expect(q.has(source)).toBe(false);
+      expect(events).toEqual([]);
+      return { w, A, B, leaf, middle, source, change };
+    }
+
+    it("enters and exits when the inner B edge is retargeted", () => {
+      const { w, B, leaf, middle, change } = setupTwoHop();
+      const tagged = w.entity().add(Tag);
+
+      change(() => middle.add(B, tagged), true);
+      change(() => middle.add(B, leaf), false);
+      change(() => tagged.remove(Tag), false);
+      change(() => tagged.add(Tag), false);
+      change(() => middle.add(B, tagged), true);
+      change(() => middle.remove(B), false);
+      change(() => middle.add(B, tagged), true);
+    });
+
+    it("enters and exits when Tag changes on the inner target", () => {
+      const { w, leaf, change } = setupTwoHop();
+      const unrelated = w.entity();
+
+      change(() => unrelated.add(Tag), false);
+      change(() => leaf.add(Tag), true);
+      change(() => unrelated.remove(Tag), true);
+      change(() => leaf.remove(Tag), false);
+      change(() => leaf.add(Tag), true);
+      change(() => leaf.destroy(), false);
+    });
+
+    it("enters and exits when the outer A edge is retargeted", () => {
+      const { w, A, B, leaf, middle, source, change } = setupTwoHop();
+      const tagged = w.entity().add(Tag);
+      const matchingMiddle = w.entity().add(B, tagged);
+
+      change(() => source.add(A, matchingMiddle), true);
+      change(() => source.add(A, middle), false);
+      change(() => tagged.remove(Tag), false);
+      change(() => tagged.add(Tag), false);
+      change(() => leaf.add(Tag), true);
+      change(() => source.remove(A), false);
+      change(() => source.add(A, matchingMiddle), true);
+      change(() => matchingMiddle.destroy(), false);
+    });
+  });
+
   it("matches when any target satisfies nested target terms", () => {
     const { w } = setup();
     const leaf = w.entity().add(Tag);
