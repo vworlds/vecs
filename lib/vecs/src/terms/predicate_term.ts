@@ -67,7 +67,9 @@ export class PredicateTerm extends Term {
     this._setChildren(worldTerm ? [worldTerm, ...watchedTerms] : watchedTerms);
     for (const term of membershipTerms) {
       this._children.push(term);
-      this._addChildCleanup(term.subscribe({ onTermEvent: (_, entity) => this._sync(entity) }));
+      this._addChildCleanup(
+        term.subscribe({ onTermEvent: (_, entity) => this._sync(entity), _resyncsOnEvent: true })
+      );
     }
     if (usesShapeRefresh && worldTerm instanceof WorldTerm) {
       this._addChildCleanup(worldTerm.subscribeShape(this));

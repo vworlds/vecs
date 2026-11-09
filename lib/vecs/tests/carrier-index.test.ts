@@ -241,6 +241,109 @@ describe("component carrier index", () => {
     expect(component.meta.usageCount).toBe(1);
   });
 
+  describe("an add hook that adds a sibling, then removes its own component", () => {
+    class Ship {}
+    class First {}
+    class Sibling {}
+    class Spare {}
+    class Marker {}
+    // Each shape, and whether adding Spare afterwards makes the entity match.
+    const shapes: [string, (world: World) => ReturnType<World["query"]>, boolean][] = [
+      ["with([Ship, First])", (world) => world.query("static").with(Ship, First), false],
+      [
+        "all: [Ship, { any: [First, Spare] }]",
+        (world) => world.query("any").with({ all: [Ship, { any: [First, Spare] }] }),
+        true,
+      ],
+      [
+        "all: [Ship, { anyOf: [Marker] }]",
+        (world) => world.query("anyOf").with({ all: [Ship, { anyOf: [Marker] }] }),
+        false,
+      ],
+      [
+        "merged all: [Ship, { any: [First, { all: [First, Spare] }] }]",
+        (world) =>
+          world.query("merged").with({ all: [Ship, { any: [First, { all: [First, Spare] }] }] }),
+        false,
+      ],
+    ];
+    const modes: [string, (world: World, add: () => void) => void][] = [
+      ["immediate", (_world, add) => add()],
+      ["deferred", (world, add) => world.defer(add)],
+    ];
+
+    for (const [shape, makeQuery, matchesSpare] of shapes) {
+      for (const [mode, run] of modes) {
+        it(`leaves no stale member in ${shape} (${mode})`, () => {
+          const world = new World();
+          world.component(Ship);
+          world.component(Sibling);
+          world.component(Spare);
+          world.component(Marker);
+          world.component(First).add(Marker);
+          world.component(Sibling).add(Marker);
+          // Inside the hook, while First is still staged, the sibling's entry
+          // touches First, its exit re-evaluates `anyOf`, and a passing Spare
+          // re-evaluates `any` and the merged term, so each composite reads
+          // First's staged membership.
+          world
+            .query("sibling")
+            .with(Sibling)
+            .enter((e) => e.modified(First))
+            .build();
+          world.component(First).on("add", (e) => {
+            if (e.has(Ship)) {
+              e.add(Sibling);
+              e.remove(Sibling);
+              e.add(Spare);
+              e.remove(Spare);
+              e.remove(First);
+            }
+          });
+          const events: string[] = [];
+          const query = makeQuery(world)
+            .enter(() => events.push("enter"))
+            .exit(() => events.push("exit"))
+            .build();
+          const entity = world.entity().add(Ship);
+
+          run(world, () => entity.add(First));
+
+          expect(entity.has(First)).toBe(false);
+          expect(entity.has(Sibling)).toBe(false);
+          expect([...query]).toEqual([]);
+          expect(events.filter((event) => event === "enter").length).toBe(
+            events.filter((event) => event === "exit").length
+          );
+          entity.add(Spare);
+          expect([...query]).toEqual(matchesSpare ? [entity] : []);
+        });
+      }
+    }
+
+    it("still shows the staged member to a direct leaf query inside the hook", () => {
+      const world = new World();
+      world.component(Ship);
+      world.component(Sibling);
+      const first = world.component(First);
+      const leaf = world.query("leaf").with(First).build();
+      const composite = world.query("composite").with(Ship, First).build();
+      const seen: Entity[][] = [];
+      first.on("add", (e) => {
+        seen.push([...leaf]);
+        e.add(Sibling);
+        e.remove(First);
+      });
+      const entity = world.entity().add(Ship);
+
+      entity.add(First);
+
+      expect(seen).toEqual([[entity]]);
+      expect([...leaf]).toEqual([]);
+      expect([...composite]).toEqual([]);
+    });
+  });
+
   it("enters nested staged adds of one component exactly once each", () => {
     const world = new World();
     const component = world.component(Data);
