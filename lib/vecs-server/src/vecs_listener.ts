@@ -1,8 +1,13 @@
 import { type VecsSocketListener, worldPath } from "@vworlds/vecs-protocol";
 import { ServerWorld, type ShutdownOptions } from "./server_world.js";
 
+/** World-route options shared with the connecting client. */
 export interface VecsListenerOptions {
-  apiBasePath?: string;
+  /**
+   * Replaces the whole `/rtc/v1/world` prefix. Defaults to `DEFAULT_WORLD_BASE_PATH`.
+   * Client and server must use the same value.
+   */
+  worldBasePath?: string;
 }
 
 export class VecsListener {
@@ -23,7 +28,7 @@ export class VecsListener {
       const listener = new SocketListener(app, {
         ...dgramOptions,
         label: "dgram",
-        apiBasePath: worldPath(this._options.apiBasePath, name),
+        apiBasePath: worldPath(this._options.worldBasePath, name), // dgram-server's option name.
       });
       serverWorld._attach(listener);
     });

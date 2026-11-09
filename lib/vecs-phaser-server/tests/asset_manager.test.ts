@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import express from "express";
+import { DEFAULT_WORLD_BASE_PATH } from "@vworlds/vecs-protocol";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -161,9 +162,9 @@ describe("AssetManager.toCatalog", () => {
     expect((shipDesc as unknown as Record<string, unknown>).image).toBe(`tilesets/ship.png`);
   });
 
-  it("does not embed apiBasePath in descriptors", () => {
+  it("keeps descriptors independent of the world route", () => {
     const m = manager(["terrain"]);
-    const catalog = m.toCatalog("game", "/api/world");
+    const catalog = m.toCatalog("game");
     const terrain = m.getTileset("terrain");
     const ss = catalog.assets.find((asset) => asset.id === terrain.id) as unknown as Record<
       string,
@@ -179,38 +180,41 @@ describe("AssetManager.mount", () => {
   function startApp(
     m: AssetManager,
     worldName: string,
-    basePath = "/rtc/v1/world"
+    worldBasePath?: string
   ): {
     base: string;
     close: () => Promise<void>;
   } {
     const app = express();
-    m.mount(app, worldName, basePath);
+    m.mount(app, worldName, worldBasePath);
     const server = app.listen(0);
     const port = (server.address() as { port: number }).port;
-    const world = basePath.replace(/\/$/, "");
+    const world = (worldBasePath ?? DEFAULT_WORLD_BASE_PATH).replace(/\/$/, "");
     const base = `http://127.0.0.1:${port}${world}/${encodeURIComponent(worldName)}`;
     return { base, close: () => new Promise<void>((r) => server.close(() => r())) };
   }
 
-  it("serves the catalog JSON at {worldPath}/assets", async () => {
-    const m = manager(["terrain"]);
-    const { base, close } = startApp(m, "main");
-    try {
-      const res = await fetch(`${base}/assets`);
-      expect(res.status).toBe(200);
-      const catalog = (await res.json()) as { worldName: string; assets: unknown[] };
-      expect(catalog.worldName).toBe("main");
-      expect(catalog.assets).toHaveLength(1);
-      const desc = (catalog.assets[0] as Record<string, unknown>) ?? {};
-      expect(desc.kind).toBe("spritesheet");
-      expect(desc.image).toBe(`tilesets/terrain.png`);
-      expect(desc.key).toBeUndefined();
-      expect(desc.url).toBeUndefined();
-    } finally {
-      await close();
+  it.each([undefined, "/custom/world/"])(
+    "serves the catalog with worldBasePath %s",
+    async (worldBasePath) => {
+      const m = manager(["terrain"]);
+      const { base, close } = startApp(m, "main", worldBasePath);
+      try {
+        const res = await fetch(`${base}/assets`);
+        expect(res.status).toBe(200);
+        const catalog = (await res.json()) as { worldName: string; assets: unknown[] };
+        expect(catalog.worldName).toBe("main");
+        expect(catalog.assets).toHaveLength(1);
+        const desc = (catalog.assets[0] as Record<string, unknown>) ?? {};
+        expect(desc.kind).toBe("spritesheet");
+        expect(desc.image).toBe(`tilesets/terrain.png`);
+        expect(desc.key).toBeUndefined();
+        expect(desc.url).toBeUndefined();
+      } finally {
+        await close();
+      }
     }
-  });
+  );
 
   it("serves a static file at {worldPath}/assets/files/<image>", async () => {
     const m = manager(["terrain"]);

@@ -25,7 +25,7 @@ interface VecsConnectionOptions {
   readonly port: number;
   readonly protocol: "http" | "https";
   readonly worldName: string;
-  readonly apiBasePath?: string;
+  readonly worldBasePath?: string;
 }
 
 declare global {
@@ -310,6 +310,6 @@ function readConnectionOptions(): VecsConnectionOptions {
     port: options?.port ?? 3000,
     protocol: options?.protocol ?? (window.location.protocol === "https:" ? "https" : "http"),
     worldName: options?.worldName ?? "main",
-    apiBasePath: options?.apiBasePath,
+    worldBasePath: options?.worldBasePath,
   };
 }

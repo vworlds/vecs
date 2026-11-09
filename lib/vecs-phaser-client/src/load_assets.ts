@@ -12,8 +12,11 @@ export interface LoadAssetsOptions {
   worldName: string;
   /** HTTP protocol used to reach the game server. Defaults to `"http"`. */
   protocol?: "http" | "https";
-  /** API base path passed to `worldPath`. Defaults to the vecs world path. */
-  apiBasePath?: string;
+  /**
+   * Replaces the whole `/rtc/v1/world` prefix. Defaults to `DEFAULT_WORLD_BASE_PATH`.
+   * Client and server must use the same value.
+   */
+  worldBasePath?: string;
   /** Optional Phaser loader progress callback, receiving values from 0 to 1. */
   onProgress?: (value: number) => void;
   /**
@@ -68,7 +71,7 @@ export class Catalog {
  */
 export async function loadAssets(scene: Phaser.Scene, conn: LoadAssetsOptions): Promise<Catalog> {
   const origin = `${conn.protocol ?? "http"}://${conn.host}:${conn.port}`;
-  const basePath = worldPath(conn.apiBasePath, conn.worldName);
+  const basePath = worldPath(conn.worldBasePath, conn.worldName);
   conn.signal?.throwIfAborted();
   const res = await fetch(`${origin}${basePath}/assets`, { signal: conn.signal });
 

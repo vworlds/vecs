@@ -3,6 +3,7 @@ import { Client2Server, RPC, Server2Client, type VecsSocket } from "@vworlds/vec
 import { Decoder, Encoder, wireType } from "@vworlds/vecs-wire";
 import { NetworkClient, ServerWorld, VecsListener, type ServerRPCContext } from "../src/index.js";
 import { CidLayout } from "@vworlds/vecs-protocol";
+import { createDgramSocket } from "../../vecs-client/src/dgram_socket.js";
 
 const testCid = new CidLayout(2);
 const decodeServer2Client = {
@@ -48,6 +49,27 @@ vi.mock("@vworlds/dgram-server", () => ({
     }
   },
 }));
+
+// Route in memory using the exact URL each vecs adapter gives its transport.
+vi.mock("@vworlds/dgram-client", () => ({
+  ClientSocket: class extends MemorySocket {
+    public constructor(private readonly url: string) {
+      super("route-client");
+    }
+
+    public async connect(): Promise<void> {
+      const listener = recorded.find((entry) => listenerPath(entry) === new URL(this.url).pathname);
+      if (!listener) {
+        throw new Error("Connection failed with status 404");
+      }
+      listener.connect(this);
+    }
+  },
+}));
+
+function listenerPath(entry: RecordedListener): unknown {
+  return entry.options.apiBasePath;
+}
 
 class MemorySocket implements VecsSocket {
   public readonly sent: Uint8Array[] = [];
@@ -119,10 +141,7 @@ describe("VecsListener", () => {
     listener.registerWorld(beta);
     await listener.listen({});
 
-    expect(recorded.map((entry) => entry.options.apiBasePath)).toEqual([
-      "/rtc/v1/world/alpha",
-      "/rtc/v1/world/beta",
-    ]);
+    expect(recorded.map(listenerPath)).toEqual(["/rtc/v1/world/alpha", "/rtc/v1/world/beta"]);
 
     const alphaSocket = new MemorySocket("alpha-client");
     const betaSocket = new MemorySocket("beta-client");
@@ -140,6 +159,59 @@ describe("VecsListener", () => {
     expect(seen[1].caller.world).toBe(beta);
     expect(alpha.getEntity(seen[0].caller.eid)?.get(NetworkClient)?.id).toBe("alpha-client");
     expect(beta.getEntity(seen[1].caller.eid)?.get(NetworkClient)?.id).toBe("beta-client");
+  });
+
+  it.each([
+    [undefined, "/rtc/v1/world/my%20world%2F1"],
+    ["/custom/world", "/custom/world/my%20world%2F1"],
+    ["/custom/world/", "/custom/world/my%20world%2F1"],
+  ])(
+    "connects client and server with matching worldBasePath %s",
+    async (worldBasePath, expectedPath) => {
+      const world = new ServerWorld({ name: "my world/1", networkComponents: [Position] });
+      world.handleRpc(101, (_params, _request, ctx) => [ctx.world.name]);
+      const listener = new VecsListener({ worldBasePath });
+      listener.registerWorld(world);
+      await listener.listen({});
+      expect(recorded.map(listenerPath)).toEqual([expectedPath]);
+      const socket = await createDgramSocket({
+        host: "game.local",
+        port: 8080,
+        worldName: world.name,
+        worldBasePath,
+      });
+      try {
+        await socket.connect();
+        const reply = await callRpc(socket as unknown as MemorySocket, world);
+        expect(reply.params).toEqual(["my world/1"]);
+      } finally {
+        await listener.close({ timeoutMs: 0 });
+        world.dispose();
+      }
+    }
+  );
+
+  it("reports the attempted URL when the client and server world prefixes differ", async () => {
+    const world = new ServerWorld({ name: "arena" });
+    const listener = new VecsListener();
+    listener.registerWorld(world);
+    await listener.listen({});
+    const socket = await createDgramSocket({
+      protocol: "https",
+      host: "game.local",
+      port: 8443,
+      worldName: world.name,
+      worldBasePath: "/rtc/v1",
+    });
+    try {
+      await expect(socket.connect()).rejects.toThrow(
+        "Failed to connect to https://game.local:8443/rtc/v1/arena: Error: Connection failed with status 404"
+      );
+    } finally {
+      socket.close();
+      await listener.close({ timeoutMs: 0 });
+      world.dispose();
+    }
   });
 
   it("closes sessions only on the world that owns them", async () => {

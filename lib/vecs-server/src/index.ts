@@ -7,6 +7,7 @@ export { EntityTracker, TrackerCache, View } from "./view.js";
 export type { IEntityTracker, IEntityTrackerListener } from "./view.js";
 export {
   CLOSE_PROTOCOL_ERROR_CODE,
+  DEFAULT_WORLD_BASE_PATH,
   RPCError,
   RPC_CLOSED_CODE,
   RPC_TIMEOUT_CODE,

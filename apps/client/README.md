@@ -40,7 +40,8 @@ docker run --rm -p 8080:80 -e VECS_HOST=192.168.1.1 -e VECS_PORT=3900 vecs-demo-
 ```
 
 Supported overrides are `VECS_HOST`, `VECS_PORT`, `VECS_PROTOCOL`, `VECS_WORLD_NAME`, and
-`VECS_API_BASE_PATH`.
+`VECS_WORLD_BASE_PATH` (the `worldBasePath` connection option; see
+[world-route configuration](../../lib/vecs-client/docs/client-world.md#world-route-prefix)).
 
 ## Controls
 

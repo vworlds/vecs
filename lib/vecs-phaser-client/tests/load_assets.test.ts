@@ -155,7 +155,7 @@ describe("loadAssets", () => {
       host: "game.local",
       port: 7777,
       worldName: "arena",
-      apiBasePath: "/custom/world",
+      worldBasePath: "/custom/world",
       onProgress: progress,
     }).then((catalog) => {
       resolved = true;

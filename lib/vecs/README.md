@@ -119,6 +119,7 @@ Plus the [Utilities](./docs/utilities.md) guide for helper classes and the
 the source under [`src/`](./src/) — read it in your IDE.
 
 Networking is documented alongside the packages that own it:
+[World-route prefixes](../vecs-client/docs/client-world.md#world-route-prefix) ·
 [MCP hubs and linked worlds](../vecs-mcp/docs/topology.md) ·
 [Named remote procedure calls and deadlines](../vecs-protocol/docs/rpc.md) ·
 [Sessions and caller context](../vecs-server/docs/sessions.md) ·

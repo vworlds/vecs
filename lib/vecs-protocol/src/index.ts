@@ -41,4 +41,4 @@ export type {
   VecsSocketListener,
   VecsSocketListenerEvents,
 } from "./transport.js";
-export { worldPath } from "./world_path.js";
+export { DEFAULT_WORLD_BASE_PATH, worldPath } from "./world_path.js";
