@@ -4,6 +4,7 @@ export { ComponentTerm } from "./component_term.js";
 export { EmptyTerm } from "./empty_term.js";
 export { AllTerm } from "./all_term.js";
 export { AnyTerm } from "./any_term.js";
+export { AnyOfTerm } from "./any_of_term.js";
 export { NotTerm } from "./not_term.js";
 export { OnlyTerm } from "./only_term.js";
 export { PredicateTerm, type MergedInfo } from "./predicate_term.js";

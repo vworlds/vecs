@@ -15,6 +15,7 @@ It is accepted by `query().with`, `system().with`, and `world.filter`:
 | `true` / `false`       | Match all / match no entities                                       |
 | `{ all: [q1, q2] }`    | Every sub-expression matches                                        |
 | `{ any: [q1, q2] }`    | At least one sub-expression matches                                 |
+| `{ anyOf: q }`         | Holds a component key whose entity matches `q`                      |
 | `{ not: q }`           | Sub-expression must not match                                       |
 | `{ only: [A, B] }`     | Entity has exactly `A` and `B`, nothing else                        |
 | `{ target: [R, q] }`   | At least one of relationship `R`'s targets matches `q`              |
@@ -43,6 +44,42 @@ evaluates it against each entity pointing at the candidate and also matches when
 **`source` and `children` are non-reactive**: exact for each filter scan, but rejected by tracked
 queries and systems. `target` / `parent` are fully reactive to edge changes and target-side changes
 — see [Relationships](./relationships.md#querying-through-relationships).
+
+The same boundary applies inside `anyOf`: tracked queries reject `source`/`children`
+anywhere, while filters accept them, including inside the key query.
+
+### Dynamic component sets with `anyOf`
+
+Use `anyOf` when independent modules contribute component types after your query is built:
+
+```ts
+class AiBehaviour {}
+class Fighter {}
+world.component(AiBehaviour);
+world.component(Fighter).add(AiBehaviour);
+const fighters = world
+  .query("BehaviourHolders")
+  .with({ anyOf: [AiBehaviour] })
+  .build();
+```
+
+The inner query runs over **key entities**, not holders. Any entity used as a component
+key qualifies; relationship keys count while the relationship is present. Marking or
+unmarking a key updates only that key's current holders, even after the first frame.
+Holding several selected keys enters once; removing the last exits. This is membership
+only: no matched components are injected, and `update` still takes an explicit `watch`.
+
+Keep the inner query selective. Every matching entity pins a component leaf, and the
+world never prunes those leaves. A simplified inner `true` (including `[]`) throws;
+`false` matches nothing. An unselective exclusion such as `{ not: X }`, or attaching
+the selection tag to ordinary entities, can still create many useless pinned leaves.
+
+`all`/`any` containing `anyOf` collapse to a live compiled predicate to avoid dynamic
+leaf diamonds. Data writes to membership-only leaves do not re-evaluate merged terms;
+explicit `test` watches still do. Collapse remains disabled for subtrees containing
+`target`: those retain the existing residual enter/exit glitch hazard when branches
+share dependencies. A glitch inside the key query (for example a `target` diamond)
+rescans every holder of the affected key twice.
 
 ### The cost of `not` and `.without`
 

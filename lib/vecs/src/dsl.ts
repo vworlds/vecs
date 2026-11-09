@@ -23,6 +23,7 @@ export type EntityTestFunc = (e: Entity) => boolean;
  * world.system("render").with({
  *   all: [Position, { any: [Sprite, Container] }],
  * });
+ * ```
  *
  * Short forms recognized by `with` / `filter`:
  * - `true` matches all entities; `false` matches no entities.
@@ -41,6 +42,12 @@ export type QueryDSL =
   | ComponentRef
   | { all: readonly QueryDSL[] }
   | { any: readonly QueryDSL[] }
+  /** Match holders of at least one component key whose entity matches `anyOf`.
+   * Adds no injection guarantees. Keep the inner query selective; every matching
+   * key pins a component leaf. A simplified inner `true` is rejected.
+   * `source`/`children` inside the inner query are filter-only.
+   */
+  | { anyOf: QueryDSL }
   | { not: QueryDSL }
   | { only: readonly ComponentRef[] | ComponentRef }
   | { target: readonly [ComponentRef, QueryDSL] }
@@ -62,6 +69,7 @@ type SimplifiedQueryDSL =
   | EID
   | { all: readonly SimplifiedQueryDSL[] }
   | { any: readonly SimplifiedQueryDSL[] }
+  | { anyOf: SimplifiedQueryDSL }
   | { not: SimplifiedQueryDSL }
   | { only: readonly EID[] | EID }
   | { target: readonly [EID, SimplifiedQueryDSL] }
@@ -156,7 +164,7 @@ export type MaybeRequired<C, R extends ComponentType[]> = C extends ComponentTyp
  * - `true` / `false` / `[]` → `[]` (no guarantee)
  * - `{ only: ... }` → recurse into the payload
  * - `{ all: [q1, q2, ...] }` → concatenate each branch's extraction
- * - `{ any: ... }` / `{ not: ... }` / `{ test: ... }` → `[]` (no guarantee)
+ * - `{ any: ... }` / `{ anyOf: ... }` / `{ not: ... }` / `{ test: ... }` → `[]` (no guarantee)
  * - `{ target: ... }` / `{ source: ... }` / `{ parent: ... }` / `{ children: ... }`
  *   → `[]` (relationship operators guarantee no component on the candidate)
  * - numeric type id → `[]` (opaque)
@@ -323,6 +331,9 @@ function _termSortKey(q: QueryDSL): string {
   if ("not" in q) {
     return `4:${_termSortKey(q.not)}`;
   }
+  if ("anyOf" in q) {
+    return `4:anyOf:${_termSortKey(q.anyOf)}`;
+  }
   if ("target" in q) {
     const rel = q.target[0] instanceof Entity ? q.target[0].eid : q.target[0];
     return `4:target:${String(rel).padStart(12, "0")}:${_termSortKey(q.target[1])}`;
@@ -382,6 +393,9 @@ function _canonicalDSLKey(q: SimplifiedQueryDSL): unknown {
   }
   if ("not" in q) {
     return ["NOT", _canonicalDSLKey(q.not)];
+  }
+  if ("anyOf" in q) {
+    return ["ANYOF", _canonicalDSLKey(q.anyOf)];
   }
   if ("target" in q) {
     return ["TARGET", q.target[0], _canonicalDSLKey(q.target[1])];
@@ -552,6 +566,14 @@ export function simplifyQueryDSL(q: QueryDSL, world: World): SimplifiedQueryDSL 
     return { not: term };
   }
 
+  if ("anyOf" in q) {
+    const inner = simplifyQueryDSL(q.anyOf, world);
+    if (inner === true) {
+      throw new Error("anyOf requires a selective inner query; true is not allowed");
+    }
+    return inner === false ? false : { anyOf: inner };
+  }
+
   if ("target" in q) {
     const inner = simplifyQueryDSL(q.target[1], world);
     if (inner === false) {
@@ -614,6 +636,9 @@ export function containsDownTerm(q: QueryDSL): boolean {
   if ("not" in q) {
     return containsDownTerm(q.not);
   }
+  if ("anyOf" in q) {
+    return containsDownTerm(q.anyOf);
+  }
   if ("target" in q) {
     return containsDownTerm(q.target[1]);
   }
@@ -642,6 +667,8 @@ export function getDSLCacheKey(q: QueryDSL, world: World): string {
 type _CompileContext = {
   masks: Bitset[];
   funcs: EntityTestFunc[];
+  resolveAnyOf?: (q: QueryDSL) => { _matchesLive(e: Entity): boolean };
+  terms: { _matchesLive(e: Entity): boolean }[];
 };
 
 function _compileMask(
@@ -724,6 +751,25 @@ function _compileQueryExpression(
     return `!(${_compileQueryExpression(world, q.not, context, entityRef)})`;
   }
 
+  if ("anyOf" in q) {
+    if (context.resolveAnyOf) {
+      const index = context.terms.push(context.resolveAnyOf(q)) - 1;
+      return `t${index}._matchesLive(${entityRef})`;
+    }
+    // A filter owns no terms: evaluate the inner DSL over the held key entities.
+    const testKey = _compile(world, q.anyOf);
+    const index =
+      context.funcs.push((e) => {
+        for (const [key] of e.components) {
+          if (testKey(world.entity(key))) {
+            return true;
+          }
+        }
+        return false;
+      }) - 1;
+    return `f${index}(${entityRef})`;
+  }
+
   if ("target" in q && Array.isArray((q as any).target)) {
     const t = q as { target: readonly [ComponentRef, QueryDSL] };
     const relEid = _resolveRelationship(t.target[0], world);
@@ -754,16 +800,23 @@ function _compileQueryExpression(
  *
  * @param world - World used to resolve registered component classes to type ids.
  * @param q - Query expression.
+ * @param resolveAnyOf - Internal term-mode resolver. Omit for term-free filters.
  */
-export function _compile(world: World, q: QueryDSL): EntityTestFunc {
-  const context: _CompileContext = { masks: [], funcs: [] };
+export function _compile(
+  world: World,
+  q: QueryDSL,
+  resolveAnyOf?: _CompileContext["resolveAnyOf"]
+): EntityTestFunc {
+  const context: _CompileContext = { masks: [], funcs: [], terms: [], resolveAnyOf };
   const expression = _compileQueryExpression(world, simplifyQueryDSL(q, world), context, "e");
   const maskNames = context.masks.map((_mask, index) => `m${index}`);
   const funcNames = context.funcs.map((_func, index) => `f${index}`);
+  const termNames = context.terms.map((_term, index) => `t${index}`);
   const factory = new Function(
     ...maskNames,
     ...funcNames,
+    ...termNames,
     `return function entityTest(e) { return ${expression}; };`
   );
-  return factory(...context.masks, ...context.funcs) as EntityTestFunc;
+  return factory(...context.masks, ...context.funcs, ...context.terms) as EntityTestFunc;
 }
