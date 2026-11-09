@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { worldPath } from "../src/world_path.js";
+import { DEFAULT_WORLD_BASE_PATH, worldPath } from "../src/index.js";
 
 describe("worldPath", () => {
+  it("exports the shared whole-prefix default", () => {
+    expect(DEFAULT_WORLD_BASE_PATH).toBe("/rtc/v1/world");
+  });
   it("uses the default base path when none is provided", () => {
     expect(worldPath(undefined, "main")).toBe("/rtc/v1/world/main");
   });

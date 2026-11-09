@@ -58,7 +58,7 @@ These were confirmed by reading the code; implementers can rely on them.
 | vecs-physics pose: `Position {x,y}` (meters), `Rotation {angle}` (radians)                                                                                                                                            | `lib/vecs-physics/src/components/body.ts`                                                                        |
 | System/query API: `.with().enter().update().exit().each().run().phase()`                                                                                                                                              | `lib/vecs/src/system.ts`, `lib/vecs/src/query/query.ts`                                                          |
 | `update({ watch })` only watches; `with(...)` alone builds the query predicate, and a query with an update but no `with` terms throws at build                                                                        | `lib/vecs/src/query/query.ts`                                                                                    |
-| `connectDgram` performs an HTTP handshake against `worldPath(apiBasePath, worldName)` before the channel opens                                                                                                        | `lib/vecs-client/src/dgram_socket.ts` (`createDgramSocket`)                                                      |
+| `connectDgram` performs an HTTP handshake against `worldPath(worldBasePath, worldName)` before the channel opens                                                                                                      | `lib/vecs-client/src/dgram_socket.ts` (`createDgramSocket`)                                                      |
 | The dgram transport is WebRTC datachannel with HTTP signaling mounted on the app's Express instance                                                                                                                   | `node_modules/@vworlds/dgram-server/.../socket-listener.js`                                                      |
 | Phaser: `scene.load.spritesheet(key, url, { frameWidth, frameHeight, margin, spacing })`; frames are row-major numeric                                                                                                | Phaser `SpriteSheetFile`                                                                                         |
 | Phaser: `scene.add.image(x, y, key, frame)` / `image.setTexture(key, frame)` / `setDisplaySize(w, h)`                                                                                                                 | Phaser `ImageFactory`, `Texture` component                                                                       |
@@ -296,7 +296,7 @@ export interface LoadAssetsOptions {
   port: number;
   worldName: string;
   protocol?: "http" | "https";
-  apiBasePath?: string;
+  worldBasePath?: string;
   onProgress?: (value: number) => void;
 }
 export function loadAssets(scene: Phaser.Scene, conn: LoadAssetsOptions): Promise<Catalog>;
@@ -325,8 +325,8 @@ export class PhaserServerModule extends Module<undefined> {
 export class AssetManager {
   constructor(options: { assetsPath: string });
   getTileset(key: string): TilesetAsset;
-  toCatalog(worldName: string, apiBasePath?: string): AssetCatalog;
-  mount(app: Express, worldName: string, apiBasePath?: string): void;
+  toCatalog(worldName: string): AssetCatalog;
+  mount(app: Express, worldName: string, worldBasePath?: string): void;
 }
 export class Asset {
   id: number;
@@ -909,10 +909,10 @@ tile's class and is used as a fallback).
 **Scope.** Single-image tilesets only; image-collection tilesets (where individual tiles carry
 their own `image`) are rejected with `ImageCollectionTilesetError`. No `.tmj` map parsing.
 
-**Serving.** `mount(app, worldName, apiBasePath?)` registers, under the per-world
-`worldPath(apiBasePath, worldName)`:
+**Serving.** `mount(app, worldName, worldBasePath?)` registers, under the per-world
+`worldPath(worldBasePath, worldName)`:
 
-- `GET {worldPath}/assets` → `toCatalog(worldName, apiBasePath)` JSON (server-only metadata stripped).
+- `GET {worldPath}/assets` → `toCatalog(worldName)` JSON (server-only metadata stripped).
 - `{worldPath}/assets/files` → `express.static(assetsPath)` (serves every image the catalog
   references).
 
@@ -939,9 +939,9 @@ to render.
 
 `loadAssets(scene, conn)` fetches the catalog, queues every spritesheet in Phaser, and resolves a
 `Catalog` (an `id → descriptor` lookup) on loader `complete`. It surfaces the loader's progress for a
-loading bar. The fetch URL mirrors `connectDgram`'s: `${protocol}://${host}:${port}${worldPath(apiBasePath,
+loading bar. The fetch URL mirrors `connectDgram`'s: `${protocol}://${host}:${port}${worldPath(worldBasePath,
 worldName)}/assets`; each descriptor's `image` is asset-root-relative, so each spritesheet is queued
-from `${origin}${worldPath(apiBasePath, worldName)}/assets/files/${image}`.
+from `${origin}${worldPath(worldBasePath, worldName)}/assets/files/${image}`.
 
 ```ts
 const catalog = await loadAssets(scene, {

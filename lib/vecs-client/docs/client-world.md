@@ -60,6 +60,23 @@ no RPC traffic, even with keepalives enabled, and it closes sessions
 that stay silent past `disconnectGraceMs`, so a client that withheld its first ack could be
 dropped, or could never deliver an early `invoke`.
 
+### World-route prefix
+
+Use the same `worldBasePath` on `createDgramSocket` / `connectDgram` and `VecsListener`.
+It replaces the **whole** `/rtc/v1/world` prefix, not just `/rtc/v1`; the encoded world name
+is appended directly. Omit it on both sides to use `DEFAULT_WORLD_BASE_PATH`, exported by
+`@vworlds/vecs-protocol` and re-exported by `@vworlds/vecs-client` and `@vworlds/vecs-server`.
+
+For example, set `worldBasePath: "/game/worlds"` on both sides to connect to
+`/game/worlds/arena` for world `arena`. If you also serve Phaser assets, pass that same
+value to `AssetManager.mount(app, worldName, worldBasePath)` and `loadAssets`.
+`AssetManager.toCatalog(worldName)` takes no route argument because descriptors are relative.
+
+A rejected socket `connect()` includes the attempted world URL and retains the transport error
+as `cause`. If signalling returns HTTP 404, check that the two prefixes match; the error includes
+the status supplied by dgram-client. The signalling endpoints live below the world URL
+(for example, `/connection`). No additional probe request is made.
+
 ### Failure and cancellation
 
 `connectDgram` connects a world you own, so it never disposes it. If `connect()` rejects, it closes

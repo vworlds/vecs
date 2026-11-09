@@ -3,7 +3,7 @@ import { extname, join, parse } from "node:path";
 
 import express from "express";
 import { type AssetCatalog } from "@vworlds/vecs-phaser";
-import { worldPath } from "@vworlds/vecs-protocol";
+import { DEFAULT_WORLD_BASE_PATH, worldPath } from "@vworlds/vecs-protocol";
 
 import { Asset } from "./asset.js";
 import { AssetKindMismatchError, TilesetNotFoundError } from "./asset_errors.js";
@@ -92,33 +92,33 @@ export class AssetManager {
    * owns its own descriptor shape and strips server-only metadata there.
    *
    * @param worldName    - Name of the world this catalog describes.
-   * @param _apiBasePath  - Kept for source compatibility; descriptors no longer embed URLs.
    * @returns The `AssetCatalog` DTO.
    */
-  public toCatalog(worldName: string, _apiBasePath: string = "/rtc/v1/world"): AssetCatalog {
+  public toCatalog(worldName: string): AssetCatalog {
     return { worldName, assets: [...this._assets.values()].map((asset) => asset.descriptor()) };
   }
 
   /**
    * Register the catalog JSON route and a static file route over `assetsPath`
-   * on the given Express app, under the per-world `worldPath(apiBasePath,
+   * on the given Express app, under the per-world `worldPath(worldBasePath,
    * worldName)`.
    *
-   * - `GET {worldPath}/assets` → `toCatalog(worldName, apiBasePath)` JSON.
+   * - `GET {worldPath}/assets` → `toCatalog(worldName)` JSON.
    * - `{worldPath}/assets/files` → `express.static(assetsPath)` (serves images).
    *
    * @param app         - Express app instance.
    * @param worldName   - Name of the world.
-   * @param apiBasePath - API base path (default `"/rtc/v1/world"`).
+   * @param worldBasePath - Replaces the whole `/rtc/v1/world` prefix. Defaults to
+   *   `DEFAULT_WORLD_BASE_PATH`; client and server must use the same value.
    */
   public mount(
     app: import("express").Express,
     worldName: string,
-    apiBasePath: string = "/rtc/v1/world"
+    worldBasePath: string = DEFAULT_WORLD_BASE_PATH
   ): void {
-    const base = worldPath(apiBasePath, worldName);
+    const base = worldPath(worldBasePath, worldName);
     app.get(`${base}/assets`, (_req, res) => {
-      res.json(this.toCatalog(worldName, apiBasePath));
+      res.json(this.toCatalog(worldName));
     });
     app.use(`${base}/assets/files`, express.static(this.assetsPath));
   }
