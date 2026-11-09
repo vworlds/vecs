@@ -546,6 +546,12 @@ component again, queries that existed before the add see neither `enter` nor
 `exit`. A query built inside the hook enters the entity at build time and exits it
 on that removal, and is not entered a second time after the hooks.
 
+If an add hook throws, its staged entry is discarded. When the entity no longer
+matches the component term (for example, interrupted destruction marked it dead),
+composite queries that read the staged membership are resynchronized too. This
+cleanup does not roll back component storage or make a partially torn-down world
+safe to reuse.
+
 | Field                   | Description                                                 |
 | ----------------------- | ----------------------------------------------------------- |
 | `Class`                 | The component class constructor.                            |
