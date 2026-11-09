@@ -558,13 +558,12 @@ for (const [order, system] of world.pipeline.entries()) {
 `system.cadence` exposes the current source; the existing `.tickSource(source)` method configures
 it. Ask `system.hasDefaultCadence` for the default every-tick case.
 Each world owns its own every-frame clock, so stepping one world inside a system of another never
-leaks deltas between them. The module constant `ALWAYS_TICK_SOURCE` is deprecated and will be
-removed next release; `tickSource()` and `rate()` still accept it and resolve it to the system's
-world clock. During this release `system.cadence` still returns the constant for a system on its
-world's default clock; next release it returns `world.alwaysTickSource`. Use
-`system.hasDefaultCadence` instead of an identity comparison so your code works on both sides.
+leaks deltas between them. A default-cadence system reports its own `world.alwaysTickSource`
+from `system.cadence`. Pass that clock to `tickSource()` to restore the default cadence,
+or to `rate()` to divide every-frame ticks explicitly.
 `IntervalTickSource.seconds`, `RateTickSource.rate`, and `RateTickSource.source` are getters;
-an unconfigured standalone rate source has no upstream source and counts world frames. Replacing
+`RateTickSource.source` preserves the identity of its upstream clock, including a world's clock.
+An unconfigured standalone rate source has no upstream source and counts world frames. Replacing
 cadence changes the getter immediately. A source's existing `start`/`stop` controls still work.
 
 Use `system.callbacks` to distinguish per-tick work from reactive callbacks, and `system.watched`

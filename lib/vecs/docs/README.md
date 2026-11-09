@@ -22,7 +22,7 @@ Read in this order the first time through:
      [synchronous world disposal and allowed call sites](./entities.md#disposing-a-world).
    - [Systems](./systems.md) — membership, reactive callbacks, callback options, `each`/`run`, cadence,
      component, relationship, and [clock injection](./systems.md#clock-injection), plus
-     [execution-order, cadence, callback, and watched-component introspection](./systems.md#introspection) and
+     [execution-order, world-owned cadence clocks, callback, and watched-component introspection](./systems.md#introspection) and
      [opt-in timing and run counts](./systems.md#measuring-systems).
    - [Queries and filters](./queries-and-filters.md) — the query DSL, live queries, one-shot
      filters, [grouped query types and live buckets](./queries-and-filters.md#grouped-queries-groupby), `Bitset`.

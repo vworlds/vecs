@@ -88,6 +88,8 @@ registered callbacks and watched components with `system.callbacks` and `system.
 Modules carry themselves as singleton values (`world.get/has`) and release resources through
 their own [remove hooks](./docs/modules.md#releasing-resources) during world disposal.
 For opt-in timings and cadence run counts, see [Measuring systems](./docs/systems.md#measuring-systems).
+For world-owned clocks and the recommended default-cadence check, see
+[Cadence introspection](./docs/systems.md#introspection).
 
 For Node clients that need replicated Phaser poses, see [Headless clients](../vecs-phaser-client/README.md#headless-clients).
 For server keepalive gates and the idle replicated-state clock, see [Replication](../../architecture/REPLICATION.md#pause-idle-sessions-with-a-gate).
