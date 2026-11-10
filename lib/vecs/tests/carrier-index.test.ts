@@ -366,6 +366,65 @@ describe("component carrier index", () => {
     expect([...query]).toEqual([outer, inner]);
   });
 
+  describe.each(["immediate", "deferred"])("a throwing add hook (%s)", (mode) => {
+    it.each([false, true])("resyncs composite membership when destroyed is %s", (destroyed) => {
+      class Blocker {}
+      class Other {}
+      class Sibling {}
+      const world = new World();
+      world.component(Blocker).on("remove", () => {
+        throw new Error("hook failed");
+      });
+      world.component(Other);
+      const sibling = world.component(Sibling);
+      const component = world.component(Data);
+      world
+        .query("sibling")
+        .with(Sibling)
+        .enter((e) => e._modified(component.meta))
+        .build();
+      const events: string[] = [];
+      const composite = world
+        .query("composite")
+        .with(Data, Other)
+        .enter(() => events.push("enter"))
+        .exit(() => events.push("exit"))
+        .build();
+      const leafEvents: string[] = [];
+      const leaf = world
+        .query("leaf")
+        .with(Data)
+        .enter(() => leafEvents.push("enter"))
+        .exit(() => leafEvents.push("exit"))
+        .build();
+      component.on("add", (e) => {
+        // Apply the nested commands synchronously in both modes: public writes
+        // would otherwise queue behind the throwing add during a deferred drain.
+        e._set(sibling.meta, undefined);
+        expect([...composite]).toEqual([e]);
+        if (destroyed) {
+          // Blocker's remove hook interrupts destruction before Data or Other
+          // is visited. The add's catch must discard Data's staged membership.
+          e._destroy();
+        }
+        throw new Error("hook failed");
+      });
+      const entity = world.entity().add(Blocker).add(Other);
+      const add = (): void => {
+        entity.add(Data);
+      };
+
+      expect(() => (mode === "deferred" ? world.defer(add) : add())).toThrow("hook failed");
+
+      expect(entity.alive).toBe(!destroyed);
+      expect([...composite]).toEqual(destroyed ? [] : [entity]);
+      expect([...leaf]).toEqual(destroyed ? [] : [entity]);
+      expect(events).toEqual(destroyed ? ["enter", "exit"] : ["enter"]);
+      expect(leafEvents).toEqual([]);
+      expect(component.meta._term._stagedCount).toBe(0);
+    });
+  });
+
   it("discards the staged entry when an add hook throws", () => {
     const world = new World();
     const component = world.component(Data);

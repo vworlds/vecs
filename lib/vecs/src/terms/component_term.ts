@@ -92,9 +92,11 @@ export class ComponentTerm extends Term {
   }
 
   /**
-   * @internal Drop `entity`'s staged entry, without events, when its add ends
+   * @internal Drop `entity`'s staged entry when its add ends
    * without propagating (an early return or a throwing hook). The entity stays
-   * in the term only while it still carries the component.
+   * in the term only while it still carries the component and is alive. When
+   * removed, resynchronize composite parents that may have read the staged
+   * membership, without sending an exit to unentered direct leaf queries.
    */
   public _discardStaged(entity: Entity): void {
     const staged = this._staged;
@@ -106,8 +108,8 @@ export class ComponentTerm extends Term {
       return;
     }
     this._removeStaged(index);
-    if (!this._matches(entity)) {
-      this._entities.delete(entity);
+    if (!this._matches(entity) && this._entities.delete(entity)) {
+      this._emitTo(TermEventKind.Exit, entity, (consumer) => consumer._resyncsOnEvent === true);
     }
   }
 
