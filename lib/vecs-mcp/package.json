@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-mcp",
-  "version": "1.0.64",
+  "version": "1.0.65",
   "private": false,
   "type": "module",
   "main": "dist/index.js",
@@ -30,15 +30,15 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
-    "@vworlds/vecs": "1.0.64",
-    "@vworlds/vecs-protocol": "1.0.64",
-    "@vworlds/vecs-wire": "1.0.64",
+    "@vworlds/vecs": "1.0.65",
+    "@vworlds/vecs-protocol": "1.0.65",
+    "@vworlds/vecs-wire": "1.0.65",
     "ws": "8.22.0",
     "zod": "^3.25.76"
   },
   "peerDependencies": {
-    "@vworlds/vecs-client": "1.0.64",
-    "@vworlds/vecs-server": "1.0.64"
+    "@vworlds/vecs-client": "1.0.65",
+    "@vworlds/vecs-server": "1.0.65"
   },
   "peerDependenciesMeta": {
     "@vworlds/vecs-client": {

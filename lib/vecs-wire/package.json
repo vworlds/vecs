@@ -1,6 +1,6 @@
 {
   "name": "@vworlds/vecs-wire",
-  "version": "1.0.64",
+  "version": "1.0.65",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@vworlds/vecs": "1.0.64"
+    "@vworlds/vecs": "1.0.65"
   },
   "license": "UNLICENSED",
   "repository": {
