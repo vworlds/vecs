@@ -3,6 +3,17 @@
 All notable changes to the Vecs suite are documented here. Entries are grouped by
 the Git release tags and each bullet is tagged with the owning subproject.
 
+## v1.0.65 (2026-11-10)
+
+- [vecs] Fixed: discarding a staged component after a throwing add hook now clears composite query membership when the entity no longer matches the component term.
+- [vecs] Tests: Confirm reactive two-hop target queries with distinct relationships in immediate and deferred modes, including inner and outer retargeting, tag changes, edge removal and target destruction.
+- [vecs] Fixed: removing a component inside its own `add` hook no longer leaves the entity a stale member of composite queries that read the staged membership during the hook.
+- [vecs-protocol] [vecs-client] [vecs-server] [vecs-phaser-client] [vecs-phaser-server] Changed: Rename the whole world-route prefix option from `apiBasePath` to `worldBasePath` without an alias; share `DEFAULT_WORLD_BASE_PATH`, remove the unused `AssetManager.toCatalog` route argument, and include the attempted world URL in dgram connection failures. Demo deployment overrides now use `VECS_WORLD_BASE_PATH`.
+- [vecs] Removed: `ALWAYS_TICK_SOURCE`; use `world.alwaysTickSource` or `system.hasDefaultCadence`.
+- [vecs] Added: `anyOf` query clauses select holders of any component key matching a live inner query.
+- [vecs] Changed: merged query terms no longer re-evaluate on data writes to non-watched membership leaves.
+- [vecs] Added: `entity.assign(C, props | instance)` for changed-only, identity-preserving writes with a configurable `equals` / `vecs_equals` hook and coalesced deferred notifications.
+
 ## v1.0.64 (2026-11-08)
 
 - [vecs-phaser-client] Fixed: Keep the coordinate origin fixed across canvas resizes so stationary, moving and new objects stay aligned; accept an explicit world-pixel origin in `PhaserRenderModule` and `CoordSpace`.
