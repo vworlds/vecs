@@ -1,4 +1,9 @@
-import { ComponentMeta, type ComponentInstance, type ComponentType } from "../component_meta.js";
+import {
+  ComponentMeta,
+  type ComponentInstance,
+  type ComponentType,
+  type ComponentRef,
+} from "../component_meta.js";
 import type { Query } from "../query/index.js";
 import { IterableArrayMap, type ReadonlyIterableArrayMap } from "../util/array_map.js";
 import { Bitset } from "../util/bitset.js";
@@ -53,6 +58,18 @@ export class Base {
       this.world._componentTerms.get(ceid)?._store.get(this as unknown as Entity) ??
       this._getTeardown(ceid)
     );
+  }
+
+  /** @internal Metadata-owning callers skip the world's numeric term registry. */
+  public _getFromMeta(meta: ComponentMeta): ComponentInstance | undefined {
+    return meta._term._store.get(this as unknown as Entity) ?? this._getTeardown(meta.eid);
+  }
+
+  /** @internal Resolve nonnumeric references once, without a second registry lookup. */
+  public _getFromRef(ref: ComponentRef): ComponentInstance | undefined {
+    return typeof ref === "number"
+      ? this._get(ref)
+      : this._getFromMeta(this.world.entity(ref).meta);
   }
 
   /** @internal Only shared-store misses inspect the teardown stash. */

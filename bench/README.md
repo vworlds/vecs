@@ -27,6 +27,8 @@ execution (100 writes per drain). Candidates are reused to exclude caller alloca
 enqueue and drain, and checks exact update counts. `BENCH_WRITES` (1,000,000) and
 `BENCH_WARMUP_WRITES` (100,000) must be positive multiples of 100. Pass `set` to
 measure an older build without `assign`; alternate base/head with `BENCH_VECS_ROOT`.
+Pass `equal` to isolate immediate equal `assign` (props and instance candidates)
+for CPU profiling, without changing warmup or measured rounds.
 
 The default run also includes a mixed drain case (`mixed` runs only that case):
 each 100-command batch alternates 50 `set` writes to one entity and 50 `assign`
@@ -134,6 +136,9 @@ the current representation; no array snapshot or registry lookup is needed.
 Only explicit store carrier traversal pins representation and maintains cursors.
 Numeric `entity.get(id)` resolves the term from the world; class-based `get` uses
 the resolved metadata's term. Teardown and removed-instance fallbacks run on misses.
+Writes and relationship reads that already resolved metadata use that same direct
+store path, without looking the term up again by id. Empty entity-cursor injection
+selects a callback-only invoker once; it does not enter the component resolver per entity.
 
 Store density uses 8, matching term membership. Three CPU-2-pinned processes per
 candidate, at default horizons, alternated 8/16/32 then 32/16/8 on the builder.

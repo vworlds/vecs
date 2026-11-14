@@ -4,6 +4,36 @@ import { Relationship } from "../src/component_meta.js";
 import { makeInjectedInvoker } from "../src/inject.js";
 
 describe("shared component storage", () => {
+  it("keeps metadata and numeric reads equivalent during removal and teardown", () => {
+    class Value {
+      n = 1;
+    }
+    const world = new World();
+    const key = world.component(Value);
+    const entity = world.entity().add(Value);
+    const read = () => [entity.get(Value), entity.get(key), entity.get(key.eid)];
+    const first = entity.get(Value);
+    expect(read()).toEqual([first, first, first]);
+    const exits: unknown[] = [];
+    const query = world
+      .query("reads")
+      .with(Value)
+      .exit([], () => exits.push(read()))
+      .build();
+    entity.remove(Value);
+    expect(exits).toEqual([[undefined, undefined, undefined]]);
+    entity.add(Value);
+    const second = entity.get(Value);
+    entity.destroy();
+    expect(exits).toEqual([
+      [undefined, undefined, undefined],
+      [second, second, second],
+    ]);
+    expect(read()).toEqual([undefined, undefined, undefined]);
+    query.destroy();
+    world.dispose();
+  });
+
   it("keeps a registered injection lookup live across promotion, replacement and empty demotion", () => {
     class Value {
       n = 1;

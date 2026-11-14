@@ -185,8 +185,9 @@ export class ComponentStore implements Iterable<Entity> {
 
   /** Identity-checked instance lookup, without a world-registry hop. */
   public get(entity: Entity): ComponentInstance | undefined {
-    if (this._members !== undefined) {
-      return this._members.get(entity);
+    const members = this._members;
+    if (members !== undefined) {
+      return members.get(entity);
     }
     const slot = this._positions![entity.eid];
     return slot > 0 && this._dense![slot - 1] === entity ? this._instances![slot - 1] : undefined;

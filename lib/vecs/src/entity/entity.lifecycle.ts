@@ -56,7 +56,7 @@ export class Lifecycle extends Components {
       const entityMeta = this._meta;
       let selfCarry = 0;
       if (entityMeta) {
-        selfCarry = this._get(entityMeta.eid) !== undefined ? 1 : 0;
+        selfCarry = this._getFromMeta(entityMeta) !== undefined ? 1 : 0;
         if (entityMeta.usageCount > selfCarry && entityMeta._onDelete === CleanupPolicy.Throw) {
           throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
         }
@@ -165,7 +165,7 @@ export class Lifecycle extends Components {
     if (
       entityMeta &&
       entityMeta._onDelete === CleanupPolicy.Throw &&
-      entityMeta.usageCount > (this._get(entityMeta.eid) !== undefined ? 1 : 0)
+      entityMeta.usageCount > (this._getFromMeta(entityMeta) !== undefined ? 1 : 0)
     ) {
       throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
     }

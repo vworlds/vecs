@@ -617,6 +617,11 @@ export function makeInjectedInvoker(
       callback(it, resolved);
     };
   }
+  if (inject.length === 0) {
+    // Empty injection has no per-entity resolver work. Keep it independent of
+    // the component resolver's size and inlining decisions.
+    return (e: Entity) => callback(e, resolved);
+  }
   return (e: Entity) => {
     getInjected(e, inject, false, resolved);
     callback(e, resolved);
