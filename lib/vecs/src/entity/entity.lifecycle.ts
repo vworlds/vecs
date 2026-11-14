@@ -54,7 +54,7 @@ export class Lifecycle extends Components {
       const entityMeta = this._meta;
       let selfCarry = 0;
       if (entityMeta) {
-        selfCarry = this._components.has(entityMeta.eid) ? 1 : 0;
+        selfCarry = this._get(entityMeta.eid) !== undefined ? 1 : 0;
         if (entityMeta.usageCount > selfCarry && entityMeta._onDelete === CleanupPolicy.Throw) {
           throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
         }
@@ -63,22 +63,29 @@ export class Lifecycle extends Components {
       // Mark destroyed before applying cleanup so a carrier cascade that
       // re-enters this entity cannot tear it down twice.
       this._destroyed = true;
-      const teardown = this._teardown = [...this._components].map(
-        ([ceid, c]): [number, ComponentInstance | undefined] => [ceid, c]
-      );
+      const teardown = (this._teardown = this._ceids.map(
+        (ceid): [number, ComponentInstance | undefined] => [ceid, this._get(ceid)]
+      ));
       if (entityMeta && entityMeta.usageCount > selfCarry) {
         this._applyOnDelete(entityMeta, selfCarry);
       }
 
       this.world._notifyEntityDestroyed(this);
 
-      for (const [ceid, c] of teardown) {
+      for (let i = 0; i < teardown.length; i++) {
+        const [ceid, c] = teardown[i]!;
         if (c === undefined) {
           continue;
         }
         const componentMeta = this.world.entity(ceid).meta;
         if (componentMeta.isRelationship) {
           this._detachRelationship(componentMeta, c as Relationship);
+          // The former forEachSafe revisited the tail swapped into a detached
+          // relationship's slot. Keep that hook order while retaining ordinary
+          // instances in the stash until all synchronous exits have completed.
+          teardown[i] = teardown[teardown.length - 1]!;
+          teardown.pop();
+          i--;
           continue;
         }
         this._detachSlot(componentMeta, c, true);
@@ -86,7 +93,7 @@ export class Lifecycle extends Components {
       this._dirtyComponentBitmask.clear();
       this._queries.clear();
 
-      this._components.clear();
+      this._ceids.length = 0;
       this._teardown = undefined;
 
       if (
@@ -129,7 +136,7 @@ export class Lifecycle extends Components {
     if (
       entityMeta &&
       entityMeta._onDelete === CleanupPolicy.Throw &&
-      entityMeta.usageCount > (this._components.has(entityMeta.eid) ? 1 : 0)
+      entityMeta.usageCount > (this._get(entityMeta.eid) !== undefined ? 1 : 0)
     ) {
       throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
     }

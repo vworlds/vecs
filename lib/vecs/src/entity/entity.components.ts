@@ -149,7 +149,7 @@ export class Components extends Relationships {
     if (keepStorage) {
       this.world._notifyComponentRemoved(meta.eid, this);
     } else {
-      this._components.delete(meta.eid);
+      this._removeComponentId(meta.eid);
       this._notifySlotRemoved(meta, instance);
       // `update({ watch, onRemove: true })` routes after the component is gone,
       // receiving the instance directly (no register read). See the
@@ -853,7 +853,7 @@ export class Components extends Relationships {
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     this._relationshipDataWrites?.delete(meta);
     this.componentBitmask.deleteBit(meta.bitPtr);
-    this._components.delete(meta.eid);
+    this._removeComponentId(meta.eid);
     if (this._teardown !== undefined) {
       const entry = this._teardown.find((entry) => entry[0] === meta.eid);
       if (entry !== undefined) {
@@ -884,7 +884,7 @@ export class Components extends Relationships {
         }
       }
     }
-    this._components.set(meta.eid, relationship);
+    this._ceids.push(meta.eid);
     this.componentBitmask.addBit(meta.bitPtr);
     meta._term._stageAdded(this, relationship);
   }
@@ -956,12 +956,12 @@ export class Components extends Relationships {
     isAdd: boolean
   ): void {
     const existing = meta._term._store.has(this);
-    this._components.set(meta.eid, instance);
     this.componentBitmask.addBit(meta.bitPtr);
     if (existing) {
       meta._term._store.set(this, instance);
       return;
     }
+    this._ceids.push(meta.eid);
     meta._term._stageAdded(this, instance);
     // A throwing hook discards the staged entry, so none outlives its add.
     try {
@@ -982,6 +982,15 @@ export class Components extends Relationships {
       throw new Error(
         `Cannot ${op} the abstract interface ${meta.Class.name}; operate via the concrete component`
       );
+    }
+  }
+
+  /** Remove one id with the same tail-swap order as the former entity map. */
+  private _removeComponentId(ceid: EID): void {
+    const index = this._ceids.indexOf(ceid);
+    if (index >= 0) {
+      this._ceids[index] = this._ceids[this._ceids.length - 1]!;
+      this._ceids.pop();
     }
   }
 

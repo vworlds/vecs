@@ -54,10 +54,22 @@ const TICKS: Record<TickCase, Record<(typeof SIZES)[number], [number, number]>> 
   watch: { 10_000: [120, 360], 100_000: [12, 30] },
   churn: { 10_000: [200, 600], 100_000: [12, 36] },
   composite: { 10_000: [20, 60], 100_000: [4, 12] },
+  point: { 10_000: [400, 1200], 100_000: [50, 150] },
+  "singleton-get": { 10_000: [400, 1200], 100_000: [50, 150] },
+  "sparse-inject": { 10_000: [400, 1200], 100_000: [100, 300] },
 };
 
-type TickCase = "iterate" | "inject" | "set" | "watch" | "churn" | "composite";
-type HeapCase = "heap" | "composite-heap" | "sparse-terms-heap";
+type TickCase =
+  | "iterate"
+  | "inject"
+  | "set"
+  | "watch"
+  | "churn"
+  | "composite"
+  | "point"
+  | "singleton-get"
+  | "sparse-inject";
+type HeapCase = "heap" | "composite-heap" | "sparse-terms-heap" | "mixed-heap";
 type CaseName = TickCase | HeapCase;
 type ResultLine = {
   case: CaseName;
@@ -88,13 +100,20 @@ const CASES: readonly CaseName[] = [
   "composite",
   "composite-heap",
   "sparse-terms-heap",
+  "point",
+  "singleton-get",
+  "sparse-inject",
+  "mixed-heap",
 ];
 const benchFile = fileURLToPath(import.meta.url);
 const registerDist = resolve(dirname(benchFile), "register-dist.mjs");
 
 if (process.argv[2] === "--heap") {
   const heapCase = process.argv[4] as HeapCase;
-  assert(["heap", "composite-heap", "sparse-terms-heap"].includes(heapCase), "unknown heap case");
+  assert(
+    ["heap", "composite-heap", "sparse-terms-heap", "mixed-heap"].includes(heapCase),
+    "unknown heap case"
+  );
   runHeapChild(positiveValue(process.argv[3], "heap size"), heapCase);
 } else {
   const only = process.argv[2] as CaseName | undefined;
@@ -106,9 +125,14 @@ if (process.argv[2] === "--heap") {
   const ticks = optionalPositiveInteger("BENCH_TICKS");
   const warmupTicks = optionalPositiveInteger("BENCH_WARMUP_TICKS");
   for (const caseName of only === undefined ? CASES : [only]) {
-    for (const size of caseName === "sparse-terms-heap" ? ([100_000] as const) : SIZES) {
+    for (const size of caseName === "sparse-terms-heap" || caseName === "mixed-heap"
+      ? ([100_000] as const)
+      : SIZES) {
       const line =
-        caseName === "heap" || caseName === "composite-heap" || caseName === "sparse-terms-heap"
+        caseName === "heap" ||
+        caseName === "composite-heap" ||
+        caseName === "sparse-terms-heap" ||
+        caseName === "mixed-heap"
           ? runHeap(size, rounds, caseName)
           : runTickCase(
               caseName,
@@ -200,6 +224,10 @@ function runHeap(size: number, rounds: number, caseName: HeapCase): ResultLine {
 /** Build a watch or composite world, settle it, and report retained heap. */
 function runHeapChild(size: number, heapCase: HeapCase): void {
   assert(typeof globalThis.gc === "function", "run the heap child with --expose-gc");
+  if (heapCase === "mixed-heap") {
+    runMixedHeapChild(size);
+    return;
+  }
   if (heapCase === "sparse-terms-heap") {
     runSparseTermHeapChild(size);
     return;
@@ -216,6 +244,48 @@ function runHeapChild(size: number, heapCase: HeapCase): void {
   assert.equal(checksum, expectedChecksum(caseName, size, 0, HEAP_SETTLE_TICKS), "heap child");
   console.log(JSON.stringify({ bytesPerUnit, checksum }));
   scene.world.dispose();
+}
+
+/** Incremental retained bytes per sparse query, including its leaf and scaffolding. */
+function runMixedHeapChild(size: number): void {
+  globalThis.gc!();
+  const before = process.memoryUsage().heapUsed;
+  const world = new World({
+    idPools: [
+      { name: "component", min: 1, max: 999 },
+      { name: "module", min: 1000, max: 9999 },
+      { name: "entity", min: 10000 },
+    ],
+  });
+  const keys = Array.from(
+    { length: 200 },
+    () =>
+      class Data {
+        value = 1;
+      }
+  );
+  keys.forEach((key) => world.component(key));
+  const all = Array.from({ length: size }, () => world.entity());
+  let slots = 0;
+  keys.forEach((key, k) => {
+    const stride = k < 10 ? 1 : k < 40 ? 33 : k < 100 ? 1000 : size;
+    for (let i = 0; i < size; i += stride) {
+      all[size - 1 - i]!.add(key);
+      slots++;
+    }
+  });
+  globalThis.gc!();
+  const bytesPerUnit = (process.memoryUsage().heapUsed - before) / size;
+  assert.equal(all.length, size);
+  const actual = keys.reduce((sum, key) => sum + world.component(key).instanceCount(), 0);
+  assert.equal(actual, slots);
+  console.log(
+    JSON.stringify({
+      bytesPerUnit,
+      checksum: `entities:${all.length};keys:${keys.length};slots:${actual}`,
+    })
+  );
+  world.dispose();
 }
 
 /** Incremental retained bytes per sparse query, including its leaf and scaffolding. */
@@ -260,10 +330,64 @@ function buildScene(caseName: TickCase, size: number): Scene {
   world.component(Vel);
   const all: Entity[] = [];
   for (let i = 0; i < size; i++) {
-    all.push(world.entity().add(Pos).add(Vel));
+    const entity = world.entity().add(Pos);
+    if (
+      (caseName !== "sparse-inject" && caseName !== "singleton-get") ||
+      (caseName === "sparse-inject" && i % 100 < 3) ||
+      (caseName === "singleton-get" && i === size - 1)
+    ) {
+      entity.add(Vel);
+    }
+    all.push(entity);
   }
   const noop = (): void => {};
   switch (caseName) {
+    case "point":
+    case "singleton-get": {
+      // Fixed Fisher-Yates permutation: random entities without PRNG work in timing.
+      const random = all.slice();
+      let seed = 24301;
+      for (let i = random.length - 1; i > 0; i--) {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        const j = seed % (i + 1);
+        [random[i], random[j]] = [random[j]!, random[i]!];
+      }
+      let sum = 0;
+      const carrier = all[all.length - 1]!;
+      return {
+        world,
+        perTick:
+          caseName === "point"
+            ? () => {
+                for (const entity of random) sum += entity.get(Vel)!.x;
+              }
+            : () => {
+                for (let i = 0; i < size; i++) sum += carrier.get(Vel)!.x;
+              },
+        reset: () => {
+          sum = 0;
+        },
+        checksum: () => `reads:${sum}`,
+      };
+    }
+    case "sparse-inject": {
+      // Distributed carriers near 3% density, not a dense low-id prefix.
+      let sum = 0;
+      world
+        .system("sparse-inject")
+        .with(Vel)
+        .each([Vel], (_entity, [vel]) => {
+          sum += vel.x;
+        });
+      return {
+        world,
+        perTick: null,
+        reset: () => {
+          sum = 0;
+        },
+        checksum: () => `visits:${sum}`,
+      };
+    }
     case "iterate": {
       let visits = 0;
       world
@@ -415,6 +539,11 @@ function expectedChecksum(
 ): string {
   const total = warmupTicks + ticks;
   switch (caseName) {
+    case "point":
+    case "singleton-get":
+      return `reads:${size * ticks}`;
+    case "sparse-inject":
+      return `visits:${size * 0.03 * ticks}`;
     case "iterate":
       return `visits:${size * ticks}`;
     case "inject":
