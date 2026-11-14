@@ -1,21 +1,25 @@
 import type { Entity } from "../entity/index.js";
 
 type Cursor = { next: number };
-const SMALL_LIMIT = 16;
+const DENSITY = 8;
 
 /**
  * Dense membership for entities with unique live ids. Iteration order is
  * unspecified after removal, but visitation is live like a Set: deleted
  * entries are skipped, additions are visited, and only reinsertions can repeat.
  * Nested traversals retain their own visited prefix.
- * Small sets use identity scans without an id-sized index. Once promoted past
- * the small-set limit, a set keeps its sparse index until it becomes empty.
+ * Sparse populations use a hashed position index. When the member count
+ * justifies an id-indexed array, insertion promotes the set to direct lookup.
+ * The direct index is retained until the set becomes empty.
  * @internal
  */
 export class DenseEntitySet implements Iterable<Entity> {
   /** Stable array identity, including across clear. Do not mutate directly. */
   public readonly dense: Entity[] = [];
   private _sparse: number[] | undefined;
+  private _hashed: Map<Entity, number> | undefined = new Map();
+  /** Highest current member id in hashed mode; undefined means recompute on insertion. */
+  private _highest: number | undefined = 0;
   private readonly _cursors: Cursor[] = [];
 
   public get size(): number {
@@ -36,14 +40,20 @@ export class DenseEntitySet implements Iterable<Entity> {
 
   /** Add a live entity; duplicate insertion is a no-op. */
   public add(entity: Entity): this {
-    if (!this.has(entity)) {
+    if (this._position(entity) < 0) {
       this.dense.push(entity);
-      if (this._sparse !== undefined) {
-        this._index(entity, this.dense.length);
-      } else if (this.dense.length > SMALL_LIMIT) {
-        this._sparse = [];
-        for (let i = 0; i < this.dense.length; i++) {
-          this._index(this.dense[i]!, i + 1);
+      this._record(entity, this.dense.length - 1);
+      if (this._sparse === undefined) {
+        if (this._highest === undefined) {
+          this._highest = 0;
+          for (const member of this.dense) {
+            this._highest = Math.max(this._highest, member.eid);
+          }
+        } else {
+          this._highest = Math.max(this._highest, entity.eid);
+        }
+        if (this.dense.length * DENSITY >= this._highest + 1) {
+          this._promote();
         }
       }
     }
@@ -53,7 +63,7 @@ export class DenseEntitySet implements Iterable<Entity> {
   /** Clear membership; active traversals may still visit subsequent additions. */
   public clear(): void {
     this.dense.length = 0;
-    this._sparse = undefined;
+    this._resetIndex();
     for (const cursor of this._cursors) {
       cursor.next = 0;
     }
@@ -61,7 +71,7 @@ export class DenseEntitySet implements Iterable<Entity> {
 
   /** Remove only this object, never a newer entity reusing its id. */
   public delete(entity: Entity): boolean {
-    const index = this.indexOf(entity);
+    const index = this._position(entity);
     if (index < 0) {
       return false;
     }
@@ -83,10 +93,11 @@ export class DenseEntitySet implements Iterable<Entity> {
     }
     this._move(this.dense.length - 1, hole);
     this.dense.pop();
+    this._record(entity, -1);
     if (this.dense.length === 0) {
-      this._sparse = undefined;
-    } else if (this._sparse !== undefined) {
-      this._sparse[entity.eid] = 0;
+      this._resetIndex();
+    } else if (this._sparse === undefined && entity.eid === this._highest) {
+      this._highest = undefined;
     }
     return true;
   }
@@ -109,41 +120,73 @@ export class DenseEntitySet implements Iterable<Entity> {
 
   /** Identity is checked because world entity ids can be recycled. */
   public has(entity: Entity): boolean {
-    return this.indexOf(entity) >= 0;
+    return this._position(entity) >= 0;
   }
 
   /** Return this object's dense position, or -1 when absent, including stale ids. */
   public indexOf(entity: Entity): number {
-    const sparse = this._sparse;
-    if (sparse === undefined) {
-      return this.dense.indexOf(entity);
-    }
-    const slot = sparse[entity.eid];
-    return slot > 0 && this.dense[slot - 1] === entity ? slot - 1 : -1;
-  }
-
-  private _index(entity: Entity, slot: number): void {
-    const sparse = this._sparse!;
-    const eid = entity.eid;
-    // Push every intervening zero: a far indexed write makes V8 use
-    // dictionary elements, even though the dense side stays packed.
-    while (sparse.length <= eid) {
-      sparse.push(0);
-    }
-    sparse[eid] = slot;
+    return this._position(entity);
   }
 
   private _move(from: number, to: number): void {
     if (from !== to) {
       const entity = this.dense[from]!;
       this.dense[to] = entity;
-      if (this._sparse !== undefined) {
-        this._sparse[entity.eid] = to + 1;
+      this._record(entity, to);
+    }
+  }
+
+  private _position(entity: Entity): number {
+    const sparse = this._sparse;
+    if (sparse === undefined) {
+      return this._hashed!.get(entity) ?? -1;
+    }
+    const slot = sparse[entity.eid];
+    return slot > 0 && this.dense[slot - 1] === entity ? slot - 1 : -1;
+  }
+
+  private _promote(): void {
+    const sparse: number[] = [];
+    for (let i = 0; i < this.dense.length; i++) {
+      const entity = this.dense[i]!;
+      while (sparse.length <= entity.eid) {
+        sparse.push(0);
       }
+      sparse[entity.eid] = i + 1;
+    }
+    this._sparse = sparse;
+    this._hashed = undefined;
+  }
+
+  /** Record a dense position, or remove the index entry when position is -1. */
+  private _record(entity: Entity, position: number): void {
+    const sparse = this._sparse;
+    if (sparse === undefined) {
+      if (position < 0) {
+        this._hashed!.delete(entity);
+      } else {
+        this._hashed!.set(entity, position);
+      }
+    } else {
+      // Push intervening zeros rather than assigning past the array's length.
+      while (sparse.length <= entity.eid) {
+        sparse.push(0);
+      }
+      sparse[entity.eid] = position + 1;
     }
   }
 
   private _release(cursor: Cursor): void {
     this._cursors.splice(this._cursors.indexOf(cursor), 1);
+  }
+
+  private _resetIndex(): void {
+    if (this._sparse !== undefined) {
+      this._sparse = undefined;
+      this._hashed = new Map();
+    } else {
+      this._hashed!.clear();
+    }
+    this._highest = 0;
   }
 }

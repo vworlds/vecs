@@ -57,16 +57,17 @@ Run `node --import ./bench/register-dist.mjs bench/core-storage.ts` after buildi
 the core storage epic's cases at 10,000 and 100,000 entities carrying two small components,
 with one `CORE_STORAGE_RESULT` line per case and size:
 
-| Case           | Body                                                                                                                       |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| iterate        | `each([], ...)`, no injection                                                                                              |
-| inject         | `each([Pos, Vel], ...)` writing in place                                                                                   |
-| set            | `each([Pos, Vel], ...)` calling `entity.set(Pos, {...})`, no watcher                                                       |
-| watch          | as `set`, plus a second system with `update({ watch: Pos }, ...)`                                                          |
-| churn          | each tick a rotating tenth of the entities loses `Vel` and the previous tenth gains it back, one `each([Pos, Vel])` system |
-| heap           | bytes per entity retained after building the `watch` world, measured in a fresh process                                    |
-| composite      | `churn` with 16 distinct populated composite queries sharing Pos/Vel, each with synchronous enter/exit callbacks           |
-| composite-heap | bytes per entity retained by the `composite` world in a fresh process                                                      |
+| Case              | Body                                                                                                                       |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| iterate           | `each([], ...)`, no injection                                                                                              |
+| inject            | `each([Pos, Vel], ...)` writing in place                                                                                   |
+| set               | `each([Pos, Vel], ...)` calling `entity.set(Pos, {...})`, no watcher                                                       |
+| watch             | as `set`, plus a second system with `update({ watch: Pos }, ...)`                                                          |
+| churn             | each tick a rotating tenth of the entities loses `Vel` and the previous tenth gains it back, one `each([Pos, Vel])` system |
+| heap              | bytes per entity retained after building the `watch` world, measured in a fresh process                                    |
+| composite         | `churn` with 16 distinct populated composite queries sharing Pos/Vel, each with synchronous enter/exit callbacks           |
+| composite-heap    | bytes per entity retained by the `composite` world in a fresh process                                                      |
+| sparse-terms-heap | incremental bytes per query term for 200 ten-member queries in a 100,000-entity world, in a fresh process                  |
 
 Each line reports the median, min and max nanoseconds per entity per tick over the rounds
 (bytes per entity for `heap`), the tick counts it used, and a checksum of component field sums
@@ -90,6 +91,13 @@ and the checksums must stay identical. The `composite` case adds 16 distinct
 absent key per query. It checks exact enter/exit callback totals in addition to
 the ordinary churn fingerprint. `composite-heap` measures that world's retained
 bytes per entity with the same fresh-process method as `heap`.
+`sparse-terms-heap` runs only at 100,000 entities. It measures the incremental
+post-GC heap after adding 200 unique component keys to the last ten entities and
+building one direct component query per key, divided by 200 query-root terms.
+The resting world's heap is excluded; component instances, definitions, leaf
+indexes, and query scaffolding are included. Each query must contain exactly
+those ten high-id entities. The result reports `terms: 200` and bytes per term,
+not bytes per entity.
 `bench:release-check` includes one timing row (the
 median) and one fingerprint row (the checksum) per case and size.
 

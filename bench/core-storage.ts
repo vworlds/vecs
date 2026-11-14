@@ -4,6 +4,7 @@
  * retained heap, at 10,000 and 100,000 entities with two small components.
  * Composite rows add 16 distinct populated queries to the churn scene and
  * measure its enter/exit cost and retained heap separately.
+ * The sparse-term heap row measures 200 ten-member queries in a 100k world.
  *
  * Run after building:
  *
@@ -11,7 +12,7 @@
  *
  * Every case and size prints one `CORE_STORAGE_RESULT` line: the median, min
  * and max nanoseconds per entity per tick over the rounds (bytes per entity for
- * `heap`), plus a checksum of component field sums and callback counts that only
+ * world heap rows, bytes per term for `sparse-terms-heap`), plus a checksum that only
  * changes when observable behavior changes. Tick counts are fixed per case and
  * size so builds compare equal work; the warm-up and the timed loop share one
  * small function so a case is not bimodal between JIT tiers. `BENCH_TICKS` and
@@ -39,6 +40,8 @@ const DELTA_MS = 16;
 const SIZES = [10_000, 100_000] as const;
 const HEAP_SETTLE_TICKS = 3;
 const COMPOSITE_TERMS = 16;
+const SPARSE_TERMS = 200;
+const SPARSE_MEMBERS = 10;
 /**
  * Fixed `[warmupTicks, ticks]` per case and size. The write-heavy cases carry
  * about six times the headroom of today's core, so a 6x faster storage still
@@ -54,7 +57,8 @@ const TICKS: Record<TickCase, Record<(typeof SIZES)[number], [number, number]>> 
 };
 
 type TickCase = "iterate" | "inject" | "set" | "watch" | "churn" | "composite";
-type CaseName = TickCase | "heap" | "composite-heap";
+type HeapCase = "heap" | "composite-heap" | "sparse-terms-heap";
+type CaseName = TickCase | HeapCase;
 type ResultLine = {
   case: CaseName;
   entities: number;
@@ -63,6 +67,7 @@ type ResultLine = {
   min: number;
   max: number;
   checksum: string;
+  terms?: number;
   ticks?: number;
   warmupTicks?: number;
 };
@@ -82,12 +87,15 @@ const CASES: readonly CaseName[] = [
   "heap",
   "composite",
   "composite-heap",
+  "sparse-terms-heap",
 ];
 const benchFile = fileURLToPath(import.meta.url);
 const registerDist = resolve(dirname(benchFile), "register-dist.mjs");
 
 if (process.argv[2] === "--heap") {
-  runHeapChild(positiveValue(process.argv[3], "heap size"), process.argv[4] === "composite");
+  const heapCase = process.argv[4] as HeapCase;
+  assert(["heap", "composite-heap", "sparse-terms-heap"].includes(heapCase), "unknown heap case");
+  runHeapChild(positiveValue(process.argv[3], "heap size"), heapCase);
 } else {
   const only = process.argv[2] as CaseName | undefined;
   assert(
@@ -98,10 +106,10 @@ if (process.argv[2] === "--heap") {
   const ticks = optionalPositiveInteger("BENCH_TICKS");
   const warmupTicks = optionalPositiveInteger("BENCH_WARMUP_TICKS");
   for (const caseName of only === undefined ? CASES : [only]) {
-    for (const size of SIZES) {
+    for (const size of caseName === "sparse-terms-heap" ? ([100_000] as const) : SIZES) {
       const line =
-        caseName === "heap" || caseName === "composite-heap"
-          ? runHeap(size, rounds, caseName === "composite-heap")
+        caseName === "heap" || caseName === "composite-heap" || caseName === "sparse-terms-heap"
+          ? runHeap(size, rounds, caseName)
           : runTickCase(
               caseName,
               size,
@@ -158,21 +166,13 @@ function runTickCase(
 }
 
 /** Run the heap case as one fresh `--expose-gc` child process per round. */
-function runHeap(size: number, rounds: number, composite: boolean): ResultLine {
+function runHeap(size: number, rounds: number, caseName: HeapCase): ResultLine {
   const samples: number[] = [];
   let checksum = "";
   for (let round = 0; round < rounds; round++) {
     const child = spawnSync(
       process.execPath,
-      [
-        "--expose-gc",
-        "--import",
-        registerDist,
-        benchFile,
-        "--heap",
-        String(size),
-        composite ? "composite" : "watch",
-      ],
+      ["--expose-gc", "--import", registerDist, benchFile, "--heap", String(size), caseName],
       { encoding: "utf8" }
     );
     if (child.status !== 0) {
@@ -180,37 +180,77 @@ function runHeap(size: number, rounds: number, composite: boolean): ResultLine {
     }
     const lines = child.stdout.trim().split("\n");
     const report = JSON.parse(lines[lines.length - 1] ?? "") as {
-      bytesPerEntity: number;
+      bytesPerUnit: number;
       checksum: string;
     };
     checksum ||= report.checksum;
     assert.equal(report.checksum, checksum, `heap/${size} round ${round}`);
-    samples.push(report.bytesPerEntity);
+    samples.push(report.bytesPerUnit);
   }
   return {
-    case: composite ? "composite-heap" : "heap",
+    case: caseName,
     entities: size,
     rounds,
     ...summary(samples),
     checksum,
+    ...(caseName === "sparse-terms-heap" ? { terms: SPARSE_TERMS } : {}),
   };
 }
 
 /** Build a watch or composite world, settle it, and report retained heap. */
-function runHeapChild(size: number, composite: boolean): void {
+function runHeapChild(size: number, heapCase: HeapCase): void {
   assert(typeof globalThis.gc === "function", "run the heap child with --expose-gc");
+  if (heapCase === "sparse-terms-heap") {
+    runSparseTermHeapChild(size);
+    return;
+  }
   globalThis.gc();
   const before = process.memoryUsage().heapUsed;
-  const caseName = composite ? "composite" : "watch";
+  const caseName = heapCase === "composite-heap" ? "composite" : "watch";
   const scene = buildScene(caseName, size);
   scene.reset();
   timeTicks(scene, 0, HEAP_SETTLE_TICKS);
   globalThis.gc();
-  const bytesPerEntity = (process.memoryUsage().heapUsed - before) / size;
+  const bytesPerUnit = (process.memoryUsage().heapUsed - before) / size;
   const checksum = scene.checksum();
   assert.equal(checksum, expectedChecksum(caseName, size, 0, HEAP_SETTLE_TICKS), "heap child");
-  console.log(JSON.stringify({ bytesPerEntity, checksum }));
+  console.log(JSON.stringify({ bytesPerUnit, checksum }));
   scene.world.dispose();
+}
+
+/** Incremental retained bytes per sparse query, including its leaf and scaffolding. */
+function runSparseTermHeapChild(size: number): void {
+  const world = new World();
+  const population = Array.from({ length: size }, () => world.entity());
+  const members = population.slice(-SPARSE_MEMBERS);
+  globalThis.gc!();
+  const before = process.memoryUsage().heapUsed;
+  const queries = [];
+  for (let i = 0; i < SPARSE_TERMS; i++) {
+    class SparseMember {}
+    world.component(SparseMember);
+    for (const entity of members) {
+      entity.add(SparseMember);
+    }
+    queries.push(world.query(`sparse-${i}`).with(SparseMember).build());
+  }
+  for (let tick = 0; tick < HEAP_SETTLE_TICKS; tick++) {
+    world.progress(tick * DELTA_MS, DELTA_MS);
+  }
+  globalThis.gc!();
+  const bytesPerUnit = (process.memoryUsage().heapUsed - before) / SPARSE_TERMS;
+  for (const query of queries) {
+    assert.equal(query.count, SPARSE_MEMBERS);
+    assert.equal(query.belongs(population[0]!), false);
+    assert.deepEqual(new Set(query), new Set(members));
+  }
+  const checksum = `entities:${population.length};terms:${queries.length};members:${queries.reduce((sum, q) => sum + q.count, 0)}`;
+  assert.equal(
+    checksum,
+    `entities:${size};terms:${SPARSE_TERMS};members:${SPARSE_TERMS * SPARSE_MEMBERS}`
+  );
+  console.log(JSON.stringify({ bytesPerUnit, checksum }));
+  world.dispose();
 }
 
 /** Build a fresh world for one tick case with its per-tick hook and counters. */

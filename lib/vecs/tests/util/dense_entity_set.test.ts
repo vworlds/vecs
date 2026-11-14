@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_POOLS, type Entity, World } from "../../src/index.js";
+import { type Entity, World } from "../../src/index.js";
 import { DenseEntitySet } from "../../src/util/dense_entity_set.js";
 
 describe("DenseEntitySet", () => {
@@ -16,10 +16,8 @@ describe("DenseEntitySet", () => {
     world.dispose();
   });
 
-  it.each([0, 64])("checks identity after id reuse with %i padding members", (paddingCount) => {
-    const world = new World({
-      idPools: DEFAULT_POOLS.map((pool) => ({ ...pool, reuseWaitFrames: 0 })),
-    });
+  it.each([0, 256])("checks identity after id reuse with %i padding members", (paddingCount) => {
+    const world = densityWorld();
     const stale = world.entity();
     const eid = stale.eid;
     const set = new DenseEntitySet();
@@ -174,7 +172,7 @@ describe("DenseEntitySet", () => {
     ["callback", "clear"],
     ["callback", "delete"],
   ] as const)("promotes and empties during active %s traversal via %s", (kind, removal) => {
-    const world = new World();
+    const world = densityWorld();
     const entities = Array.from({ length: 65 }, () => world.entity());
     const replacement = world.entity();
     const set = new DenseEntitySet().add(entities[0]!);
@@ -218,12 +216,40 @@ describe("DenseEntitySet", () => {
     world.dispose();
   });
 
-  describe.each([4, 64])("Set visitation oracle with a pool of %i members", (poolSize) => {
+  it("recomputes density after removing the highest hashed member id", () => {
+    const world = densityWorld();
+    const high = world.getOrCreateEntity(100_000);
+    const entities = Array.from({ length: 65 }, () => world.entity());
+    const set = new DenseEntitySet().add(high);
+    const iterator = set[Symbol.iterator]();
+    expect(iterator.next().value).toBe(high);
+    expect(set.delete(high)).toBe(true);
+    // Keep a hashed population alive while removing its maximum, then insert
+    // enough low-id members to justify direct lookup for every measured ratio.
+    set.add(high).add(entities[0]!);
+    expect(set.delete(high)).toBe(true);
+    entities.forEach((entity) => set.add(entity));
+    expect(new Set(iterator)).toEqual(new Set(entities));
+    expect(set.has(high)).toBe(false);
+    for (const entity of entities) {
+      expect(set.indexOf(entity)).toBe(set.dense.indexOf(entity));
+    }
+    world.dispose();
+  });
+
+  describe.each([4, 128])("Set visitation oracle with a pool of %i members", (poolSize) => {
     it.each([1, 42, 0x5eed, 0xabcdef])(
       "matches a Set visitation oracle under interleaved nested mutation (seed %i)",
       (seed) => {
-        const world = new World();
+        const world = densityWorld();
         const entities = Array.from({ length: poolSize }, () => world.entity());
+        const highest = Math.max(...entities.map((entity) => entity.eid));
+        // Guard both fixtures across the measured density ratios 4, 8 and 16.
+        if (poolSize === 128) {
+          expect(poolSize * 4).toBeGreaterThanOrEqual(highest + 1);
+        } else {
+          expect(poolSize * 16).toBeLessThan(highest + 1);
+        }
         const set = new DenseEntitySet();
         entities.forEach((entity) => set.add(entity));
         const oracle = new Set<Entity>(entities);
@@ -299,7 +325,20 @@ describe("DenseEntitySet", () => {
         }
         expect(new Set(set)).toEqual(oracle);
         world.dispose();
-      }
+      },
+      // Full membership assertions took ~5 s for a large-pool seed while two
+      // workers shared one CPU; retain the scenario with a bounded 3x budget.
+      poolSize === 128 ? 15_000 : 5_000
     );
   });
 });
+
+function densityWorld(): World {
+  return new World({
+    idPools: [
+      { name: "component", min: 1, max: 63 },
+      { name: "module", min: 64, max: 99 },
+      { name: "entity", min: 100, reuseWaitFrames: 0 },
+    ],
+  });
+}
