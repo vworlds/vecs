@@ -36,13 +36,17 @@ class Vel {
 const DELTA_MS = 16;
 const SIZES = [10_000, 100_000] as const;
 const HEAP_SETTLE_TICKS = 3;
-/** Fixed `[warmupTicks, ticks]` per case and size, measured on the current core. */
+/**
+ * Fixed `[warmupTicks, ticks]` per case and size. The write-heavy cases carry
+ * about six times the headroom of today's core, so a 6x faster storage still
+ * measures a ~200 ms region; a full default run takes about two minutes now.
+ */
 const TICKS: Record<TickCase, Record<(typeof SIZES)[number], [number, number]>> = {
   iterate: { 10_000: [300, 900], 100_000: [50, 150] },
-  inject: { 10_000: [60, 180], 100_000: [5, 15] },
-  set: { 10_000: [20, 60], 100_000: [2, 5] },
-  watch: { 10_000: [20, 60], 100_000: [2, 5] },
-  churn: { 10_000: [20, 60], 100_000: [2, 5] },
+  inject: { 10_000: [400, 1_200], 100_000: [30, 90] },
+  set: { 10_000: [200, 600], 100_000: [12, 30] },
+  watch: { 10_000: [120, 360], 100_000: [12, 30] },
+  churn: { 10_000: [200, 600], 100_000: [12, 36] },
 };
 
 type TickCase = "iterate" | "inject" | "set" | "watch" | "churn";
@@ -264,6 +268,16 @@ function buildScene(caseName: TickCase, size: number): Scene {
       const window = size / 10;
       let visits = 0;
       let previous: Entity[] | null = null;
+      // Precompute the ten membership windows outside the timed loop, so the
+      // timed region only contains the remove/add calls and the system.
+      const windows: Entity[][] = [];
+      for (let block = 0; block < 10; block++) {
+        const current: Entity[] = [];
+        for (let j = 0; j < window; j++) {
+          current.push(all[(block * window + j) % size]!);
+        }
+        windows.push(current);
+      }
       world
         .system("churn")
         .with(Pos, Vel)
@@ -277,11 +291,7 @@ function buildScene(caseName: TickCase, size: number): Scene {
         perTick: (tick) => {
           // Rotating window: `window` entities lose Vel this tick, the previous
           // window gains it back, so exactly one tenth lacks Vel at any time.
-          const start = (tick * window) % size;
-          const current: Entity[] = [];
-          for (let j = 0; j < window; j++) {
-            current.push(all[(start + j) % size]!);
-          }
+          const current = windows[tick % 10]!;
           for (const entity of current) {
             entity.remove(Vel);
           }

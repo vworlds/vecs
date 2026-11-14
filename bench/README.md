@@ -71,16 +71,20 @@ Each line reports the median, min and max nanoseconds per entity per tick over t
 and callback counts that the benchmark asserts exactly every round; it only changes when
 observable behavior changes. Tick counts are fixed per case and size so both builds measure
 equal work, with a warm-up, and the timed loop is one small shared function, so a case is not
-bimodal between JIT tiers. `BENCH_ROUNDS` (5) sets the rounds per case and size;
-`BENCH_TICKS` and `BENCH_WARMUP_TICKS` override the tick counts uniformly. Every override
-must be a positive integer. The `heap` case spawns one fresh `--expose-gc` child process per
-round and reports the `heapUsed` delta across building the world and settling it with three
-ticks, so no other case's garbage pollutes the measurement. Pass a case name to isolate it
-for `node --cpu-prof`; unknown names fail rather than producing an empty run. Set
-`BENCH_VECS_ROOT` to run the same benchmark against another built checkout. Timings need an
-idle host; compare base and head in alternating processes, and the checksums must stay
-identical. `bench:release-check` includes one timing row (the median) and one fingerprint row
-(the checksum) per case and size.
+bimodal between JIT tiers. `iterate` is sized for today's core; the four write-heavy cases
+carry about six times the headroom, so even a 6x faster storage core still measures a
+roughly 200 ms region per round, and a full default run takes about two minutes on the
+current core. `BENCH_ROUNDS` (5) sets the rounds per case and size; `BENCH_TICKS` and
+`BENCH_WARMUP_TICKS` override the tick counts uniformly. Every override must be a positive
+integer. The `heap` case spawns one fresh `--expose-gc` child process per round and reports
+the `heapUsed` delta across building the world and settling it with three ticks, so no other
+case's garbage pollutes the measurement. The `churn` case precomputes its ten membership
+windows outside the timed loop, which therefore contains only the `remove`/`add` calls and
+the system. Pass a case name to isolate it for `node --cpu-prof`; unknown names fail rather
+than producing an empty run. Set `BENCH_VECS_ROOT` to run the same benchmark against another
+built checkout. Timings need an idle host; compare base and head in alternating processes,
+and the checksums must stay identical. `bench:release-check` includes one timing row (the
+median) and one fingerprint row (the checksum) per case and size.
 
 ## Relationship edge updates
 
