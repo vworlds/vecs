@@ -175,7 +175,7 @@ export class Entities extends Deferred {
   protected _register(this: World, e: Entity, onCreate?: (e: Entity) => void): void {
     if (this.deferred) {
       this._deferredEntities.set(e.eid, e);
-      this._enqueue({ kind: CommandKind.CreateEntity, entity: e, onCreate });
+      this._enqueue(CommandKind.CreateEntity, e, undefined, onCreate);
       return;
     }
     this._entities.set(e.eid, e);
