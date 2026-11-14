@@ -51,6 +51,41 @@ callbacks fire every frame. Compare alternating builds with identical settings.
 `bench:release-check` includes timing and deterministic fingerprint rows for all
 three kinds.
 
+## Core storage cases
+
+Run `node --import ./bench/register-dist.mjs bench/core-storage.ts` after building. It prices
+the core storage epic's cases at 10,000 and 100,000 entities carrying two small components,
+with one `CORE_STORAGE_RESULT` line per case and size:
+
+| Case    | Body                                                                                                                       |
+| ------- | -------------------------------------------------------------------------------------------------------------------------- |
+| iterate | `each([], ...)`, no injection                                                                                              |
+| inject  | `each([Pos, Vel], ...)` writing in place                                                                                   |
+| set     | `each([Pos, Vel], ...)` calling `entity.set(Pos, {...})`, no watcher                                                       |
+| watch   | as `set`, plus a second system with `update({ watch: Pos }, ...)`                                                          |
+| churn   | each tick a rotating tenth of the entities loses `Vel` and the previous tenth gains it back, one `each([Pos, Vel])` system |
+| heap    | bytes per entity retained after building the `watch` world, measured in a fresh process                                    |
+
+Each line reports the median, min and max nanoseconds per entity per tick over the rounds
+(bytes per entity for `heap`), the tick counts it used, and a checksum of component field sums
+and callback counts that the benchmark asserts exactly every round; it only changes when
+observable behavior changes. Tick counts are fixed per case and size so both builds measure
+equal work, with a warm-up, and the timed loop is one small shared function, so a case is not
+bimodal between JIT tiers. `iterate` is sized for today's core; the four write-heavy cases
+carry about six times the headroom, so even a 6x faster storage core still measures a
+roughly 200 ms region per round, and a full default run takes about two minutes on the
+current core. `BENCH_ROUNDS` (5) sets the rounds per case and size; `BENCH_TICKS` and
+`BENCH_WARMUP_TICKS` override the tick counts uniformly. Every override must be a positive
+integer. The `heap` case spawns one fresh `--expose-gc` child process per round and reports
+the `heapUsed` delta across building the world and settling it with three ticks, so no other
+case's garbage pollutes the measurement. The `churn` case precomputes its ten membership
+windows outside the timed loop, which therefore contains only the `remove`/`add` calls and
+the system. Pass a case name to isolate it for `node --cpu-prof`; unknown names fail rather
+than producing an empty run. Set `BENCH_VECS_ROOT` to run the same benchmark against another
+built checkout. Timings need an idle host; compare base and head in alternating processes,
+and the checksums must stay identical. `bench:release-check` includes one timing row (the
+median) and one fingerprint row (the checksum) per case and size.
+
 ## Relationship edge updates
 
 Run `node --import ./bench/register-dist.mjs bench/edge-coalesce.ts` after building.
@@ -254,7 +289,7 @@ specific tag or ref instead. Temporary worktrees and JSON/Markdown reports live 
 `.tmp/release-check/`; matching lockfiles reuse this checkout's dependencies, otherwise the base
 installs its own. Run `npm ci` first.
 
-The check includes sector tick, idle systems, DR bandwidth, and an optional physics pose-out benchmark
+The check includes sector tick, core storage, idle systems, DR bandwidth, and an optional physics pose-out benchmark
 when a matching benchmark file is present. It defaults to three alternating runs per
 build; set `BENCH_ROUNDS` to an integer of at least three for more runs. Missing release
 package APIs produce “no previous data” for that benchmark; benchmark crashes fail the
