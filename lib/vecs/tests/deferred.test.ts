@@ -83,11 +83,8 @@ describe("Deferred mode — data-layer visibility", () => {
       expect(() => source.add(LinkedTo, foreignTarget)).toThrow(/different World/);
     });
     expect(() =>
-      (w as any)._executeCommand({
-        kind: CommandKind.AddTarget,
-        entity: source,
-        meta: relationship.meta,
-        target: foreignTarget,
+      w.defer(() => {
+        w._enqueue(CommandKind.AddTarget, source, relationship.meta, foreignTarget);
       })
     ).toThrow(/same World/);
 
