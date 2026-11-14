@@ -57,14 +57,16 @@ Run `node --import ./bench/register-dist.mjs bench/core-storage.ts` after buildi
 the core storage epic's cases at 10,000 and 100,000 entities carrying two small components,
 with one `CORE_STORAGE_RESULT` line per case and size:
 
-| Case    | Body                                                                                                                       |
-| ------- | -------------------------------------------------------------------------------------------------------------------------- |
-| iterate | `each([], ...)`, no injection                                                                                              |
-| inject  | `each([Pos, Vel], ...)` writing in place                                                                                   |
-| set     | `each([Pos, Vel], ...)` calling `entity.set(Pos, {...})`, no watcher                                                       |
-| watch   | as `set`, plus a second system with `update({ watch: Pos }, ...)`                                                          |
-| churn   | each tick a rotating tenth of the entities loses `Vel` and the previous tenth gains it back, one `each([Pos, Vel])` system |
-| heap    | bytes per entity retained after building the `watch` world, measured in a fresh process                                    |
+| Case           | Body                                                                                                                       |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| iterate        | `each([], ...)`, no injection                                                                                              |
+| inject         | `each([Pos, Vel], ...)` writing in place                                                                                   |
+| set            | `each([Pos, Vel], ...)` calling `entity.set(Pos, {...})`, no watcher                                                       |
+| watch          | as `set`, plus a second system with `update({ watch: Pos }, ...)`                                                          |
+| churn          | each tick a rotating tenth of the entities loses `Vel` and the previous tenth gains it back, one `each([Pos, Vel])` system |
+| heap           | bytes per entity retained after building the `watch` world, measured in a fresh process                                    |
+| composite      | `churn` with 16 distinct populated composite queries sharing Pos/Vel, each with synchronous enter/exit callbacks           |
+| composite-heap | bytes per entity retained by the `composite` world in a fresh process                                                      |
 
 Each line reports the median, min and max nanoseconds per entity per tick over the rounds
 (bytes per entity for `heap`), the tick counts it used, and a checksum of component field sums
@@ -83,7 +85,12 @@ windows outside the timed loop, which therefore contains only the `remove`/`add`
 the system. Pass a case name to isolate it for `node --cpu-prof`; unknown names fail rather
 than producing an empty run. Set `BENCH_VECS_ROOT` to run the same benchmark against another
 built checkout. Timings need an idle host; compare base and head in alternating processes,
-and the checksums must stay identical. `bench:release-check` includes one timing row (the
+and the checksums must stay identical. The `composite` case adds 16 distinct
+`with(Pos, Vel).without(Absent)` queries to the churn scene, with a different
+absent key per query. It checks exact enter/exit callback totals in addition to
+the ordinary churn fingerprint. `composite-heap` measures that world's retained
+bytes per entity with the same fresh-process method as `heap`.
+`bench:release-check` includes one timing row (the
 median) and one fingerprint row (the checksum) per case and size.
 
 ## Relationship edge updates

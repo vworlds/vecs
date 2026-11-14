@@ -2,6 +2,8 @@
  * Core storage benchmark cases for the storage epic: iteration, injected
  * in-place writes, deferred `set`, watcher delivery, component churn and
  * retained heap, at 10,000 and 100,000 entities with two small components.
+ * Composite rows add 16 distinct populated queries to the churn scene and
+ * measure its enter/exit cost and retained heap separately.
  *
  * Run after building:
  *
@@ -36,6 +38,7 @@ class Vel {
 const DELTA_MS = 16;
 const SIZES = [10_000, 100_000] as const;
 const HEAP_SETTLE_TICKS = 3;
+const COMPOSITE_TERMS = 16;
 /**
  * Fixed `[warmupTicks, ticks]` per case and size. The write-heavy cases carry
  * about six times the headroom of today's core, so a 6x faster storage still
@@ -47,10 +50,11 @@ const TICKS: Record<TickCase, Record<(typeof SIZES)[number], [number, number]>> 
   set: { 10_000: [200, 600], 100_000: [12, 30] },
   watch: { 10_000: [120, 360], 100_000: [12, 30] },
   churn: { 10_000: [200, 600], 100_000: [12, 36] },
+  composite: { 10_000: [20, 60], 100_000: [4, 12] },
 };
 
-type TickCase = "iterate" | "inject" | "set" | "watch" | "churn";
-type CaseName = TickCase | "heap";
+type TickCase = "iterate" | "inject" | "set" | "watch" | "churn" | "composite";
+type CaseName = TickCase | "heap" | "composite-heap";
 type ResultLine = {
   case: CaseName;
   entities: number;
@@ -69,12 +73,21 @@ type Scene = {
   checksum: () => string;
 };
 
-const CASES: readonly CaseName[] = ["iterate", "inject", "set", "watch", "churn", "heap"];
+const CASES: readonly CaseName[] = [
+  "iterate",
+  "inject",
+  "set",
+  "watch",
+  "churn",
+  "heap",
+  "composite",
+  "composite-heap",
+];
 const benchFile = fileURLToPath(import.meta.url);
 const registerDist = resolve(dirname(benchFile), "register-dist.mjs");
 
 if (process.argv[2] === "--heap") {
-  runHeapChild(positiveValue(process.argv[3], "heap size"));
+  runHeapChild(positiveValue(process.argv[3], "heap size"), process.argv[4] === "composite");
 } else {
   const only = process.argv[2] as CaseName | undefined;
   assert(
@@ -87,8 +100,8 @@ if (process.argv[2] === "--heap") {
   for (const caseName of only === undefined ? CASES : [only]) {
     for (const size of SIZES) {
       const line =
-        caseName === "heap"
-          ? runHeap(size, rounds)
+        caseName === "heap" || caseName === "composite-heap"
+          ? runHeap(size, rounds, caseName === "composite-heap")
           : runTickCase(
               caseName,
               size,
@@ -145,13 +158,21 @@ function runTickCase(
 }
 
 /** Run the heap case as one fresh `--expose-gc` child process per round. */
-function runHeap(size: number, rounds: number): ResultLine {
+function runHeap(size: number, rounds: number, composite: boolean): ResultLine {
   const samples: number[] = [];
   let checksum = "";
   for (let round = 0; round < rounds; round++) {
     const child = spawnSync(
       process.execPath,
-      ["--expose-gc", "--import", registerDist, benchFile, "--heap", String(size)],
+      [
+        "--expose-gc",
+        "--import",
+        registerDist,
+        benchFile,
+        "--heap",
+        String(size),
+        composite ? "composite" : "watch",
+      ],
       { encoding: "utf8" }
     );
     if (child.status !== 0) {
@@ -166,20 +187,28 @@ function runHeap(size: number, rounds: number): ResultLine {
     assert.equal(report.checksum, checksum, `heap/${size} round ${round}`);
     samples.push(report.bytesPerEntity);
   }
-  return { case: "heap", entities: size, rounds, ...summary(samples), checksum };
+  return {
+    case: composite ? "composite-heap" : "heap",
+    entities: size,
+    rounds,
+    ...summary(samples),
+    checksum,
+  };
 }
 
-/** Build the watch world, settle it with ticks, and report the retained heap. */
-function runHeapChild(size: number): void {
+/** Build a watch or composite world, settle it, and report retained heap. */
+function runHeapChild(size: number, composite: boolean): void {
   assert(typeof globalThis.gc === "function", "run the heap child with --expose-gc");
   globalThis.gc();
   const before = process.memoryUsage().heapUsed;
-  const scene = buildScene("watch", size);
+  const caseName = composite ? "composite" : "watch";
+  const scene = buildScene(caseName, size);
+  scene.reset();
   timeTicks(scene, 0, HEAP_SETTLE_TICKS);
   globalThis.gc();
   const bytesPerEntity = (process.memoryUsage().heapUsed - before) / size;
   const checksum = scene.checksum();
-  assert.equal(checksum, expectedChecksum("watch", size, 0, HEAP_SETTLE_TICKS), "heap child");
+  assert.equal(checksum, expectedChecksum(caseName, size, 0, HEAP_SETTLE_TICKS), "heap child");
   console.log(JSON.stringify({ bytesPerEntity, checksum }));
   scene.world.dispose();
 }
@@ -264,10 +293,32 @@ function buildScene(caseName: TickCase, size: number): Scene {
         checksum: () => `sum:${sumPos(all)};watched:${watched}`,
       };
     }
-    case "churn": {
+    case "churn":
+    case "composite": {
       const window = size / 10;
       let visits = 0;
       let previous: Entity[] | null = null;
+      let enters = 0;
+      let exits = 0;
+      if (caseName === "composite") {
+        for (let i = 0; i < COMPOSITE_TERMS; i++) {
+          // Unique absent keys produce distinct, populated composite terms,
+          // sharing Pos/Vel leaves but maintaining independent membership.
+          class Absent {}
+          world.component(Absent);
+          world
+            .query(`composite-${i}`)
+            .with(Pos, Vel)
+            .without(Absent)
+            .enter(() => {
+              enters++;
+            })
+            .exit(() => {
+              exits++;
+            })
+            .build();
+        }
+      }
       // Precompute the ten membership windows outside the timed loop, so the
       // timed region only contains the remove/add calls and the system.
       const windows: Entity[][] = [];
@@ -304,8 +355,12 @@ function buildScene(caseName: TickCase, size: number): Scene {
         },
         reset: () => {
           visits = 0;
+          enters = 0;
+          exits = 0;
         },
-        checksum: () => `sum:${sumPos(all)},visits:${visits},vel:${velCount(all)}`,
+        checksum: () =>
+          `sum:${sumPos(all)},visits:${visits},vel:${velCount(all)}` +
+          (caseName === "composite" ? `,enters:${enters},exits:${exits}` : ""),
       };
     }
   }
@@ -332,9 +387,15 @@ function expectedChecksum(
       const measured = (total * (total + 1) - warmupTicks * (warmupTicks + 1)) / 2;
       return `sum:${size * total};watched:${size * measured}`;
     }
-    case "churn": {
+    case "churn":
+    case "composite": {
       const members = size - size / 10;
-      return `sum:${2 * total * members},visits:${ticks * members},vel:${members}`;
+      return (
+        `sum:${2 * total * members},visits:${ticks * members},vel:${members}` +
+        (caseName === "composite"
+          ? `,enters:${COMPOSITE_TERMS * (size / 10) * (ticks - (warmupTicks === 0 ? 1 : 0))},exits:${COMPOSITE_TERMS * (size / 10) * ticks}`
+          : "")
+      );
     }
   }
 }

@@ -432,11 +432,13 @@ export type InjectedCallback = (eOrIt: Entity | Iter, resolved: readonly Injecte
  * callback are buffered and applied after iteration finishes.
  *
  * Shared by {@link Query.forEach} and {@link Group.forEach} so both honour the
- * same injection and deferral semantics.
+ * same injection and deferral semantics. Term membership supplies a live
+ * callback traversal to avoid a generator; other iterables retain their own
+ * iteration behavior.
  */
 export function forEachInjected(
   world: World,
-  entities: Iterable<Entity>,
+  entities: Iterable<Entity> & { _forEachLive?: (callback: (entity: Entity) => void) => void },
   callbackOrInject: ((e: Entity) => void) | FanInjectCallbackArg,
   injectedCallback?: InjectedCallback
 ): void {
@@ -444,8 +446,12 @@ export function forEachInjected(
   try {
     // Bare `forEach(callback)`: a function that is not a cursor marker.
     if (typeof callbackOrInject === "function") {
-      for (const entity of entities) {
-        callbackOrInject(entity);
+      if (entities._forEachLive !== undefined) {
+        entities._forEachLive(callbackOrInject);
+      } else {
+        for (const entity of entities) {
+          callbackOrInject(entity);
+        }
       }
       return;
     }
@@ -476,8 +482,12 @@ export function forEachInjected(
     entry.busy = true;
     try {
       const invoke = entry.invoke;
-      for (const entity of entities) {
-        invoke(entity);
+      if (entities._forEachLive !== undefined) {
+        entities._forEachLive(invoke);
+      } else {
+        for (const entity of entities) {
+          invoke(entity);
+        }
       }
     } finally {
       entry.busy = wasBusy;

@@ -1,4 +1,5 @@
 import type { Entity } from "../entity/index.js";
+import { DenseEntitySet } from "../util/dense_entity_set.js";
 import type { World } from "../world/index.js";
 
 export const enum TermEventKind {
@@ -69,7 +70,7 @@ export type TermKind =
 /**
  * Base class for all reactive entity-set nodes in the term graph.
  *
- * A `Term` maintains a live `Set<Entity>` of every entity currently satisfying
+ * A `Term` maintains dense live membership of every entity currently satisfying
  * its sub-predicate. It subscribes to its children via the two-signal contract
  * defined on {@link TermConsumer} and propagates enter/exit events upward to
  * its own consumers.
@@ -84,7 +85,7 @@ export abstract class Term implements TermConsumer {
   /** @internal */
   protected readonly _consumers = new Set<TermConsumer>();
   /** @internal */
-  protected readonly _entities = new Set<Entity>();
+  protected readonly _entities = new DenseEntitySet();
   private _destroyed = false;
   private readonly _childUnsubscribes: (() => void)[] = [];
   /** Consumers that may act on a refresh while no membership event is in flight. */
@@ -102,6 +103,7 @@ export abstract class Term implements TermConsumer {
     return this._entities.size;
   }
 
+  /** Iterate live membership; additions are visited and removals skipped, in unspecified order. */
   public [Symbol.iterator](): IterableIterator<Entity> {
     return this._entities[Symbol.iterator]();
   }
@@ -112,6 +114,11 @@ export abstract class Term implements TermConsumer {
 
   public has(entity: Entity): boolean {
     return this._entities.has(entity);
+  }
+
+  /** @internal Traverse live membership without a generator; order is unspecified. */
+  public _forEachLive(callback: (entity: Entity) => void): void {
+    this._entities.forEachLive(callback);
   }
 
   /**

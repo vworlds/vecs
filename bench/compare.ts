@@ -347,7 +347,7 @@ function coreStorageMetrics(result: Record<string, unknown>): Metric[] {
       {
         name: `${row.case}-${row.entities}.median`,
         timing: true,
-        bytes: row.case === "heap",
+        bytes: row.case === "heap" || row.case === "composite-heap",
         values: [median],
       },
       {
