@@ -127,7 +127,7 @@ export class Lifecycle extends Components {
       throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
     }
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Destroy, entity: this });
+      this.world._enqueue(CommandKind.Destroy, this);
     } else {
       this._destroy();
     }

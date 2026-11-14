@@ -1,17 +1,26 @@
-import { CommandKind, type Command } from "../command.js";
+import { CommandKind } from "../command.js";
+import type { ComponentInstance } from "../component.js";
 import type { ComponentMeta } from "../component_meta.js";
 import type { Entity } from "../entity/entity.js";
 import { Queries } from "./world.queries.js";
 
 export class Deferred extends Queries {
-  /** @internal Single ordered command queue used in deferred mode. */
-  protected _commandQueue: Command[] = [];
+  /** @internal Parallel slots retain capacity across drains, but not referenced values. */
+  protected _commandKinds: CommandKind[] = [];
+  protected _commandEntities: (Entity | undefined)[] = [];
+  protected _commandMetas: (ComponentMeta | undefined)[] = [];
+  protected _commandPayloads: (
+    Partial<ComponentInstance> | Entity | ((entity: Entity) => void) | undefined
+  )[] = [];
+  /** @internal Producer captured at enqueue time for `ignoreSource` routing. */
+  protected _commandSources: (Entity | undefined)[] = [];
+  protected _commandLength = 0;
   /** @internal Nested {@link beginDefer} / {@link endDefer} count. */
   protected _deferredDepth = 0;
   /** @internal `true` while {@link _processCommandQueue} is iterating, to avoid re-entrant drains. */
   protected _draining = false;
   /**
-   * @internal Index of the first command in {@link _commandQueue} not yet taken
+   * @internal Index of the first command slot not yet taken
    * by the drain: `0` outside a drain, one past the executing command during it.
    */
   protected _commandHead = 0;
@@ -49,24 +58,24 @@ export class Deferred extends Queries {
     if (entity.destroyed) {
       return [];
     }
-    const queue = this._commandQueue;
-    for (let i = this._commandHead; i < queue.length; i++) {
-      const cmd = queue[i]!;
-      if (!this._isEdgeCommandFor(cmd, entity, meta)) {
+    for (let i = this._commandHead; i < this._commandLength; i++) {
+      if (!this._isEdgeCommandFor(i, entity, meta)) {
         continue;
       }
-      if (cmd.kind === CommandKind.Remove) {
+      const kind = this._commandKinds[i];
+      const target = this._commandPayloads[i] as Entity;
+      if (kind === CommandKind.Remove) {
         targets.length = 0;
-      } else if (cmd.kind === CommandKind.RemoveTarget) {
-        const index = targets.indexOf(cmd.target);
+      } else if (kind === CommandKind.RemoveTarget) {
+        const index = targets.indexOf(target);
         if (index !== -1) {
           targets.splice(index, 1);
         }
-      } else if (!cmd.target.destroyed && !targets.includes(cmd.target)) {
+      } else if (!target.destroyed && !targets.includes(target)) {
         if (meta.relationshipExclusive) {
           targets.length = 0;
         }
-        targets.push(cmd.target);
+        targets.push(target);
       }
     }
     return targets.some((target) => target.destroyed)
@@ -87,22 +96,22 @@ export class Deferred extends Queries {
     if (entity.destroyed || target.destroyed) {
       return false;
     }
-    const queue = this._commandQueue;
-    for (let i = queue.length - 1; i >= this._commandHead; i--) {
-      const cmd = queue[i]!;
-      if (!this._isEdgeCommandFor(cmd, entity, meta)) {
+    for (let i = this._commandLength - 1; i >= this._commandHead; i--) {
+      if (!this._isEdgeCommandFor(i, entity, meta)) {
         continue;
       }
-      if (cmd.kind === CommandKind.Remove) {
+      const kind = this._commandKinds[i];
+      const pendingTarget = this._commandPayloads[i] as Entity;
+      if (kind === CommandKind.Remove) {
         return false;
       }
-      if (cmd.target === target) {
-        return cmd.kind === CommandKind.AddTarget;
+      if (pendingTarget === target) {
+        return kind === CommandKind.AddTarget;
       }
       if (
-        cmd.kind === CommandKind.AddTarget &&
+        kind === CommandKind.AddTarget &&
         meta.relationshipExclusive &&
-        !cmd.target.destroyed
+        !pendingTarget.destroyed
       ) {
         return false;
       }
@@ -111,9 +120,18 @@ export class Deferred extends Queries {
   }
 
   /** @internal Append a command to the deferred-mode queue. */
-  public _enqueue(cmd: Command): void {
-    cmd.source = this._currentSource;
-    this._commandQueue.push(cmd);
+  public _enqueue(
+    kind: CommandKind,
+    entity: Entity,
+    meta?: ComponentMeta,
+    payload?: Partial<ComponentInstance> | Entity | ((entity: Entity) => void)
+  ): void {
+    const index = this._commandLength++;
+    this._commandKinds[index] = kind;
+    this._commandEntities[index] = entity;
+    this._commandMetas[index] = meta;
+    this._commandPayloads[index] = payload;
+    this._commandSources[index] = this._currentSource;
   }
 
   /** @internal Buffer one dirty relationship's notification with its original producer. */
@@ -155,39 +173,41 @@ export class Deferred extends Queries {
   }
 
   /** @internal Run one command's side effects. */
-  protected _executeCommand(cmd: Command): void {
-    this._routingSource = cmd.source;
-    switch (cmd.kind) {
+  protected _executeCommand(index: number): void {
+    const entity = this._commandEntities[index]!;
+    const meta = this._commandMetas[index]!;
+    const payload = this._commandPayloads[index];
+    this._routingSource = this._commandSources[index];
+    switch (this._commandKinds[index]) {
       case CommandKind.CreateEntity:
-        this._entities.set(cmd.entity.eid, cmd.entity);
-        this._deferredEntities.delete(cmd.entity.eid);
-        this._notifyEntityCreated(cmd.entity);
-        cmd.onCreate?.(cmd.entity);
+        this._entities.set(entity.eid, entity);
+        this._deferredEntities.delete(entity.eid);
+        this._notifyEntityCreated(entity);
+        (payload as ((entity: Entity) => void) | undefined)?.(entity);
         return;
       case CommandKind.Set:
-        if (cmd.changedOnly) {
-          cmd.entity._assign(cmd.meta, cmd.props!);
-        } else {
-          cmd.entity._set(cmd.meta, cmd.props);
-        }
+        entity._set(meta, payload as Partial<ComponentInstance> | undefined);
+        return;
+      case CommandKind.Assign:
+        entity._assign(meta, payload as Partial<ComponentInstance>);
         return;
       case CommandKind.Modified:
-        cmd.entity._modified(cmd.meta);
+        entity._modified(meta);
         return;
       case CommandKind.Remove:
-        cmd.entity._remove(cmd.meta);
+        entity._remove(meta);
         return;
       case CommandKind.Destroy:
-        cmd.entity._destroy();
+        entity._destroy();
         return;
       case CommandKind.Attach:
-        cmd.entity._attach(cmd.meta, cmd.component);
+        entity._attach(meta, payload as ComponentInstance);
         return;
       case CommandKind.AddTarget:
-        cmd.entity._addTarget(cmd.meta, cmd.target);
+        entity._addTarget(meta, payload as Entity);
         return;
       case CommandKind.RemoveTarget:
-        cmd.entity._removeTarget(cmd.meta, cmd.target);
+        entity._removeTarget(meta, payload as Entity);
         return;
     }
   }
@@ -197,20 +217,20 @@ export class Deferred extends Queries {
     if (this._draining) {
       return;
     }
-    if (this._commandQueue.length === 0 && this._relationshipUpdateLength === 0) {
+    if (this._commandLength === 0 && this._relationshipUpdateLength === 0) {
       return;
     }
     this._draining = true;
     try {
       let nextUpdate = 0;
       while (
-        this._commandHead < this._commandQueue.length ||
+        this._commandHead < this._commandLength ||
         nextUpdate < this._relationshipUpdateLength
       ) {
         // Even an explicit modified(R) preceding an edge must observe the final
         // edge set. Drain mutations (including hook-enqueued commands) first.
-        while (this._commandHead < this._commandQueue.length) {
-          this._executeCommand(this._commandQueue[this._commandHead++]!);
+        while (this._commandHead < this._commandLength) {
+          this._executeCommand(this._commandHead++);
         }
         const entity =
           nextUpdate < this._relationshipUpdateLength
@@ -219,10 +239,7 @@ export class Deferred extends Queries {
         if (entity) {
           const meta = this._relationshipUpdates[nextUpdate + 1] as ComponentMeta;
           this._routingSource = this._relationshipUpdates[nextUpdate + 2] as Entity | undefined;
-          if (
-            entity._prepareRelationshipUpdate(meta) &&
-            this._commandHead < this._commandQueue.length
-          ) {
+          if (entity._prepareRelationshipUpdate(meta) && this._commandHead < this._commandLength) {
             continue;
           }
           nextUpdate += 3;
@@ -231,7 +248,13 @@ export class Deferred extends Queries {
           entity._modifiedRelationship(meta);
         }
       }
-      this._commandQueue.length = 0;
+      for (let j = 0; j < this._commandLength; j++) {
+        this._commandEntities[j] = undefined;
+        this._commandMetas[j] = undefined;
+        this._commandPayloads[j] = undefined;
+        this._commandSources[j] = undefined;
+      }
+      this._commandLength = 0;
       for (let j = 0; j < this._relationshipUpdateLength; j++) {
         this._relationshipUpdates[j] = undefined;
       }
@@ -243,21 +266,15 @@ export class Deferred extends Queries {
     }
   }
 
-  /** @internal Whether `cmd` adds or removes an edge of `meta` on `entity`, or removes `meta` from it. */
-  private _isEdgeCommandFor(
-    cmd: Command,
-    entity: Entity,
-    meta: ComponentMeta
-  ): cmd is Extract<
-    Command,
-    { kind: CommandKind.AddTarget | CommandKind.RemoveTarget | CommandKind.Remove }
-  > {
+  /** @internal Whether a slot changes an edge of `meta` on `entity`, or removes `meta`. */
+  private _isEdgeCommandFor(index: number, entity: Entity, meta: ComponentMeta): boolean {
+    const kind = this._commandKinds[index];
     return (
-      (cmd.kind === CommandKind.AddTarget ||
-        cmd.kind === CommandKind.RemoveTarget ||
-        cmd.kind === CommandKind.Remove) &&
-      cmd.entity === entity &&
-      cmd.meta === meta
+      (kind === CommandKind.AddTarget ||
+        kind === CommandKind.RemoveTarget ||
+        kind === CommandKind.Remove) &&
+      this._commandEntities[index] === entity &&
+      this._commandMetas[index] === meta
     );
   }
 }

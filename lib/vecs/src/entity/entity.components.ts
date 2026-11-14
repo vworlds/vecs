@@ -294,12 +294,7 @@ export class Components extends Relationships {
       }
       const targetEntity = this.world.entity(target);
       if (this.world.deferred) {
-        this.world._enqueue({
-          kind: CommandKind.AddTarget,
-          entity: this,
-          meta: componentMeta,
-          target: targetEntity,
-        });
+        this.world._enqueue(CommandKind.AddTarget, this, componentMeta, targetEntity);
       } else {
         this._addTarget(componentMeta, targetEntity);
       }
@@ -309,13 +304,7 @@ export class Components extends Relationships {
       throw new Error("Entity.add target argument requires a Relationship component");
     }
     if (this.world.deferred) {
-      this.world._enqueue({
-        kind: CommandKind.Set,
-        entity: this,
-        meta: componentMeta,
-        props: undefined,
-        changedOnly: false,
-      });
+      this.world._enqueue(CommandKind.Set, this, componentMeta);
     } else {
       this._set(componentMeta, undefined);
     }
@@ -562,7 +551,7 @@ export class Components extends Relationships {
       if (meta.isRelationship) {
         this.world._enqueueRelationshipUpdate(this, meta, this.world._currentSource);
       } else {
-        this.world._enqueue({ kind: CommandKind.Modified, entity: this, meta });
+        this.world._enqueue(CommandKind.Modified, this, meta);
       }
     } else {
       this._modified(meta);
@@ -577,12 +566,7 @@ export class Components extends Relationships {
     component: ComponentInstance
   ): void {
     if (this.world.deferred) {
-      this.world._enqueue({
-        kind: CommandKind.Attach,
-        entity: this,
-        meta,
-        component,
-      });
+      this.world._enqueue(CommandKind.Attach, this, meta, component);
     } else {
       this._attach(meta, component);
     }
@@ -636,23 +620,14 @@ export class Components extends Relationships {
       }
       const targetEntity = this.world.entity(target);
       if (this.world.deferred) {
-        this.world._enqueue({
-          kind: CommandKind.RemoveTarget,
-          entity: this,
-          meta: componentMeta,
-          target: targetEntity,
-        });
+        this.world._enqueue(CommandKind.RemoveTarget, this, componentMeta, targetEntity);
       } else {
         this._removeTarget(componentMeta, targetEntity);
       }
       return;
     }
     if (this.world.deferred) {
-      this.world._enqueue({
-        kind: CommandKind.Remove,
-        entity: this,
-        meta: componentMeta,
-      });
+      this.world._enqueue(CommandKind.Remove, this, componentMeta);
     } else {
       this._remove(componentMeta);
     }
@@ -684,13 +659,7 @@ export class Components extends Relationships {
     }
     this._throwIfInterface(meta, "assign");
     if (this.world.deferred) {
-      this.world._enqueue({
-        kind: CommandKind.Set,
-        entity: this,
-        meta,
-        props: value,
-        changedOnly: true,
-      });
+      this.world._enqueue(CommandKind.Assign, this, meta, value);
     } else {
       this._assign(meta, value);
     }
@@ -726,13 +695,7 @@ export class Components extends Relationships {
     const componentMeta = this.world.entity(ref).meta;
     this._throwIfInterface(componentMeta, "set");
     if (this.world.deferred) {
-      this.world._enqueue({
-        kind: CommandKind.Set,
-        entity: this,
-        meta: componentMeta,
-        props,
-        changedOnly: false,
-      });
+      this.world._enqueue(CommandKind.Set, this, componentMeta, props);
     } else {
       this._set(componentMeta, props);
     }
