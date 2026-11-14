@@ -35,36 +35,12 @@ export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 type RunCallback = (now: number, delta: number) => void;
 /** A callback kind supported by a system. */
 export type SystemCallbackKind = "each" | "run" | "enter" | "update" | "exit";
-/** Discriminator for {@link _SystemInboxEvent}. */
+/** Discriminator for the parallel inbox arrays. */
 const enum InboxCommand {
   Enter,
   Exit,
   Update,
 }
-
-/**
- * One ordered event in a system's inbox. Routed by the world during command
- * queue processing; replayed during the system's next `_run`.
- *
- * @internal
- */
-type _SystemInboxEvent =
-  | {
-      kind: InboxCommand.Enter;
-      entity: Entity;
-      snapshot: InjectSnapshot | undefined;
-    }
-  | {
-      kind: InboxCommand.Exit;
-      entity: Entity;
-      snapshot: InjectSnapshot | undefined;
-    }
-  | {
-      kind: InboxCommand.Update;
-      entity: Entity;
-      eid: EID;
-      component: ComponentInstance;
-    };
 
 /**
  * A reactive processor running over a filtered subset of world entities.
@@ -110,8 +86,12 @@ export class System<R extends ComponentType[] = []>
   public _injectNow = 0;
   /** @internal Processing tick delta, including cadence accumulation. */
   public _injectDelta = 0;
-  /** @internal Single inbox replayed in arrival order on every `_run`. */
-  private readonly _inbox: _SystemInboxEvent[] = [];
+  /** Reused parallel inbox arrays; only slots below `_inboxLength` are live. */
+  private readonly _inboxKinds: InboxCommand[] = [];
+  private readonly _inboxEntities: (Entity | undefined)[] = [];
+  private readonly _inboxComponentIds: EID[] = [];
+  private readonly _inboxPayloads: (ComponentInstance | InjectSnapshot | undefined)[] = [];
+  private _inboxLength = 0;
   /**
    * @internal Set when any entity exits this system during the current inbox
    * window (between drains). Gates the stale-update membership probe in
@@ -227,7 +207,7 @@ export class System<R extends ComponentType[] = []>
     }
     if (this._enterCallback !== undefined) {
       const enterSnapshot = this._enterSnapshotter?.(e);
-      this._inbox.push({ kind: InboxCommand.Enter, entity: e, snapshot: enterSnapshot });
+      this._pushInbox(InboxCommand.Enter, e, 0, enterSnapshot);
     }
     for (const ceid of this._onEnterUpdateEids) {
       const c = e._get(ceid);
@@ -261,7 +241,7 @@ export class System<R extends ComponentType[] = []>
     this._exitedSinceDrain = true;
     if (this._exitCallback !== undefined) {
       const exitSnapshot = this._exitSnapshotter?.(e);
-      this._inbox.push({ kind: InboxCommand.Exit, entity: e, snapshot: exitSnapshot });
+      this._pushInbox(InboxCommand.Exit, e, 0, exitSnapshot);
     }
   }
 
@@ -291,7 +271,21 @@ export class System<R extends ComponentType[] = []>
 
   /** @internal Append an `update` event to the inbox, bypassing the silence filter. */
   private _pushUpdate(e: Entity, ceid: EID, c: ComponentInstance): void {
-    this._inbox.push({ kind: InboxCommand.Update, entity: e, eid: ceid, component: c });
+    this._pushInbox(InboxCommand.Update, e, ceid, c);
+  }
+
+  /** Append without allocating an event wrapper; only enter/exit capture snapshots. */
+  private _pushInbox(
+    kind: InboxCommand,
+    entity: Entity,
+    ceid: EID,
+    payload: ComponentInstance | InjectSnapshot | undefined
+  ): void {
+    const i = this._inboxLength++;
+    this._inboxKinds[i] = kind;
+    this._inboxEntities[i] = entity;
+    this._inboxComponentIds[i] = ceid;
+    this._inboxPayloads[i] = payload;
   }
 
   /**
@@ -316,7 +310,7 @@ export class System<R extends ComponentType[] = []>
     this._injectNow = now;
     this._injectDelta = tickDelta;
     if (
-      this._inbox.length === 0 &&
+      this._inboxLength === 0 &&
       this._runCallback === undefined &&
       (this._eachCallback === undefined || this.count === 0)
     ) {
@@ -339,9 +333,10 @@ export class System<R extends ComponentType[] = []>
   private _runDeferred(now: number, tickDelta: number): void {
     this.world.defer(() => {
       let suppressedEnters: Set<Entity> | undefined;
-      for (let i = 0; i < this._inbox.length; i++) {
-        const event = this._inbox[i];
-        switch (event.kind) {
+      for (let i = 0; i < this._inboxLength; i++) {
+        const entity = this._inboxEntities[i]!;
+        const payload = this._inboxPayloads[i];
+        switch (this._inboxKinds[i]) {
           case InboxCommand.Enter:
             // Stale-event guard: an Enter queued for an entity that has since
             // left this system (destroyed, or lost a `.with` component) before
@@ -356,17 +351,17 @@ export class System<R extends ComponentType[] = []>
             // and every component-update routing pass. A re-entered
             // ("came back") entity is a member again here, so its enter still
             // fires. Suppress its paired exit because the enter never ran.
-            if (this._exitedSinceDrain && !this.belongs(event.entity)) {
-              (suppressedEnters ??= new Set()).add(event.entity);
+            if (this._exitedSinceDrain && !this.belongs(entity)) {
+              (suppressedEnters ??= new Set()).add(entity);
               break;
             }
-            this._enterCallback!(event.entity, event.snapshot);
+            this._enterCallback!(entity, payload as InjectSnapshot | undefined);
             break;
           case InboxCommand.Exit:
-            if (suppressedEnters?.delete(event.entity)) {
+            if (suppressedEnters?.delete(entity)) {
               break;
             }
-            this._exitCallback!(event.entity, event.snapshot);
+            this._exitCallback!(entity, payload as InjectSnapshot | undefined);
             break;
           case InboxCommand.Update:
             // Stale-event guard: an Update queued for an entity that has since
@@ -380,18 +375,17 @@ export class System<R extends ComponentType[] = []>
             // re-entered ("came back") entity is a member again here, so its
             // update still fires. Exit events fire regardless — they carry
             // their own snapshot.
-            if (this._exitedSinceDrain && !this.belongs(event.entity)) {
+            if (this._exitedSinceDrain && !this.belongs(entity)) {
               break;
             }
-            const callback = this._componentUpdateCallbacks.get(event.eid);
+            const callback = this._componentUpdateCallbacks.get(this._inboxComponentIds[i]);
             if (callback) {
-              callback(event.entity, event.component);
+              callback(entity, payload as ComponentInstance);
             }
             break;
         }
       }
-      this._inbox.length = 0;
-      this._exitedSinceDrain = false;
+      this._clearInbox();
 
       if (this._runCallback) {
         this._runCallback(now, tickDelta);
@@ -401,6 +395,14 @@ export class System<R extends ComponentType[] = []>
         this._forEach(this._eachCallback);
       }
     });
+  }
+
+  /** Release references while retaining array capacity for the next routing window. */
+  private _clearInbox(): void {
+    this._inboxEntities.fill(undefined, 0, this._inboxLength);
+    this._inboxPayloads.fill(undefined, 0, this._inboxLength);
+    this._inboxLength = 0;
+    this._exitedSinceDrain = false;
   }
 
   /** True when this system's cadence source fired during the current frame. */
@@ -670,8 +672,7 @@ export class System<R extends ComponentType[] = []>
    */
   public disable(): this {
     this._enabled = false;
-    this._inbox.length = 0;
-    this._exitedSinceDrain = false;
+    this._clearInbox();
     return this;
   }
 
