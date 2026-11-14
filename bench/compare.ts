@@ -157,6 +157,7 @@ function releaseCheck(): void {
       "sector-tick.ts",
       "dr-bandwidth.ts",
       "idle-systems.ts",
+      "core-storage.ts",
       ...readdirSync(benchDir).filter((file) => /(?:physics.*pose|pose.*out).*\.ts$/.test(file)),
     ];
     for (const file of files) {
@@ -282,6 +283,9 @@ function firstErrorLine(error: unknown): string {
 }
 
 function extractMetrics(file: string, result: Record<string, unknown>): Metric[] {
+  if (file === "core-storage.ts") {
+    return coreStorageMetrics(result);
+  }
   const flat: Record<string, number | string> = {};
   const visit = (value: unknown, name: string): void => {
     if (typeof value === "number" || typeof value === "string") {
@@ -320,6 +324,39 @@ function extractMetrics(file: string, result: Record<string, unknown>): Metric[]
       bytes: /bytes/i.test(name),
       values: [value],
     };
+  });
+}
+
+/**
+ * Core storage prints one result line per case and size; name the rows after
+ * them, with the median as a timing metric and the checksum as a fingerprint.
+ * The heap rows report bytes per entity, so growth warns like a regression.
+ */
+function coreStorageMetrics(result: Record<string, unknown>): Metric[] {
+  const rows = (Array.isArray(result.results) ? result.results : [result]) as Record<
+    string,
+    unknown
+  >[];
+  return rows.flatMap((row) => {
+    const median = row.median;
+    const checksum = row.checksum;
+    if (typeof median !== "number" || !Number.isFinite(median) || typeof checksum !== "string") {
+      throw new Error(`invalid or missing metric core-storage/${JSON.stringify(row)}`);
+    }
+    return [
+      {
+        name: `${row.case}-${row.entities}.median`,
+        timing: true,
+        bytes: row.case === "heap",
+        values: [median],
+      },
+      {
+        name: `${row.case}-${row.entities}.checksum`,
+        timing: false,
+        bytes: false,
+        values: [checksum],
+      },
+    ];
   });
 }
 
