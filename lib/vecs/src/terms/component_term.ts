@@ -56,7 +56,7 @@ export class ComponentTerm extends Term {
 
   /** @internal Record storage membership before add hooks, without notifying consumers. */
   public _stageAdded(entity: Entity): void {
-    this._entities.add(entity);
+    this.add(entity);
     this._staged.push(entity);
   }
 
@@ -108,7 +108,7 @@ export class ComponentTerm extends Term {
       return;
     }
     this._removeStaged(index);
-    if (!this._matches(entity) && this._entities.delete(entity)) {
+    if (!this._matches(entity) && this.delete(entity)) {
       this._emitTo(TermEventKind.Exit, entity, (consumer) => consumer._resyncsOnEvent === true);
     }
   }
@@ -182,7 +182,7 @@ export class ComponentTerm extends Term {
       return false;
     }
     const consumers = this._removeStaged(index);
-    this._entities.delete(entity);
+    this.delete(entity);
     this._emitTo(
       TermEventKind.Exit,
       entity,
