@@ -1,8 +1,38 @@
 import { describe, expect, it } from "vitest";
 import { World } from "../src/world/index.js";
 import { Relationship } from "../src/component_meta.js";
+import { makeInjectedInvoker } from "../src/inject.js";
 
 describe("shared component storage", () => {
+  it("keeps a registered injection lookup live across promotion, replacement and empty demotion", () => {
+    class Value {
+      n = 1;
+    }
+    const world = new World();
+    world.component(Value);
+    const all = Array.from({ length: 200 }, () => world.entity());
+    const first = all[0]!;
+    first.add(Value);
+    const seen: unknown[] = [];
+    const invoke = makeInjectedInvoker(world, [Value], false, (_entity, values) => {
+      seen.push(values[0]);
+    });
+    const original = first.get(Value);
+    invoke(first);
+    all.forEach((entity) => entity.add(Value));
+    invoke(first);
+    const replacement = new Value();
+    first.attach(replacement);
+    invoke(first);
+    all.forEach((entity) => entity.remove(Value));
+    invoke(first);
+    first.add(Value);
+    invoke(first);
+    expect(seen).toEqual([original, original, replacement, undefined, first.get(Value)]);
+    expect(seen[2]).toBe(replacement);
+    world.dispose();
+  });
+
   it("preserves tail-swap teardown hook order and retained ordinary reads", () => {
     class A {}
     class R extends Relationship {}

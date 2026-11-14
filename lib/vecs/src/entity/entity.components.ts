@@ -337,6 +337,7 @@ export class Components extends Relationships {
 
   /**
    * Look up a component on this entity as a readonly value.
+   * Class references resolve metadata, then read its shared component store.
    * Component removal clears storage before synchronous `exit` callbacks, so
    * this returns `undefined` there. Inject the removed component into `exit`
    * to retain its instance. Destruction retains storage during synchronous teardown.
@@ -351,9 +352,12 @@ export class Components extends Relationships {
 
   public get(entity: Entity): Readonly<ComponentInstance> | undefined;
 
-  public get(ref: ComponentRef): Readonly<ComponentInstance> | undefined {
-    const ceid = typeof ref === "number" ? ref : this.world.entity(ref).eid;
-    return this._get(ceid);
+  public get(this: Entity, ref: ComponentRef): Readonly<ComponentInstance> | undefined {
+    if (typeof ref === "number") {
+      return this._get(ref);
+    }
+    const meta = this.world.entity(ref).meta;
+    return meta._term._store.get(this) ?? this._getTeardown(meta.eid);
   }
 
   /**
