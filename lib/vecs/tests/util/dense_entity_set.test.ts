@@ -21,15 +21,20 @@ describe("DenseEntitySet", () => {
     const stale = world.entity();
     const eid = stale.eid;
     const set = new DenseEntitySet();
-    set.add(stale).add(stale);
+    expect(set.add(stale)).toBe(true);
+    expect(set.add(stale)).toBe(false);
     expect(set.size).toBe(1);
     const padding = Array.from({ length: paddingCount }, () => world.entity());
-    padding.forEach((entity) => set.add(entity));
+    padding.forEach((entity) => {
+      expect(set.add(entity)).toBe(true);
+      expect(set.add(entity)).toBe(false);
+    });
     expect(set.delete(stale)).toBe(true);
     stale.destroy();
     const fresh = world.getOrCreateEntity(eid);
     expect(fresh.eid).toBe(eid);
-    set.add(fresh);
+    expect(set.add(fresh)).toBe(true);
+    expect(set.add(fresh)).toBe(false);
     expect(set.has(stale)).toBe(false);
     expect(set.delete(stale)).toBe(false);
     expect(set.has(fresh)).toBe(true);
@@ -175,7 +180,8 @@ describe("DenseEntitySet", () => {
     const world = densityWorld();
     const entities = Array.from({ length: 65 }, () => world.entity());
     const replacement = world.entity();
-    const set = new DenseEntitySet().add(entities[0]!);
+    const set = new DenseEntitySet();
+    set.add(entities[0]!);
     const seen: Entity[] = [];
     const visit = (entity: Entity): void => {
       seen.push(entity);
@@ -290,32 +296,48 @@ describe("DenseEntitySet", () => {
     world.dispose();
   });
 
-  it("recomputes density after removing the highest sparse member id", () => {
-    const world = densityWorld();
-    const high = world.getOrCreateEntity(100_000);
-    const entities = Array.from({ length: 65 }, () => world.entity());
-    const set = new DenseEntitySet().add(high);
-    const iterator = set[Symbol.iterator]();
-    expect(iterator.next().value).toBe(high);
-    expect(set.delete(high)).toBe(true);
-    // Keep a sparse population alive while removing its maximum, then insert
-    // enough low-id members to justify direct lookup for every measured ratio.
-    set.add(high).add(entities[0]!);
-    expect(set.delete(high)).toBe(true);
-    entities.forEach((entity) => set.add(entity));
-    expect(new Set(iterator)).toEqual(new Set(entities));
-    expect(set.has(high)).toBe(false);
-    const later = world.entity();
-    set.add(later);
-    set.delete(entities[0]!);
-    expect([...set][0]).toBe(later);
-    world.dispose();
-  });
+  it.each(["clear", "delete"] as const)(
+    "resets the monotone id bound only at empty via %s",
+    (removal) => {
+      const world = densityWorld();
+      const high = world.getOrCreateEntity(100_000);
+      const entities = Array.from({ length: 65 }, () => world.entity());
+      const set = new DenseEntitySet();
+      set.add(high);
+      const iterator = set[Symbol.iterator]();
+      expect(iterator.next().value).toBe(high);
+      expect(set.delete(high)).toBe(true);
+      // The high id stays in the bound after removal while membership is nonempty.
+      set.add(high);
+      set.add(entities[0]!);
+      expect(set.delete(high)).toBe(true);
+      entities.forEach((entity) => set.add(entity));
+      expect(new Set(iterator)).toEqual(new Set(entities));
+      expect(set.has(high)).toBe(false);
+      const later = world.entity();
+      set.add(later);
+      set.delete(entities[0]!);
+      expect([...set]).toEqual([...entities.slice(1), later]);
+      if (removal === "clear") {
+        set.clear();
+      } else {
+        [...set].forEach((entity) => expect(set.delete(entity)).toBe(true));
+      }
+      entities.forEach((entity) => set.add(entity));
+      set.delete(entities[0]!);
+      expect([...set]).toEqual([entities[64], ...entities.slice(1, 64)]);
+      world.dispose();
+    }
+  );
 
   describe.each([4, 128])("Set visitation oracle with a pool of %i members", (poolSize) => {
-    it.each([1, 42, 0x5eed, 0xabcdef])(
-      "matches a Set visitation oracle under interleaved nested mutation (seed %i)",
-      (seed) => {
+    it.each(
+      [1, 42, 0x5eed, 0xabcdef].flatMap((seed) =>
+        (["generator", "callback"] as const).map((kind) => [seed, kind] as const)
+      )
+    )(
+      "matches a Set visitation oracle under interleaved nested mutation (seed %i, %s)",
+      (seed, kind) => {
         const world = densityWorld();
         const entities = Array.from({ length: poolSize }, () => world.entity());
         const highest = Math.max(...entities.map((entity) => entity.eid));
@@ -332,73 +354,92 @@ describe("DenseEntitySet", () => {
         // compares Set visitation guarantees, not its insertion order: dense
         // removal deliberately leaves member order unspecified.
         const cursors: { iterator: IterableIterator<Entity>; pending: Set<Entity> }[] = [];
+        let callbackPending: Set<Entity> | undefined;
         let state = seed;
         const random = (n: number): number => {
           state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
           return (state >>> 8) % n;
         };
-        for (let step = 0; step < 2_000; step++) {
-          const entity = entities[random(entities.length)]!;
-          switch (random(6)) {
-            case 0:
-            case 1:
-              if (!oracle.has(entity)) {
+        const simulate = (): void => {
+          for (let step = 0; step < 2_000; step++) {
+            const entity = entities[random(entities.length)]!;
+            switch (random(6)) {
+              case 0:
+              case 1:
+                if (!oracle.has(entity)) {
+                  callbackPending?.add(entity);
+                  for (const cursor of cursors) {
+                    cursor.pending.add(entity);
+                  }
+                }
+                oracle.add(entity);
+                set.add(entity);
+                break;
+              case 2:
+                expect(set.delete(entity)).toBe(oracle.delete(entity));
+                callbackPending?.delete(entity);
                 for (const cursor of cursors) {
-                  cursor.pending.add(entity);
+                  cursor.pending.delete(entity);
                 }
-              }
-              oracle.add(entity);
-              set.add(entity);
-              break;
-            case 2:
-              expect(set.delete(entity)).toBe(oracle.delete(entity));
-              for (const cursor of cursors) {
-                cursor.pending.delete(entity);
-              }
-              break;
-            case 3:
-              if (cursors.length < 6) {
-                cursors.push({ iterator: set[Symbol.iterator](), pending: new Set(oracle) });
-                // Register the cursor now: generators start on the first next().
-                const cursor = cursors[cursors.length - 1]!;
+                break;
+              case 3:
+                if (cursors.length < 6) {
+                  cursors.push({ iterator: set[Symbol.iterator](), pending: new Set(oracle) });
+                  // Register the cursor now: generators start on the first next().
+                  const cursor = cursors[cursors.length - 1]!;
+                  const result = cursor.iterator.next();
+                  if (!result.done) {
+                    expect(cursor.pending.delete(result.value)).toBe(true);
+                  } else {
+                    expect(cursor.pending.size).toBe(0);
+                    cursors.pop();
+                  }
+                }
+                break;
+              case 4:
+              case 5: {
+                if (cursors.length === 0) {
+                  break;
+                }
+                const index = random(cursors.length);
+                const cursor = cursors[index]!;
                 const result = cursor.iterator.next();
-                if (!result.done) {
-                  expect(cursor.pending.delete(result.value)).toBe(true);
-                } else {
+                if (result.done) {
                   expect(cursor.pending.size).toBe(0);
-                  cursors.pop();
+                  cursors.splice(index, 1);
+                } else {
+                  expect(cursor.pending.delete(result.value)).toBe(true);
                 }
-              }
-              break;
-            case 4:
-            case 5: {
-              if (cursors.length === 0) {
                 break;
               }
-              const index = random(cursors.length);
-              const cursor = cursors[index]!;
-              const result = cursor.iterator.next();
-              if (result.done) {
-                expect(cursor.pending.size).toBe(0);
-                cursors.splice(index, 1);
-              } else {
-                expect(cursor.pending.delete(result.value)).toBe(true);
-              }
-              break;
+            }
+            expect(set.size).toBe(oracle.size);
+            for (const candidate of entities) {
+              expect(set.has(candidate)).toBe(oracle.has(candidate));
             }
           }
-          expect(set.size).toBe(oracle.size);
-          for (const candidate of entities) {
-            expect(set.has(candidate)).toBe(oracle.has(candidate));
+          for (const cursor of cursors) {
+            for (const entity of cursor.iterator) {
+              expect(cursor.pending.delete(entity)).toBe(true);
+            }
+            expect(cursor.pending.size).toBe(0);
           }
+          expect(new Set(set)).toEqual(oracle);
+        };
+        if (kind === "callback") {
+          callbackPending = new Set(oracle);
+          let started = false;
+          set.forEachLive((entity) => {
+            expect(callbackPending!.delete(entity)).toBe(true);
+            if (!started) {
+              started = true;
+              simulate();
+            }
+          });
+          expect(callbackPending.size).toBe(0);
+        } else {
+          simulate();
         }
-        for (const cursor of cursors) {
-          for (const entity of cursor.iterator) {
-            expect(cursor.pending.delete(entity)).toBe(true);
-          }
-          expect(cursor.pending.size).toBe(0);
-        }
-        expect(new Set(set)).toEqual(oracle);
         world.dispose();
       },
       // Full membership assertions took ~5 s for a large-pool seed while two

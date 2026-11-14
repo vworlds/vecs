@@ -204,13 +204,10 @@ export abstract class Term implements TermConsumer {
    *
    * The world's `_termEmitDepth` counts the delivery as in flight from the
    * membership change until every consumer has seen it.
-   * The container deduplicates insertion; observing its size avoids a second
-   * membership lookup for sparse terms.
+   * The container reports insertion directly, without extra size probes.
    */
   protected _add(entity: Entity): void {
-    const count = this._entities.size;
-    this._entities.add(entity);
-    if (this._entities.size === count) {
+    if (!this._entities.add(entity)) {
       return;
     }
     this._propagateAdded(entity);

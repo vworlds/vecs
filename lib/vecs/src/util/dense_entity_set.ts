@@ -1,7 +1,6 @@
 import type { Entity } from "../entity/index.js";
 
 type Cursor = { next: number };
-type Direct = { dense: Entity[]; positions: number[]; cursors: Cursor[] };
 const DENSITY = 8;
 
 /**
@@ -15,13 +14,15 @@ const DENSITY = 8;
 export class DenseEntitySet implements Iterable<Entity> {
   private _members: Set<Entity> | undefined = new Set();
   /** Allocate arrays and cursor storage only after promotion. */
-  private _direct: Direct | undefined;
-  /** Highest sparse member id; undefined means recompute on the next insertion. */
-  private _highest: number | undefined = 0;
+  private _dense: Entity[] | undefined;
+  private _positions: number[] | undefined;
+  private _cursors: Cursor[] | undefined;
+  /** Monotone upper bound on sparse member ids; reset only at empty. */
+  private _highest = 0;
   private _active = 0;
 
   public get size(): number {
-    return this._members !== undefined ? this._members.size : this._direct!.dense.length;
+    return this._members !== undefined ? this._members.size : this._dense!.length;
   }
 
   public *[Symbol.iterator](): IterableIterator<Entity> {
@@ -30,15 +31,16 @@ export class DenseEntitySet implements Iterable<Entity> {
       if (this._members !== undefined) {
         yield* this._members;
       } else {
-        const direct = this._direct!;
+        const dense = this._dense!;
+        const cursors = this._cursors!;
         const cursor = { next: 0 };
-        direct.cursors.push(cursor);
+        cursors.push(cursor);
         try {
-          while (cursor.next < direct.dense.length) {
-            yield direct.dense[cursor.next++]!;
+          while (cursor.next < dense.length) {
+            yield dense[cursor.next++]!;
           }
         } finally {
-          this._release(direct, cursor);
+          this._release(cursor);
         }
       }
     } finally {
@@ -46,33 +48,27 @@ export class DenseEntitySet implements Iterable<Entity> {
     }
   }
 
-  /** Add a live entity; promote a sufficiently dense idle population. */
-  public add(entity: Entity): this {
+  /** Add a live entity and return whether it was new; promote only while idle. */
+  public add(entity: Entity): boolean {
     const members = this._members;
     if (members !== undefined) {
-      const count = members.size;
+      if (members.has(entity)) {
+        return false;
+      }
       members.add(entity);
-      if (members.size !== count) {
-        if (this._highest === undefined) {
-          this._highest = 0;
-          for (const member of members) {
-            this._highest = Math.max(this._highest, member.eid);
-          }
-        } else {
-          this._highest = Math.max(this._highest, entity.eid);
-        }
-        if (this._active === 0 && members.size * DENSITY >= this._highest + 1) {
-          this._promote(members);
-        }
+      this._highest = Math.max(this._highest, entity.eid);
+      if (this._active === 0 && members.size * DENSITY >= this._highest + 1) {
+        this._promote(members);
       }
     } else {
-      const direct = this._direct!;
-      if (this._position(direct, entity) < 0) {
-        direct.dense.push(entity);
-        this._record(direct, entity, direct.dense.length - 1);
+      const dense = this._dense!;
+      if (this._position(entity) >= 0) {
+        return false;
       }
+      dense.push(entity);
+      this._record(entity, dense.length - 1);
     }
-    return this;
+    return true;
   }
 
   /** Clear membership; active traversals still visit subsequent additions. */
@@ -83,10 +79,9 @@ export class DenseEntitySet implements Iterable<Entity> {
     } else if (this._active === 0) {
       this._demote();
     } else {
-      const direct = this._direct!;
-      direct.dense.length = 0;
-      direct.positions.length = 0;
-      for (const cursor of direct.cursors) {
+      this._dense!.length = 0;
+      this._positions!.length = 0;
+      for (const cursor of this._cursors!) {
         cursor.next = 0;
       }
     }
@@ -97,36 +92,48 @@ export class DenseEntitySet implements Iterable<Entity> {
     const members = this._members;
     if (members !== undefined) {
       const removed = members.delete(entity);
-      if (removed && entity.eid === this._highest) {
-        this._highest = members.size === 0 ? 0 : undefined;
+      if (members.size === 0) {
+        this._highest = 0;
       }
       return removed;
     }
-    const direct = this._direct!;
-    const index = this._position(direct, entity);
+    const dense = this._dense!;
+    const cursors = this._cursors!;
+    const index = this._position(entity);
     if (index < 0) {
       return false;
+    }
+    if (cursors.length === 0) {
+      this._move(dense.length - 1, index);
+      dense.pop();
+      this._positions![entity.eid] = 0;
+      if (dense.length === 0 && this._active === 0) {
+        this._demote();
+      }
+      return true;
     }
     let hole = index;
     // Move one boundary entry per distinct cursor position, in ascending
     // order. Equal-position cursors step back together, without moving twice.
-    direct.cursors.sort((a, b) => a.next - b.next);
+    if (cursors.length > 1) {
+      cursors.sort((a, b) => a.next - b.next);
+    }
     let boundary = -1;
-    for (const cursor of direct.cursors) {
+    for (const cursor of cursors) {
       const next = cursor.next;
       if (next > index) {
         if (next !== boundary) {
-          this._move(direct, next - 1, hole);
+          this._move(next - 1, hole);
           hole = next - 1;
           boundary = next;
         }
         cursor.next--;
       }
     }
-    this._move(direct, direct.dense.length - 1, hole);
-    direct.dense.pop();
-    direct.positions[entity.eid] = 0;
-    if (direct.dense.length === 0 && this._active === 0) {
+    this._move(dense.length - 1, hole);
+    dense.pop();
+    this._positions![entity.eid] = 0;
+    if (dense.length === 0 && this._active === 0) {
       this._demote();
     }
     return true;
@@ -145,15 +152,16 @@ export class DenseEntitySet implements Iterable<Entity> {
           callback(entity);
         }
       } else {
-        const direct = this._direct!;
+        const dense = this._dense!;
+        const cursors = this._cursors!;
         const cursor = { next: 0 };
-        direct.cursors.push(cursor);
+        cursors.push(cursor);
         try {
-          while (cursor.next < direct.dense.length) {
-            callback(direct.dense[cursor.next++]!);
+          while (cursor.next < dense.length) {
+            callback(dense[cursor.next++]!);
           }
         } finally {
-          this._release(direct, cursor);
+          this._release(cursor);
         }
       }
     } finally {
@@ -163,48 +171,52 @@ export class DenseEntitySet implements Iterable<Entity> {
 
   /** Identity is checked in direct mode because entity ids can be recycled. */
   public has(entity: Entity): boolean {
-    return this._members !== undefined
-      ? this._members.has(entity)
-      : this._position(this._direct!, entity) >= 0;
+    return this._members !== undefined ? this._members.has(entity) : this._position(entity) >= 0;
   }
 
   private _demote(): void {
-    this._direct = undefined;
+    this._dense = undefined;
+    this._positions = undefined;
+    this._cursors = undefined;
     this._members = new Set();
     this._highest = 0;
   }
 
-  private _move(direct: Direct, from: number, to: number): void {
+  private _move(from: number, to: number): void {
     if (from !== to) {
-      const entity = direct.dense[from]!;
-      direct.dense[to] = entity;
-      direct.positions[entity.eid] = to + 1;
+      const entity = this._dense![from]!;
+      this._dense![to] = entity;
+      this._positions![entity.eid] = to + 1;
     }
   }
 
-  private _position(direct: Direct, entity: Entity): number {
-    const slot = direct.positions[entity.eid];
-    return slot > 0 && direct.dense[slot - 1] === entity ? slot - 1 : -1;
+  private _position(entity: Entity): number {
+    const slot = this._positions![entity.eid];
+    return slot > 0 && this._dense![slot - 1] === entity ? slot - 1 : -1;
   }
 
   private _promote(members: Set<Entity>): void {
-    const direct: Direct = { dense: [...members], positions: [], cursors: [] };
-    for (let i = 0; i < direct.dense.length; i++) {
-      this._record(direct, direct.dense[i]!, i);
+    const dense = [...members];
+    this._dense = dense;
+    this._positions = [];
+    this._cursors = [];
+    for (let i = 0; i < dense.length; i++) {
+      this._record(dense[i]!, i);
     }
-    this._direct = direct;
     this._members = undefined;
   }
 
-  private _record(direct: Direct, entity: Entity, position: number): void {
+  private _record(entity: Entity, position: number): void {
+    const positions = this._positions!;
     // Push intervening zeros rather than assigning past the array's length.
-    while (direct.positions.length <= entity.eid) {
-      direct.positions.push(0);
+    while (positions.length <= entity.eid) {
+      positions.push(0);
     }
-    direct.positions[entity.eid] = position + 1;
+    positions[entity.eid] = position + 1;
   }
 
-  private _release(direct: Direct, cursor: Cursor): void {
-    direct.cursors.splice(direct.cursors.indexOf(cursor), 1);
+  private _release(cursor: Cursor): void {
+    const cursors = this._cursors!;
+    cursors.splice(cursors.indexOf(cursor), 1);
   }
 }
