@@ -2,7 +2,8 @@ import type { ComponentInstance } from "../component_meta.js";
 import type { Entity } from "../entity/index.js";
 
 type Cursor = { next: number };
-const DENSITY = 16;
+// Full-horizon builder runs did not separate 8 from 16 consistently; match terms.
+const DENSITY = 8;
 
 /**
  * Component instances and live carrier membership in one density-adaptive store.

@@ -359,10 +359,14 @@ function buildScene(caseName: TickCase, size: number): Scene {
         perTick:
           caseName === "point"
             ? () => {
-                for (const entity of random) sum += entity.get(Vel)!.x;
+                for (const entity of random) {
+                  sum += entity.get(Vel)!.x;
+                }
               }
             : () => {
-                for (let i = 0; i < size; i++) sum += carrier.get(Vel)!.x;
+                for (let i = 0; i < size; i++) {
+                  sum += carrier.get(Vel)!.x;
+                }
               },
         reset: () => {
           sum = 0;

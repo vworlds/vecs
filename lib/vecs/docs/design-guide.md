@@ -463,7 +463,8 @@ Why:
   `if (c !== undefined)` that tells the next reader the component might be missing when the query
   says it cannot be. An injected instance is also the live, mutable one: a callback that writes in
   place and calls `entity.modified(C)` (see §7) needs no cast.
-- **Resolved once.** Injection resolves a component's id when the callback is registered;
+- **Resolved once.** Direct injection resolves the component's shared store when the callback is registered,
+  avoiding a world-registry lookup for each entity;
   `entity.get(C)` resolves the class on every call. In an `exit` callback injection matters more
   still: it preserves the removed instance (captured at exit time for systems), while
   `entity.get(C)` returns `undefined` for the removed slot even inside a synchronous query

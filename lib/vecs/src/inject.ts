@@ -291,7 +291,9 @@ function _resolveInjected(
         throw new Error("query does not contain component");
       }
       out[outIndex] = c;
-      if (src !== undefined) src[outIndex] = e;
+      if (src !== undefined) {
+        src[outIndex] = e;
+      }
       outIndex++;
       continue;
     }

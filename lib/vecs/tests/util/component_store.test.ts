@@ -67,7 +67,8 @@ describe("ComponentStore", () => {
     (kind) => {
       const world = new World();
       const store = new ComponentStore();
-      const all = Array.from({ length: 128 }, () => world.entity());
+      // Cross the direct-mode threshold even with density 8 and default ids 1000+.
+      const all = Array.from({ length: 256 }, () => world.entity());
       all.forEach((entity) => store.set(entity, { n: entity.eid }));
       const added = world.getOrCreateEntity(10000);
       const seen: Entity[] = [];
@@ -82,7 +83,9 @@ describe("ComponentStore", () => {
       if (kind === "callback") {
         store.forEachLive(visit);
       } else {
-        for (const entity of store) visit(entity);
+        for (const entity of store) {
+          visit(entity);
+        }
       }
       expect(seen).toEqual([all[0], added]);
       expect(store.size).toBe(1);
@@ -93,7 +96,8 @@ describe("ComponentStore", () => {
   it("holds sparse representation during a traversal and releases it after throw", () => {
     const world = new World();
     const store = new ComponentStore();
-    const all = Array.from({ length: 128 }, () => world.entity());
+    // Enough carriers for the later idle insertion to promote at density 8.
+    const all = Array.from({ length: 256 }, () => world.entity());
     store.set(all[0]!, { n: 0 });
     expect(() =>
       store.forEachLive(() => {

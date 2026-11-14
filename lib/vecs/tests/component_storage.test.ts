@@ -47,7 +47,9 @@ describe("shared component storage", () => {
         expect(entity.get(A)).toBe(a);
         expect(entity.get(B)).toBe(b);
         expect(entity.get(C)).toBe(c);
-        if (key !== A) expect(entity.get(R)).toBeUndefined();
+        if (key !== A) {
+          expect(entity.get(R)).toBeUndefined();
+        }
       })
     );
     const target = world.entity();

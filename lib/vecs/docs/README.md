@@ -18,7 +18,8 @@ Read in this order the first time through:
      interfaces, singletons, [definition and trait reflection with ComponentDef and Trait](./components.md#reflecting-on-component-definitions),
      and [registration provenance](./components.md#registration-provenance).
    - [Entities](./entities.md) — creation, lookup, the component API (including
-     [changed-only `assign`](./entities.md#assign-write-only-when-changed)), relationship targets, lifecycle,
+     [changed-only `assign`](./entities.md#assign-write-only-when-changed) and
+     [read-only component enumeration](./entities.md#enumerating-components)), relationship targets, lifecycle,
      [synchronous world disposal and allowed call sites](./entities.md#disposing-a-world).
    - [Systems](./systems.md) — membership, reactive callbacks, callback options, `each`/`run`, cadence,
      component, relationship, and [clock injection](./systems.md#clock-injection), plus
@@ -37,7 +38,7 @@ Read in this order the first time through:
 5. [Design guide](./design-guide.md) — opinionated patterns and anti-patterns distilled from real
    designs. Read it once you know the machinery.
 6. [Utilities](./utilities.md) — helper classes exported by `@vworlds/vecs` but not part of the ECS
-   lifecycle model.
+   lifecycle model, plus [shared component storage internals](./utilities.md#shared-component-storage).
 
 Use [ECS design diagrams](./diagrams.md) when illustrating a design in docs, issues, or PR discussions.
 

@@ -84,6 +84,20 @@ key. Relationship `target` arguments accept the same `ComponentRef` shapes (clas
 entity) and are resolved eagerly via `world.entity(target)`, so the target entity must already
 exist when the call is made.
 
+### Enumerating components
+
+Use `entity.components` for a cached read-only numeric map view over that entity's
+component ids and the shared stores. It provides `size`, `get`, `has`, `forEach`,
+`forEachSafe`, `entries`, `values`, and `for..of`; it has no `set`, `delete`, or `clear`.
+Use the entity's mutators instead. Callback third arguments are the read-only view,
+not an `IterableArrayMap` with mutating methods.
+
+Ids append when attached; removal swaps the final id into the removed position.
+Alias slots are included. Iteration snapshots ids before visiting them: newly added
+ids are not visited, removed ids are skipped, and instances are read when visited.
+Both callback methods allow arbitrary component mutations. `values()` returns a fresh
+array; the component instances themselves remain live references.
+
 ### `set` vs `add` vs `modified`
 
 - `add(C)` attaches with defaults and fires `onAdd` only. It is idempotent and does **not** fire
