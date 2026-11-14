@@ -1,5 +1,5 @@
 import { CleanupPolicy } from "../component_meta.js";
-import type { ComponentMeta } from "../component_meta.js";
+import type { ComponentInstance, ComponentMeta } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
 import { CommandKind } from "../command.js";
 import { Components } from "./entity.components.js";
@@ -63,24 +63,31 @@ export class Lifecycle extends Components {
       // Mark destroyed before applying cleanup so a carrier cascade that
       // re-enters this entity cannot tear it down twice.
       this._destroyed = true;
+      const teardown = this._teardown = [...this._components].map(
+        ([ceid, c]): [number, ComponentInstance | undefined] => [ceid, c]
+      );
       if (entityMeta && entityMeta.usageCount > selfCarry) {
         this._applyOnDelete(entityMeta, selfCarry);
       }
 
       this.world._notifyEntityDestroyed(this);
 
-      this._components.forEachSafe((c, ceid) => {
+      for (const [ceid, c] of teardown) {
+        if (c === undefined) {
+          continue;
+        }
         const componentMeta = this.world.entity(ceid).meta;
         if (componentMeta.isRelationship) {
           this._detachRelationship(componentMeta, c as Relationship);
-          return;
+          continue;
         }
         this._detachSlot(componentMeta, c, true);
-      });
+      }
       this._dirtyComponentBitmask.clear();
       this._queries.clear();
 
       this._components.clear();
+      this._teardown = undefined;
 
       if (
         entityMeta &&

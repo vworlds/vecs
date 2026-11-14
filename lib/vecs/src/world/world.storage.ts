@@ -1,4 +1,5 @@
 import type { Entity } from "../entity/index.js";
+import type { World } from "./world.js";
 import { ArrayMap, IterableArrayMap, type ReadonlyIterableArrayMap } from "../util/array_map.js";
 import { Pools } from "./world.pools.js";
 
@@ -31,7 +32,12 @@ export class Storage extends Pools {
   }
 
   /** @internal Remove an entity from the world's entity map (called by `Entity._destroy`). */
-  public _unregisterEntity(entity: Entity): void {
+  public _unregisterEntity(this: World, entity: Entity): void {
+    console.assert(
+      this._componentTerms.get(entity.eid)?.count === undefined ||
+        this._componentTerms.get(entity.eid)!.count === 0,
+      "Unregistering a component key with live instances"
+    );
     this._entities.delete(entity.eid);
     this._deferredEntities.delete(entity.eid);
     this._poolFor(entity.eid).free(entity.eid);

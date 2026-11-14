@@ -46,6 +46,15 @@ export class ComponentStore implements Iterable<Entity> {
     }
   }
 
+  /** Term's generic insertion must never create membership without an instance. */
+  public add(entity: Entity): boolean {
+    const instance = this.get(entity);
+    if (instance === undefined) {
+      throw new Error("Component membership requires a stored instance");
+    }
+    return false;
+  }
+
   /** Insert or replace without changing carrier order; return whether new. */
   public set(entity: Entity, instance: ComponentInstance): boolean {
     const members = this._members;

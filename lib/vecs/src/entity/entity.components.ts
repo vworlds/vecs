@@ -41,7 +41,7 @@ export class Components extends Relationships {
     if (meta.isRelationship) {
       throw new Error("Entity.attach cannot attach Relationship components; add explicit targets");
     }
-    const existing = this._components.get(meta.eid);
+    const existing = this._get(meta.eid);
     if (existing !== undefined && existing !== component) {
       meta._traitRemove?.(this, existing);
     }
@@ -50,15 +50,6 @@ export class Components extends Relationships {
       meta._traitAdd?.(this, component);
     }
     this._notifyComponentSet(meta, component, existing !== undefined);
-  }
-
-  /**
-   * @internal Look up a component instance by component eid.
-   *
-   * Faster than {@link get} because no class to type id resolution is needed.
-   */
-  public _get(ceid: EID): ComponentInstance | undefined {
-    return this._components.get(ceid);
   }
 
   /**
@@ -74,7 +65,7 @@ export class Components extends Relationships {
     if (this._destroyed) {
       return;
     }
-    const c = this._components.get(meta.eid);
+    const c = this._get(meta.eid);
     if (!c) {
       if (meta.isRelationship) {
         this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
@@ -90,7 +81,7 @@ export class Components extends Relationships {
     if (this._destroyed || !this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       return;
     }
-    const relationship = this._components.get(meta.eid);
+    const relationship = this._get(meta.eid);
     this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
     if (!relationship) {
       this._relationshipDataWrites?.delete(meta);
@@ -105,7 +96,7 @@ export class Components extends Relationships {
     if (!this._relationshipDataWrites?.delete(meta)) {
       return false;
     }
-    const relationship = this._components.get(meta.eid);
+    const relationship = this._get(meta.eid);
     if (!this._destroyed && relationship && this._dirtyComponentBitmask.hasBit(meta.bitPtr)) {
       meta._onSet?.(this, relationship);
       // Like ordinary modified, a recursive modified from onSet is coalesced.
@@ -123,13 +114,13 @@ export class Components extends Relationships {
     if (this._destroyed) {
       return;
     }
-    const c = this._components.get(meta.eid);
+    const c = this._get(meta.eid);
     if (!c) {
       return;
     }
     if (meta._implementsClosure) {
       for (const aliasMeta of meta._implementsClosure) {
-        if (this._components.get(aliasMeta.eid) === c) {
+        if (this._get(aliasMeta.eid) === c) {
           this._removeRaw(aliasMeta, c);
         }
       }
@@ -213,7 +204,7 @@ export class Components extends Relationships {
     }
 
     if (meta.isRelationship) {
-      const relationship = this._components.get(meta.eid) as Relationship | undefined;
+      const relationship = this._get(meta.eid) as Relationship | undefined;
       if (!relationship || props === undefined) {
         return;
       }
@@ -224,7 +215,7 @@ export class Components extends Relationships {
       return;
     }
 
-    const existing = this._components.get(meta.eid);
+    const existing = this._get(meta.eid);
     const c = existing ?? this._materialize(meta, props);
     if (props !== undefined) {
       if (existing) {
@@ -239,7 +230,7 @@ export class Components extends Relationships {
     if (this._destroyed) {
       return;
     }
-    const stored = this._components.get(meta.eid);
+    const stored = this._get(meta.eid);
     if (stored === undefined) {
       this._set(meta, value);
     } else if (!_assignEqual(meta, stored, value) && !this._destroyed) {
@@ -753,7 +744,7 @@ export class Components extends Relationships {
     if (this._destroyed || target._destroyed) {
       return;
     }
-    const existing = this._components.get(meta.eid) as Relationship | undefined;
+    const existing = this._get(meta.eid) as Relationship | undefined;
     if (existing?._hasTarget(target)) {
       return;
     }
@@ -762,7 +753,7 @@ export class Components extends Relationships {
       this._removeIncoming(previous, meta.eid);
       this._addIncoming(target, meta.eid);
       const reflectsReplacement = (): boolean =>
-        this._components.get(meta.eid) === existing &&
+        this._get(meta.eid) === existing &&
         existing._hasTarget(target) &&
         !existing._hasTarget(previous);
       if (!this._emitTargetRemove(meta, existing, previous, reflectsReplacement)) {
@@ -778,7 +769,7 @@ export class Components extends Relationships {
       existing._addTarget(target);
       this._addIncoming(target, meta.eid);
       const reflectsAdd = (): boolean =>
-        this._components.get(meta.eid) === existing && existing._hasTarget(target);
+        this._get(meta.eid) === existing && existing._hasTarget(target);
       if (!this._emitTargetAdd(meta, existing, target, reflectsAdd)) {
         return;
       }
@@ -791,10 +782,10 @@ export class Components extends Relationships {
     this._storeRelationship(meta, relationship);
     this._addIncoming(target, meta.eid);
     const reflectsAdd = (): boolean =>
-      this._components.get(meta.eid) === relationship && relationship._hasTarget(target);
+      this._get(meta.eid) === relationship && relationship._hasTarget(target);
     // Entry follows the relationship's final state, not the first edge: a hook
     // that retargets it still enters it, one that removes it does not.
-    const holds = (): boolean => this._components.get(meta.eid) === relationship;
+    const holds = (): boolean => this._get(meta.eid) === relationship;
     // Every exit before entry propagation discards the staged entry, so none outlives its add.
     try {
       if (!this._emitTargetAdd(meta, relationship, target, reflectsAdd) && !holds()) {
@@ -820,7 +811,7 @@ export class Components extends Relationships {
     if (this._destroyed) {
       return;
     }
-    const relationship = this._components.get(meta.eid) as Relationship | undefined;
+    const relationship = this._get(meta.eid) as Relationship | undefined;
     if (!relationship?._hasTarget(target)) {
       return;
     }
@@ -831,7 +822,7 @@ export class Components extends Relationships {
     relationship._removeTarget(target);
     this._removeIncoming(target, meta.eid);
     const reflectsRemove = (): boolean =>
-      this._components.get(meta.eid) === relationship && !relationship._hasTarget(target);
+      this._get(meta.eid) === relationship && !relationship._hasTarget(target);
     if (!this._emitTargetRemove(meta, relationship, target, reflectsRemove)) {
       return;
     }
@@ -863,6 +854,12 @@ export class Components extends Relationships {
     this._relationshipDataWrites?.delete(meta);
     this.componentBitmask.deleteBit(meta.bitPtr);
     this._components.delete(meta.eid);
+    if (this._teardown !== undefined) {
+      const entry = this._teardown.find((entry) => entry[0] === meta.eid);
+      if (entry !== undefined) {
+        entry[1] = undefined;
+      }
+    }
     this._notifySlotRemoved(meta, relationship);
     // Same `onRemove` watch routing as `_detachSlot`, after the delete above.
     this._routeRemoved(meta.eid, relationship);
@@ -872,7 +869,7 @@ export class Components extends Relationships {
     }
     for (const target of targets) {
       const reflectsRemove = (): boolean =>
-        this._components.get(meta.eid) !== relationship && !relationship._hasTarget(target);
+        this._get(meta.eid) !== relationship && !relationship._hasTarget(target);
       this._emitTargetRemove(meta, relationship, target, reflectsRemove);
     }
     meta._onRemove?.(this, relationship);
@@ -882,7 +879,7 @@ export class Components extends Relationships {
   private _storeRelationship(this: Entity, meta: ComponentMeta, relationship: Relationship): void {
     if (meta._exclusive) {
       for (const exclusiveMeta of meta._exclusive) {
-        if (this._components.has(exclusiveMeta.eid)) {
+        if (this._get(exclusiveMeta.eid) !== undefined) {
           this._remove(exclusiveMeta);
         }
       }
@@ -929,14 +926,14 @@ export class Components extends Relationships {
   ): void {
     if (meta._exclusive) {
       for (const exclusiveMeta of meta._exclusive) {
-        if (this._components.has(exclusiveMeta.eid)) {
+        if (this._get(exclusiveMeta.eid) !== undefined) {
           this._remove(exclusiveMeta);
         }
       }
     }
     if (meta._implementsClosure) {
       for (const aliasMeta of meta._implementsClosure) {
-        const prev = this._components.get(aliasMeta.eid);
+        const prev = this._get(aliasMeta.eid);
         if (prev !== undefined && prev !== instance) {
           const concreteMeta = this.world.entity((prev as any).constructor).meta;
           this._remove(concreteMeta);
@@ -958,11 +955,11 @@ export class Components extends Relationships {
     instance: ComponentInstance,
     isAdd: boolean
   ): void {
-    const existing = this._components.has(meta.eid);
+    const existing = meta._term._store.has(this);
     this._components.set(meta.eid, instance);
-    meta._term._store.set(this, instance);
     this.componentBitmask.addBit(meta.bitPtr);
     if (existing) {
+      meta._term._store.set(this, instance);
       return;
     }
     meta._term._stageAdded(this, instance);

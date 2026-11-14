@@ -12,6 +12,8 @@ export class Base {
 
   /** @internal Maps component eid to component instance. */
   protected _components = new IterableArrayMap<ComponentInstance>();
+  /** @internal Retained reads during synchronous teardown; allocated only on destroy. */
+  protected _teardown: [number, ComponentInstance | undefined][] | undefined = undefined;
   /** @internal Component eids with pending modified delivery. */
   protected readonly _dirtyComponentBitmask = new Bitset();
   /** @internal Set of queries this entity currently belongs to. */
@@ -41,6 +43,16 @@ export class Base {
     if (ownComponentClass !== undefined) {
       this._meta = new ComponentMeta(ownComponentClass, eid, world._getComponentTerm(eid));
     }
+  }
+
+  /** @internal Identity-checked shared-store lookup, retaining synchronous teardown reads. */
+  public _get(ceid: EID): ComponentInstance | undefined {
+    return this.world._componentTerms.get(ceid)?._store.get(this as unknown as Entity) ?? this._getTeardown(ceid);
+  }
+
+  /** @internal Only shared-store misses inspect the teardown stash. */
+  public _getTeardown(ceid: EID): ComponentInstance | undefined {
+    return this._teardown?.find((entry) => entry[0] === ceid)?.[1];
   }
 
   /**
