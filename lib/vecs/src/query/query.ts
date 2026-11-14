@@ -215,6 +215,11 @@ export class Query<
     return this._requireGrouping().keys();
   }
 
+  /**
+   * Iterate live members without deferring mutations. Removed, unvisited
+   * members are skipped; additions are visited. Member order is unspecified
+   * unless configured with `orderBy` (including `cascade`).
+   */
   public [Symbol.iterator](): IterableIterator<Entity> {
     return this._matchedEntities()[Symbol.iterator]();
   }

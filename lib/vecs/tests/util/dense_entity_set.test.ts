@@ -1,0 +1,460 @@
+import { describe, expect, it } from "vitest";
+import { type Entity, World } from "../../src/index.js";
+import { DenseEntitySet } from "../../src/util/dense_entity_set.js";
+
+describe("DenseEntitySet", () => {
+  it("does no work for an empty callback traversal and can be filled afterward", () => {
+    const world = new World();
+    const set = new DenseEntitySet();
+    const seen: Entity[] = [];
+    set.forEachLive((entity) => seen.push(entity));
+    expect(seen).toEqual([]);
+    const entity = world.entity();
+    set.add(entity);
+    set.forEachLive((member) => seen.push(member));
+    expect(seen).toEqual([entity]);
+    world.dispose();
+  });
+
+  it.each([0, 256])("checks identity after id reuse with %i padding members", (paddingCount) => {
+    const world = densityWorld();
+    const stale = world.entity();
+    const eid = stale.eid;
+    const set = new DenseEntitySet();
+    expect(set.add(stale)).toBe(true);
+    expect(set.add(stale)).toBe(false);
+    expect(set.size).toBe(1);
+    const padding = Array.from({ length: paddingCount }, () => world.entity());
+    padding.forEach((entity) => {
+      expect(set.add(entity)).toBe(true);
+      expect(set.add(entity)).toBe(false);
+    });
+    expect(set.delete(stale)).toBe(true);
+    stale.destroy();
+    const fresh = world.getOrCreateEntity(eid);
+    expect(fresh.eid).toBe(eid);
+    expect(set.add(fresh)).toBe(true);
+    expect(set.add(fresh)).toBe(false);
+    expect(set.has(stale)).toBe(false);
+    expect(set.delete(stale)).toBe(false);
+    expect(set.has(fresh)).toBe(true);
+    const distant = world.getOrCreateEntity(100_000);
+    set.add(distant);
+    expect(set.has(distant)).toBe(true);
+    expect(new Set(set)).toEqual(new Set([...padding, fresh, distant]));
+    world.dispose();
+  });
+
+  it.each(["iterator", "callback"] as const)("visits live changes through %s", (kind) => {
+    const world = new World();
+    const entities = Array.from({ length: 6 }, () => world.entity());
+    const run = (set: Set<Entity> | DenseEntitySet): Entity[] => {
+      const seen: Entity[] = [];
+      const visit = (entity: Entity): void => {
+        seen.push(entity);
+        if (entity === entities[0]) {
+          set.delete(entity); // current
+          set.delete(entities[2]!); // unvisited
+          set.add(entities[5]!); // addition
+        }
+        if (entity === entities[1]) {
+          set.delete(entities[0]!); // already removed
+          set.delete(entity);
+          set.add(entity); // a reinsertion must be visited again
+        }
+        if (seen.filter((e) => e === entities[1]).length === 2) {
+          set.delete(entities[1]!);
+        }
+        expect(seen.length).toBeLessThan(10);
+      };
+      for (const entity of entities.slice(0, 5)) {
+        set.add(entity);
+      }
+      if (kind === "callback" && set instanceof DenseEntitySet) {
+        set.forEachLive(visit);
+      } else {
+        for (const entity of set) {
+          visit(entity);
+        }
+      }
+      return seen;
+    };
+    const oracle = run(new Set());
+    const actual = run(new DenseEntitySet());
+    expect(actual.map((e) => e.eid).sort()).toEqual(oracle.map((e) => e.eid).sort());
+    world.dispose();
+  });
+
+  it("resets active direct cursors on clear and visits subsequent additions", () => {
+    const world = densityWorld();
+    const entities = Array.from({ length: 32 }, () => world.entity());
+    const a = entities[0]!;
+    const b = world.entity();
+    const set = new DenseEntitySet();
+    entities.forEach((entity) => set.add(entity));
+    const seen: Entity[] = [];
+    set.forEachLive((entity) => {
+      seen.push(entity);
+      if (entity === a) {
+        set.clear();
+        set.add(b);
+      }
+    });
+    expect(seen).toEqual([a, b]);
+    expect(set.has(a)).toBe(false);
+    expect(set.size).toBe(1);
+    world.dispose();
+  });
+
+  it("removes a visited member without visiting another survivor twice", () => {
+    const world = densityWorld();
+    const entities = Array.from({ length: 32 }, () => world.entity());
+    const set = new DenseEntitySet();
+    entities.forEach((entity) => set.add(entity));
+    const seen: Entity[] = [];
+    set.forEachLive((entity) => {
+      seen.push(entity);
+      if (seen.length === 2) {
+        set.delete(seen[0]!);
+      }
+    });
+    expect(seen).toHaveLength(32);
+    expect(new Set(seen)).toEqual(new Set(entities));
+    expect(set.has(seen[0]!)).toBe(false);
+    world.dispose();
+  });
+
+  it("supports nested callback and generator cursors at the same boundary", () => {
+    const world = densityWorld();
+    const entities = Array.from({ length: 32 }, () => world.entity());
+    const set = new DenseEntitySet();
+    entities.forEach((entity) => set.add(entity));
+    const outer = set[Symbol.iterator]();
+    expect(outer.next().value).toBe(entities[0]);
+    const seen: Entity[] = [];
+    set.forEachLive((entity) => {
+      seen.push(entity);
+      set.delete(entity);
+    });
+    expect(seen).toHaveLength(32);
+    expect(new Set(seen)).toEqual(new Set(entities));
+    expect(outer.next().done).toBe(true);
+    expect(set.size).toBe(0);
+    world.dispose();
+  });
+
+  it.each([4, 32])("releases traversals on break, return and throw with %i members", (count) => {
+    const world = densityWorld();
+    const entities = Array.from({ length: 32 }, () => world.entity());
+    const set = new DenseEntitySet();
+    entities.slice(0, count).forEach((entity) => set.add(entity));
+    for (const _entity of set) {
+      break;
+    }
+    const iterator = set[Symbol.iterator]();
+    iterator.next();
+    iterator.return?.();
+    expect(() => {
+      for (const _entity of set) {
+        throw new Error("stop");
+      }
+    }).toThrow("stop");
+    expect(() =>
+      set.forEachLive(() => {
+        throw new Error("stop");
+      })
+    ).toThrow("stop");
+    entities.forEach((entity) => set.add(entity));
+    set.delete(entities[0]!);
+    // With no active cursor, removal uses the tail rather than a visited boundary.
+    expect([...set]).toEqual([entities[31], ...entities.slice(1, 31)]);
+    world.dispose();
+  });
+
+  it.each([
+    ["iterator", "clear"],
+    ["iterator", "delete"],
+    ["callback", "clear"],
+    ["callback", "delete"],
+  ] as const)("defers promotion during active %s traversal via %s", (kind, removal) => {
+    const world = densityWorld();
+    const entities = Array.from({ length: 65 }, () => world.entity());
+    const replacement = world.entity();
+    const set = new DenseEntitySet();
+    set.add(entities[0]!);
+    const seen: Entity[] = [];
+    const visit = (entity: Entity): void => {
+      seen.push(entity);
+      if (entity === entities[0]) {
+        for (const added of entities) {
+          set.add(added);
+        }
+        expect(set.size).toBe(65);
+        for (const member of entities) {
+          expect(set.has(member)).toBe(true);
+        }
+        set.delete(entities[1]!);
+        expect([...set]).toEqual([entities[0], ...entities.slice(2)]);
+        set.add(entities[1]!);
+        if (removal === "clear") {
+          set.clear();
+        } else {
+          for (const removed of entities) {
+            expect(set.delete(removed)).toBe(true);
+          }
+        }
+        expect(set.size).toBe(0);
+        for (const removed of entities) {
+          expect(set.has(removed)).toBe(false);
+        }
+        set.add(replacement);
+      }
+    };
+    if (kind === "callback") {
+      set.forEachLive(visit);
+    } else {
+      for (const entity of set) {
+        visit(entity);
+      }
+    }
+    expect(seen).toEqual([entities[0], replacement]);
+    expect([...set]).toEqual([replacement]);
+    // A later idle insertion can now promote; removal then swaps the tail.
+    entities.forEach((entity) => set.add(entity));
+    set.delete(replacement);
+    expect([...set][0]).toBe(entities[entities.length - 1]);
+    world.dispose();
+  });
+
+  it.each([
+    ["iterator", "clear"],
+    ["iterator", "delete"],
+    ["callback", "clear"],
+    ["callback", "delete"],
+  ] as const)("defers demotion during active %s traversal via %s", (kind, removal) => {
+    const world = densityWorld();
+    const entities = Array.from({ length: 32 }, () => world.entity());
+    const sparse = [1000, 1001, 1002].map((id) => world.getOrCreateEntity(id));
+    const set = new DenseEntitySet();
+    entities.forEach((entity) => set.add(entity));
+    const outer = set[Symbol.iterator]();
+    expect(outer.next().value).toBe(entities[0]);
+    const seen: Entity[] = [];
+    const visit = (entity: Entity): void => {
+      seen.push(entity);
+      if (seen.length === 1) {
+        if (removal === "clear") {
+          set.clear();
+        } else {
+          entities.forEach((member) => expect(set.delete(member)).toBe(true));
+        }
+        expect(set.size).toBe(0);
+        sparse.forEach((member) => set.add(member));
+      }
+    };
+    if (kind === "callback") {
+      set.forEachLive(visit);
+    } else {
+      for (const entity of set) {
+        visit(entity);
+      }
+    }
+    expect(seen).toEqual([entities[0], ...sparse]);
+    // The outer iterator still holds the mode even after the inner one exits.
+    set.delete(sparse[0]!);
+    expect([...outer]).toEqual([sparse[2], sparse[1]]);
+    // A later idle emptying finally demotes. High ids cannot promote again;
+    // native removal preserves insertion order rather than swapping the tail.
+    if (removal === "clear") {
+      set.clear();
+    } else {
+      sparse.slice(1).forEach((member) => expect(set.delete(member)).toBe(true));
+    }
+    sparse.forEach((member) => set.add(member));
+    set.delete(sparse[0]!);
+    expect([...set]).toEqual(sparse.slice(1));
+    world.dispose();
+  });
+
+  it.each(["clear", "delete"] as const)("promotes and demotes while idle via %s", (removal) => {
+    const world = densityWorld();
+    const entities = Array.from({ length: 32 }, () => world.entity());
+    const set = new DenseEntitySet();
+    entities.forEach((entity) => set.add(entity));
+    set.delete(entities[0]!);
+    expect([...set]).toEqual([entities[31], ...entities.slice(1, 31)]);
+    if (removal === "clear") {
+      set.clear();
+    } else {
+      entities.slice(1).forEach((entity) => expect(set.delete(entity)).toBe(true));
+    }
+    const sparse = [1000, 1001, 1002].map((id) => world.getOrCreateEntity(id));
+    sparse.forEach((entity) => set.add(entity));
+    set.delete(sparse[0]!);
+    expect([...set]).toEqual(sparse.slice(1));
+    expect(set.size).toBe(2);
+    world.dispose();
+  });
+
+  it.each(["clear", "delete"] as const)(
+    "resets the monotone id bound only at empty via %s",
+    (removal) => {
+      const world = densityWorld();
+      const high = world.getOrCreateEntity(100_000);
+      const entities = Array.from({ length: 65 }, () => world.entity());
+      const set = new DenseEntitySet();
+      set.add(high);
+      const iterator = set[Symbol.iterator]();
+      expect(iterator.next().value).toBe(high);
+      expect(set.delete(high)).toBe(true);
+      // The high id stays in the bound after removal while membership is nonempty.
+      set.add(high);
+      set.add(entities[0]!);
+      expect(set.delete(high)).toBe(true);
+      entities.forEach((entity) => set.add(entity));
+      expect(new Set(iterator)).toEqual(new Set(entities));
+      expect(set.has(high)).toBe(false);
+      const later = world.entity();
+      set.add(later);
+      set.delete(entities[0]!);
+      expect([...set]).toEqual([...entities.slice(1), later]);
+      if (removal === "clear") {
+        set.clear();
+      } else {
+        [...set].forEach((entity) => expect(set.delete(entity)).toBe(true));
+      }
+      entities.forEach((entity) => set.add(entity));
+      set.delete(entities[0]!);
+      expect([...set]).toEqual([entities[64], ...entities.slice(1, 64)]);
+      world.dispose();
+    }
+  );
+
+  describe.each([4, 128])("Set visitation oracle with a pool of %i members", (poolSize) => {
+    it.each(
+      [1, 42, 0x5eed, 0xabcdef].flatMap((seed) =>
+        (["generator", "callback"] as const).map((kind) => [seed, kind] as const)
+      )
+    )(
+      "matches a Set visitation oracle under interleaved nested mutation (seed %i, %s)",
+      (seed, kind) => {
+        const world = densityWorld();
+        const entities = Array.from({ length: poolSize }, () => world.entity());
+        const highest = Math.max(...entities.map((entity) => entity.eid));
+        // Guard both fixtures across the measured density ratios 4, 8 and 16.
+        if (poolSize === 128) {
+          expect(poolSize * 4).toBeGreaterThanOrEqual(highest + 1);
+        } else {
+          expect(poolSize * 16).toBeLessThan(highest + 1);
+        }
+        const set = new DenseEntitySet();
+        entities.forEach((entity) => set.add(entity));
+        const oracle = new Set<Entity>(entities);
+        // Each Set is the unvisited membership for one active traversal. This
+        // compares Set visitation guarantees, not its insertion order: dense
+        // removal deliberately leaves member order unspecified.
+        const cursors: { iterator: IterableIterator<Entity>; pending: Set<Entity> }[] = [];
+        let callbackPending: Set<Entity> | undefined;
+        let state = seed;
+        const random = (n: number): number => {
+          state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+          return (state >>> 8) % n;
+        };
+        const simulate = (): void => {
+          for (let step = 0; step < 2_000; step++) {
+            const entity = entities[random(entities.length)]!;
+            switch (random(6)) {
+              case 0:
+              case 1:
+                if (!oracle.has(entity)) {
+                  callbackPending?.add(entity);
+                  for (const cursor of cursors) {
+                    cursor.pending.add(entity);
+                  }
+                }
+                oracle.add(entity);
+                set.add(entity);
+                break;
+              case 2:
+                expect(set.delete(entity)).toBe(oracle.delete(entity));
+                callbackPending?.delete(entity);
+                for (const cursor of cursors) {
+                  cursor.pending.delete(entity);
+                }
+                break;
+              case 3:
+                if (cursors.length < 6) {
+                  cursors.push({ iterator: set[Symbol.iterator](), pending: new Set(oracle) });
+                  // Register the cursor now: generators start on the first next().
+                  const cursor = cursors[cursors.length - 1]!;
+                  const result = cursor.iterator.next();
+                  if (!result.done) {
+                    expect(cursor.pending.delete(result.value)).toBe(true);
+                  } else {
+                    expect(cursor.pending.size).toBe(0);
+                    cursors.pop();
+                  }
+                }
+                break;
+              case 4:
+              case 5: {
+                if (cursors.length === 0) {
+                  break;
+                }
+                const index = random(cursors.length);
+                const cursor = cursors[index]!;
+                const result = cursor.iterator.next();
+                if (result.done) {
+                  expect(cursor.pending.size).toBe(0);
+                  cursors.splice(index, 1);
+                } else {
+                  expect(cursor.pending.delete(result.value)).toBe(true);
+                }
+                break;
+              }
+            }
+            expect(set.size).toBe(oracle.size);
+            for (const candidate of entities) {
+              expect(set.has(candidate)).toBe(oracle.has(candidate));
+            }
+          }
+          for (const cursor of cursors) {
+            for (const entity of cursor.iterator) {
+              expect(cursor.pending.delete(entity)).toBe(true);
+            }
+            expect(cursor.pending.size).toBe(0);
+          }
+          expect(new Set(set)).toEqual(oracle);
+        };
+        if (kind === "callback") {
+          callbackPending = new Set(oracle);
+          let started = false;
+          set.forEachLive((entity) => {
+            expect(callbackPending!.delete(entity)).toBe(true);
+            if (!started) {
+              started = true;
+              simulate();
+            }
+          });
+          expect(callbackPending.size).toBe(0);
+        } else {
+          simulate();
+        }
+        world.dispose();
+      },
+      // Full membership assertions took ~5 s for a large-pool seed while two
+      // workers shared one CPU; retain the scenario with a bounded 3x budget.
+      poolSize === 128 ? 15_000 : 5_000
+    );
+  });
+});
+
+function densityWorld(): World {
+  return new World({
+    idPools: [
+      { name: "component", min: 1, max: 63 },
+      { name: "module", min: 64, max: 99 },
+      { name: "entity", min: 100, reuseWaitFrames: 0 },
+    ],
+  });
+}

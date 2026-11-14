@@ -330,7 +330,7 @@ function extractMetrics(file: string, result: Record<string, unknown>): Metric[]
 /**
  * Core storage prints one result line per case and size; name the rows after
  * them, with the median as a timing metric and the checksum as a fingerprint.
- * The heap rows report bytes per entity, so growth warns like a regression.
+ * Heap rows report retained bytes per entity or sparse term, so growth warns.
  */
 function coreStorageMetrics(result: Record<string, unknown>): Metric[] {
   const rows = (Array.isArray(result.results) ? result.results : [result]) as Record<
@@ -347,7 +347,8 @@ function coreStorageMetrics(result: Record<string, unknown>): Metric[] {
       {
         name: `${row.case}-${row.entities}.median`,
         timing: true,
-        bytes: row.case === "heap",
+        bytes:
+          row.case === "heap" || row.case === "composite-heap" || row.case === "sparse-terms-heap",
         values: [median],
       },
       {
