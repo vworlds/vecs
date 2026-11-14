@@ -889,7 +889,7 @@ export class Components extends Relationships {
     }
     this._components.set(meta.eid, relationship);
     this.componentBitmask.addBit(meta.bitPtr);
-    meta._term._stageAdded(this);
+    meta._term._stageAdded(this, relationship);
   }
 
   /** Assign relationship data; target storage is symbol-keyed and never among `props`' entries. */
@@ -960,11 +960,12 @@ export class Components extends Relationships {
   ): void {
     const existing = this._components.has(meta.eid);
     this._components.set(meta.eid, instance);
+    meta._term._store.set(this, instance);
     this.componentBitmask.addBit(meta.bitPtr);
     if (existing) {
       return;
     }
-    meta._term._stageAdded(this);
+    meta._term._stageAdded(this, instance);
     // A throwing hook discards the staged entry, so none outlives its add.
     try {
       if (isAdd) {
