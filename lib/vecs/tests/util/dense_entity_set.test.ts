@@ -31,7 +31,6 @@ describe("DenseEntitySet", () => {
     expect(fresh.eid).toBe(eid);
     set.add(fresh);
     expect(set.has(stale)).toBe(false);
-    expect(set.indexOf(stale)).toBe(-1);
     expect(set.delete(stale)).toBe(false);
     expect(set.has(fresh)).toBe(true);
     const distant = world.getOrCreateEntity(100_000);
@@ -81,12 +80,13 @@ describe("DenseEntitySet", () => {
     world.dispose();
   });
 
-  it("resets active cursors on clear without replacing the dense array", () => {
-    const world = new World();
-    const a = world.entity();
+  it("resets active direct cursors on clear and visits subsequent additions", () => {
+    const world = densityWorld();
+    const entities = Array.from({ length: 32 }, () => world.entity());
+    const a = entities[0]!;
     const b = world.entity();
-    const set = new DenseEntitySet().add(a);
-    const dense = set.dense;
+    const set = new DenseEntitySet();
+    entities.forEach((entity) => set.add(entity));
     const seen: Entity[] = [];
     set.forEachLive((entity) => {
       seen.push(entity);
@@ -96,15 +96,14 @@ describe("DenseEntitySet", () => {
       }
     });
     expect(seen).toEqual([a, b]);
-    expect(set.dense).toBe(dense);
     expect(set.has(a)).toBe(false);
     expect(set.size).toBe(1);
     world.dispose();
   });
 
   it("removes a visited member without visiting another survivor twice", () => {
-    const world = new World();
-    const entities = Array.from({ length: 4 }, () => world.entity());
+    const world = densityWorld();
+    const entities = Array.from({ length: 32 }, () => world.entity());
     const set = new DenseEntitySet();
     entities.forEach((entity) => set.add(entity));
     const seen: Entity[] = [];
@@ -114,15 +113,15 @@ describe("DenseEntitySet", () => {
         set.delete(seen[0]!);
       }
     });
-    expect(seen).toHaveLength(4);
+    expect(seen).toHaveLength(32);
     expect(new Set(seen)).toEqual(new Set(entities));
     expect(set.has(seen[0]!)).toBe(false);
     world.dispose();
   });
 
   it("supports nested callback and generator cursors at the same boundary", () => {
-    const world = new World();
-    const entities = Array.from({ length: 4 }, () => world.entity());
+    const world = densityWorld();
+    const entities = Array.from({ length: 32 }, () => world.entity());
     const set = new DenseEntitySet();
     entities.forEach((entity) => set.add(entity));
     const outer = set[Symbol.iterator]();
@@ -132,18 +131,18 @@ describe("DenseEntitySet", () => {
       seen.push(entity);
       set.delete(entity);
     });
-    expect(seen).toHaveLength(4);
+    expect(seen).toHaveLength(32);
     expect(new Set(seen)).toEqual(new Set(entities));
     expect(outer.next().done).toBe(true);
     expect(set.size).toBe(0);
     world.dispose();
   });
 
-  it("releases traversals on break, return and throw", () => {
-    const world = new World();
-    const entities = Array.from({ length: 4 }, () => world.entity());
+  it.each([4, 32])("releases traversals on break, return and throw with %i members", (count) => {
+    const world = densityWorld();
+    const entities = Array.from({ length: 32 }, () => world.entity());
     const set = new DenseEntitySet();
-    entities.forEach((entity) => set.add(entity));
+    entities.slice(0, count).forEach((entity) => set.add(entity));
     for (const _entity of set) {
       break;
     }
@@ -160,9 +159,10 @@ describe("DenseEntitySet", () => {
         throw new Error("stop");
       })
     ).toThrow("stop");
+    entities.forEach((entity) => set.add(entity));
     set.delete(entities[0]!);
     // With no active cursor, removal uses the tail rather than a visited boundary.
-    expect([...set]).toEqual([entities[3], entities[1], entities[2]]);
+    expect([...set]).toEqual([entities[31], ...entities.slice(1, 31)]);
     world.dispose();
   });
 
@@ -171,12 +171,11 @@ describe("DenseEntitySet", () => {
     ["iterator", "delete"],
     ["callback", "clear"],
     ["callback", "delete"],
-  ] as const)("promotes and empties during active %s traversal via %s", (kind, removal) => {
+  ] as const)("defers promotion during active %s traversal via %s", (kind, removal) => {
     const world = densityWorld();
     const entities = Array.from({ length: 65 }, () => world.entity());
     const replacement = world.entity();
     const set = new DenseEntitySet().add(entities[0]!);
-    const dense = set.dense;
     const seen: Entity[] = [];
     const visit = (entity: Entity): void => {
       seen.push(entity);
@@ -187,8 +186,10 @@ describe("DenseEntitySet", () => {
         expect(set.size).toBe(65);
         for (const member of entities) {
           expect(set.has(member)).toBe(true);
-          expect(set.indexOf(member)).toBe(dense.indexOf(member));
         }
+        set.delete(entities[1]!);
+        expect([...set]).toEqual([entities[0], ...entities.slice(2)]);
+        set.add(entities[1]!);
         if (removal === "clear") {
           set.clear();
         } else {
@@ -198,7 +199,7 @@ describe("DenseEntitySet", () => {
         }
         expect(set.size).toBe(0);
         for (const removed of entities) {
-          expect(set.indexOf(removed)).toBe(-1);
+          expect(set.has(removed)).toBe(false);
         }
         set.add(replacement);
       }
@@ -211,12 +212,85 @@ describe("DenseEntitySet", () => {
       }
     }
     expect(seen).toEqual([entities[0], replacement]);
-    expect(set.dense).toBe(dense);
-    expect(set.indexOf(replacement)).toBe(0);
+    expect([...set]).toEqual([replacement]);
+    // A later idle insertion can now promote; removal then swaps the tail.
+    entities.forEach((entity) => set.add(entity));
+    set.delete(replacement);
+    expect([...set][0]).toBe(entities[entities.length - 1]);
     world.dispose();
   });
 
-  it("recomputes density after removing the highest hashed member id", () => {
+  it.each([
+    ["iterator", "clear"],
+    ["iterator", "delete"],
+    ["callback", "clear"],
+    ["callback", "delete"],
+  ] as const)("defers demotion during active %s traversal via %s", (kind, removal) => {
+    const world = densityWorld();
+    const entities = Array.from({ length: 32 }, () => world.entity());
+    const sparse = [1000, 1001, 1002].map((id) => world.getOrCreateEntity(id));
+    const set = new DenseEntitySet();
+    entities.forEach((entity) => set.add(entity));
+    const outer = set[Symbol.iterator]();
+    expect(outer.next().value).toBe(entities[0]);
+    const seen: Entity[] = [];
+    const visit = (entity: Entity): void => {
+      seen.push(entity);
+      if (seen.length === 1) {
+        if (removal === "clear") {
+          set.clear();
+        } else {
+          entities.forEach((member) => expect(set.delete(member)).toBe(true));
+        }
+        expect(set.size).toBe(0);
+        sparse.forEach((member) => set.add(member));
+      }
+    };
+    if (kind === "callback") {
+      set.forEachLive(visit);
+    } else {
+      for (const entity of set) {
+        visit(entity);
+      }
+    }
+    expect(seen).toEqual([entities[0], ...sparse]);
+    // The outer iterator still holds the mode even after the inner one exits.
+    set.delete(sparse[0]!);
+    expect([...outer]).toEqual([sparse[2], sparse[1]]);
+    // A later idle emptying finally demotes. High ids cannot promote again;
+    // native removal preserves insertion order rather than swapping the tail.
+    if (removal === "clear") {
+      set.clear();
+    } else {
+      sparse.slice(1).forEach((member) => expect(set.delete(member)).toBe(true));
+    }
+    sparse.forEach((member) => set.add(member));
+    set.delete(sparse[0]!);
+    expect([...set]).toEqual(sparse.slice(1));
+    world.dispose();
+  });
+
+  it.each(["clear", "delete"] as const)("promotes and demotes while idle via %s", (removal) => {
+    const world = densityWorld();
+    const entities = Array.from({ length: 32 }, () => world.entity());
+    const set = new DenseEntitySet();
+    entities.forEach((entity) => set.add(entity));
+    set.delete(entities[0]!);
+    expect([...set]).toEqual([entities[31], ...entities.slice(1, 31)]);
+    if (removal === "clear") {
+      set.clear();
+    } else {
+      entities.slice(1).forEach((entity) => expect(set.delete(entity)).toBe(true));
+    }
+    const sparse = [1000, 1001, 1002].map((id) => world.getOrCreateEntity(id));
+    sparse.forEach((entity) => set.add(entity));
+    set.delete(sparse[0]!);
+    expect([...set]).toEqual(sparse.slice(1));
+    expect(set.size).toBe(2);
+    world.dispose();
+  });
+
+  it("recomputes density after removing the highest sparse member id", () => {
     const world = densityWorld();
     const high = world.getOrCreateEntity(100_000);
     const entities = Array.from({ length: 65 }, () => world.entity());
@@ -224,16 +298,17 @@ describe("DenseEntitySet", () => {
     const iterator = set[Symbol.iterator]();
     expect(iterator.next().value).toBe(high);
     expect(set.delete(high)).toBe(true);
-    // Keep a hashed population alive while removing its maximum, then insert
+    // Keep a sparse population alive while removing its maximum, then insert
     // enough low-id members to justify direct lookup for every measured ratio.
     set.add(high).add(entities[0]!);
     expect(set.delete(high)).toBe(true);
     entities.forEach((entity) => set.add(entity));
     expect(new Set(iterator)).toEqual(new Set(entities));
     expect(set.has(high)).toBe(false);
-    for (const entity of entities) {
-      expect(set.indexOf(entity)).toBe(set.dense.indexOf(entity));
-    }
+    const later = world.entity();
+    set.add(later);
+    set.delete(entities[0]!);
+    expect([...set][0]).toBe(later);
     world.dispose();
   });
 

@@ -70,7 +70,7 @@ export type TermKind =
 /**
  * Base class for all reactive entity-set nodes in the term graph.
  *
- * A `Term` maintains dense live membership of every entity currently satisfying
+ * A `Term` maintains live membership of every entity currently satisfying
  * its sub-predicate. It subscribes to its children via the two-signal contract
  * defined on {@link TermConsumer} and propagates enter/exit events upward to
  * its own consumers.
@@ -205,7 +205,7 @@ export abstract class Term implements TermConsumer {
    * The world's `_termEmitDepth` counts the delivery as in flight from the
    * membership change until every consumer has seen it.
    * The container deduplicates insertion; observing its size avoids a second
-   * membership lookup for hashed terms.
+   * membership lookup for sparse terms.
    */
   protected _add(entity: Entity): void {
     const count = this._entities.size;
