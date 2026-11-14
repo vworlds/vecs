@@ -3,6 +3,19 @@ import { DEFAULT_POOLS, type Entity, World } from "../../src/index.js";
 import { DenseEntitySet } from "../../src/util/dense_entity_set.js";
 
 describe("DenseEntitySet", () => {
+  it("does no work for an empty callback traversal and can be filled afterward", () => {
+    const world = new World();
+    const set = new DenseEntitySet();
+    const seen: Entity[] = [];
+    set.forEachLive((entity) => seen.push(entity));
+    expect(seen).toEqual([]);
+    const entity = world.entity();
+    set.add(entity);
+    set.forEachLive((member) => seen.push(member));
+    expect(seen).toEqual([entity]);
+    world.dispose();
+  });
+
   it("checks identity after id reuse and grows across distant ids", () => {
     const world = new World({
       idPools: DEFAULT_POOLS.map((pool) => ({ ...pool, reuseWaitFrames: 0 })),

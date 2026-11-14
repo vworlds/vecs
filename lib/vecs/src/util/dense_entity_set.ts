@@ -85,6 +85,9 @@ export class DenseEntitySet implements Iterable<Entity> {
 
   /** Callback traversal avoids allocating a generator on hot paths. */
   public forEachLive(callback: (entity: Entity) => void): void {
+    if (this.dense.length === 0) {
+      return;
+    }
     const cursor = { next: 0 };
     this._cursors.push(cursor);
     try {
