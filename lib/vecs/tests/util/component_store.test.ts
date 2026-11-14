@@ -3,6 +3,29 @@ import { type Entity, World } from "../../src/index.js";
 import { ComponentStore } from "../../src/util/component_store.js";
 
 describe("ComponentStore", () => {
+  it("keeps moved instances aligned while draining without an active traversal", () => {
+    const world = new World();
+    const store = new ComponentStore();
+    const all = Array.from({ length: 256 }, () => world.entity());
+    const values = all.map((entity) => ({ n: entity.eid }));
+    all.forEach((entity, i) => store.set(entity, values[i]!));
+    const remaining = all.slice();
+    for (const removed of all) {
+      const index = remaining.indexOf(removed);
+      remaining[index] = remaining[remaining.length - 1]!;
+      remaining.pop();
+      expect(store.delete(removed)).toBe(true);
+      expect(store.get(removed)).toBeUndefined();
+      expect([...store]).toEqual(remaining);
+      for (const entity of remaining) {
+        expect(store.get(entity)).toBe(values[all.indexOf(entity)]);
+      }
+    }
+    store.set(all[0]!, values[0]!);
+    expect(store.get(all[0]!)).toBe(values[0]);
+    world.dispose();
+  });
+
   it.each([0, 256])(
     "retains instance identity through replacement and recycled ids (%i padding)",
     (padding) => {

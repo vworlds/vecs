@@ -1,5 +1,5 @@
 import { CleanupPolicy } from "../component_meta.js";
-import type { ComponentInstance, ComponentMeta } from "../component_meta.js";
+import type { ComponentMeta } from "../component_meta.js";
 import { Relationship } from "../component_meta.js";
 import { CommandKind } from "../command.js";
 import { Components } from "./entity.components.js";
@@ -50,6 +50,8 @@ export class Lifecycle extends Components {
     if (ownsDeletionScope) {
       this.world._deletionScope = [];
     }
+    let teardownDepth: number | undefined;
+    let teardownComplete = false;
     try {
       const entityMeta = this._meta;
       let selfCarry = 0;
@@ -63,9 +65,17 @@ export class Lifecycle extends Components {
       // Mark destroyed before applying cleanup so a carrier cascade that
       // re-enters this entity cannot tear it down twice.
       this._destroyed = true;
-      const teardown = (this._teardown = this._ceids.map(
-        (ceid): [number, ComponentInstance | undefined] => [ceid, this._get(ceid)]
-      ));
+      teardownDepth = this.world._teardownDepth++;
+      const scratch = (this.world._teardownStashes[teardownDepth] ??= { entries: [], slots: [] });
+      const teardown = scratch.entries;
+      for (let i = 0; i < this._ceids.length; i++) {
+        const ceid = this._ceids[i]!;
+        const entry = (scratch.slots[i] ??= [ceid, undefined]);
+        entry[0] = ceid;
+        entry[1] = this._get(ceid);
+        teardown.push(entry);
+      }
+      this._teardown = teardown;
       if (entityMeta && entityMeta.usageCount > selfCarry) {
         this._applyOnDelete(entityMeta, selfCarry);
       }
@@ -95,6 +105,7 @@ export class Lifecycle extends Components {
 
       this._ceids.length = 0;
       this._teardown = undefined;
+      teardownComplete = true;
 
       if (
         entityMeta &&
@@ -104,9 +115,27 @@ export class Lifecycle extends Components {
         this.world._classRegistry.delete(entityMeta.Class);
       }
 
+      if (entityMeta && entityMeta.usageCount !== 0) {
+        console.error("Unregistering a component key with live instances");
+      }
       this.world._unregisterEntity(this);
       this._cleanupIncoming();
     } finally {
+      if (teardownDepth !== undefined) {
+        const scratch = this.world._teardownStashes[teardownDepth]!;
+        if (teardownComplete) {
+          // Keep tuple capacity, not component instances or the active traversal.
+          for (const entry of scratch.slots) {
+            entry[1] = undefined;
+          }
+          scratch.entries.length = 0;
+        } else {
+          // Preserve the original partial-world reads after a throwing hook, but
+          // never lend its still-referenced frame to a later destroy.
+          this.world._teardownStashes[teardownDepth] = undefined;
+        }
+        this.world._teardownDepth--;
+      }
       if (ownsDeletionScope) {
         try {
           this._flushDeletionScope();

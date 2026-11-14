@@ -63,6 +63,68 @@ describe("shared component storage", () => {
     world.dispose();
   });
 
+  it("isolates retained reads across nested destroys and later scratch reuse", () => {
+    class A {
+      n = 0;
+    }
+    class B {}
+    const world = new World();
+    world.component(A);
+    const bKey = world.component(B);
+    const outer = world.entity().set(A, { n: 1 }).add(B);
+    const inner = world.entity().set(A, { n: 2 }).add(B);
+    const later = world.entity().set(A, { n: 3 }).add(B);
+    const outerA = outer.get(A);
+    const innerA = inner.get(A);
+    const laterA = later.get(A);
+    const seen: number[] = [];
+    bKey.on("remove", (entity) => {
+      seen.push(entity.get(A)!.n);
+      if (entity === outer) {
+        inner.destroy();
+        expect(outer.get(A)).toBe(outerA);
+        expect(inner.get(A)).toBeUndefined();
+      } else if (entity === inner) {
+        expect(outer.get(A)).toBe(outerA);
+        expect(inner.get(A)).toBe(innerA);
+      } else {
+        expect(later.get(A)).toBe(laterA);
+        expect(outer.get(A)).toBeUndefined();
+      }
+    });
+    outer.destroy();
+    world.entity().destroy();
+    later.destroy();
+    expect(seen).toEqual([1, 2, 3]);
+    expect(later.get(A)).toBeUndefined();
+    expect(world.entity(A).instanceCount()).toBe(0);
+    world.dispose();
+  });
+
+  it("does not reuse retained instances from an interrupted teardown", () => {
+    class A {
+      n = 0;
+    }
+    class B {}
+    const world = new World();
+    world.component(A);
+    const bKey = world.component(B);
+    const interrupted = world.entity().set(A, { n: 1 }).add(B);
+    const later = world.entity().set(A, { n: 2 }).add(B);
+    const retained = interrupted.get(A);
+    bKey.on("remove", (entity) => {
+      if (entity === interrupted) {
+        throw new Error("interrupted removal");
+      }
+      expect(entity.get(A)!.n).toBe(2);
+    });
+    expect(() => interrupted.destroy()).toThrow("interrupted removal");
+    later.destroy();
+    expect(interrupted.get(A)).toBe(retained);
+    expect(later.get(A)).toBeUndefined();
+    // A throwing teardown leaves a partial world; do not continue normal use.
+  });
+
   it("caches a read-only view and snapshots ids before callbacks and iterator advancement", () => {
     class A {
       value = "a";

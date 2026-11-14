@@ -14,7 +14,7 @@ export class Base {
   /** @internal Component ids in append/swap-remove order, including alias slots. */
   public readonly _ceids: number[] = [];
   private _componentView: ComponentView | undefined = undefined;
-  /** @internal Retained reads during synchronous teardown; allocated only on destroy. */
+  /** @internal Retained reads during synchronous teardown; borrows a world scratch frame. */
   protected _teardown: [number, ComponentInstance | undefined][] | undefined = undefined;
   /** @internal Component eids with pending modified delivery. */
   protected readonly _dirtyComponentBitmask = new Bitset();

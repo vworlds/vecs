@@ -11,7 +11,12 @@ class Vel {
   y = 1;
 }
 
-for (const count of [10_000, 100_000]) {
+const selectedSize = process.argv[2] === undefined ? undefined : Number(process.argv[2]);
+assert(
+  selectedSize === undefined || selectedSize === 10_000 || selectedSize === 100_000,
+  "expected optional size 10000 or 100000"
+);
+for (const count of selectedSize === undefined ? [10_000, 100_000] : [selectedSize]) {
   const create: number[] = [];
   const destroy: number[] = [];
   for (let round = -2; round < 5; round++) {

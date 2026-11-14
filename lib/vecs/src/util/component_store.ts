@@ -115,23 +115,34 @@ export class ComponentStore implements Iterable<Entity> {
     if (index < 0) {
       return false;
     }
-    let hole = index;
-    if (cursors.length > 1) {
-      cursors.sort((a, b) => a.next - b.next);
-    }
-    let boundary = -1;
-    for (const cursor of cursors) {
-      const next = cursor.next;
-      if (next > index) {
-        if (next !== boundary) {
-          this._move(next - 1, hole);
-          hole = next - 1;
-          boundary = next;
-        }
-        cursor.next--;
+    if (cursors.length === 0) {
+      // Ordinary removal needs only an identity check and one tail swap.
+      const last = dense.length - 1;
+      if (index !== last) {
+        const moved = dense[last]!;
+        dense[index] = moved;
+        this._instances![index] = this._instances![last]!;
+        this._positions![moved.eid] = index + 1;
       }
+    } else {
+      let hole = index;
+      if (cursors.length > 1) {
+        cursors.sort((a, b) => a.next - b.next);
+      }
+      let boundary = -1;
+      for (const cursor of cursors) {
+        const next = cursor.next;
+        if (next > index) {
+          if (next !== boundary) {
+            this._move(next - 1, hole);
+            hole = next - 1;
+            boundary = next;
+          }
+          cursor.next--;
+        }
+      }
+      this._move(dense.length - 1, hole);
     }
-    this._move(dense.length - 1, hole);
     dense.pop();
     this._instances!.pop();
     this._positions![entity.eid] = 0;

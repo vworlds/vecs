@@ -113,7 +113,8 @@ the sum of successful reads. `sparse-inject` reports nanoseconds per world entit
 per tick like the other core rows; multiply by 100/3 for cost per carrier.
 
 Run `node --import ./bench/register-dist.mjs bench/entity-lifecycle.ts` for separate
-creation and destruction timings at 10k and 100k entities. For each size, two warmup
+creation and destruction timings at 10k and 100k entities (or pass `10000` or
+`100000` as the positional argument to isolate one size for CPU profiling). For each size, two warmup
 worlds precede five measured rounds. Each round creates two-component entities in
 a fresh world, then times destruction without setup. It asserts component counts
 before and after.
