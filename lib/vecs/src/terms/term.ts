@@ -71,20 +71,21 @@ export type TermKind =
  * Base class for all reactive entity-set nodes in the term graph.
  *
  * A `Term` maintains live membership of every entity currently satisfying
- * its sub-predicate directly through its DenseEntitySet base, without a
- * separate membership wrapper. It subscribes to its children via the two-signal
- * contract defined on {@link TermConsumer} and propagates enter/exit events
- * upward to its own consumers.
+ * its sub-predicate. It subscribes to its children via the two-signal contract
+ * defined on {@link TermConsumer} and propagates enter/exit events upward to
+ * its own consumers.
  *
  * Subclasses implement `_matches` (the membership test) and may override
  * `_onChildEvent`, `_onChildRefresh`, or `onTermRefresh` to customize how
  * signals from children are interpreted.
  */
-export abstract class Term extends DenseEntitySet implements TermConsumer {
+export abstract class Term implements TermConsumer {
   /** @internal */
   protected readonly _children: Term[] = [];
   /** @internal */
   protected readonly _consumers = new Set<TermConsumer>();
+  /** @internal */
+  protected readonly _entities = new DenseEntitySet();
   private _destroyed = false;
   private readonly _childUnsubscribes: (() => void)[] = [];
   /** Consumers that may act on a refresh while no membership event is in flight. */
@@ -96,22 +97,28 @@ export abstract class Term extends DenseEntitySet implements TermConsumer {
     public readonly kind: TermKind,
     private readonly _pinned: boolean,
     private readonly _onDestroy: (term: Term) => void
-  ) {
-    super();
+  ) {}
+
+  public get count(): number {
+    return this._entities.size;
   }
 
-  /** Number of entities currently satisfying this term. */
-  public get count(): number {
-    return this.size;
+  /** Iterate live membership; additions are visited and removals skipped, in unspecified order. */
+  public [Symbol.iterator](): IterableIterator<Entity> {
+    return this._entities[Symbol.iterator]();
   }
 
   public children(): readonly Term[] {
     return this._children;
   }
 
+  public has(entity: Entity): boolean {
+    return this._entities.has(entity);
+  }
+
   /** @internal Traverse live membership without a generator; order is unspecified. */
   public _forEachLive(callback: (entity: Entity) => void): void {
-    this.forEachLive(callback);
+    this._entities.forEachLive(callback);
   }
 
   /**
@@ -188,7 +195,7 @@ export abstract class Term extends DenseEntitySet implements TermConsumer {
     while (this._childUnsubscribes.length > 0) {
       this._childUnsubscribes.pop()!();
     }
-    this.clear();
+    this._entities.clear();
     this._onDestroy(this);
   }
 
@@ -197,10 +204,10 @@ export abstract class Term extends DenseEntitySet implements TermConsumer {
    *
    * The world's `_termEmitDepth` counts the delivery as in flight from the
    * membership change until every consumer has seen it.
-   * Inherited storage reports insertion directly, without extra size probes.
+   * The container reports insertion directly, without extra size probes.
    */
   protected _add(entity: Entity): void {
-    if (!this.add(entity)) {
+    if (!this._entities.add(entity)) {
       return;
     }
     this._propagateAdded(entity);
@@ -241,7 +248,7 @@ export abstract class Term extends DenseEntitySet implements TermConsumer {
     const world = this.world;
     world._termEmitDepth++;
     try {
-      if (this.delete(entity)) {
+      if (this._entities.delete(entity)) {
         this._emit(TermEventKind.Exit, entity);
       }
     } finally {
@@ -278,7 +285,7 @@ export abstract class Term extends DenseEntitySet implements TermConsumer {
   protected _initializeFromWorld(): void {
     this.world.entities.forEach((entity) => {
       if (this._matches(entity)) {
-        this.add(entity);
+        this._entities.add(entity);
       }
     });
   }
