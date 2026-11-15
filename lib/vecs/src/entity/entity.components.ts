@@ -231,14 +231,20 @@ export class Components extends Relationships {
       return;
     }
 
+    if (props === undefined) {
+      // A plain `add` only needs presence, which the component bit answers
+      // without the store read (a hash lookup while the store is sparse).
+      if (!this.componentBitmask.hasBit(meta.bitPtr)) {
+        this._materialize(meta, undefined);
+      }
+      return;
+    }
     const existing = this._getFromMeta(meta);
     const c = existing ?? this._materialize(meta, props);
-    if (props !== undefined) {
-      if (existing) {
-        Object.assign(c, props);
-      }
-      this._notifyComponentSet(meta, c, existing !== undefined);
+    if (existing) {
+      Object.assign(c, props);
     }
+    this._notifyComponentSet(meta, c, existing !== undefined);
   }
 
   /** @internal Apply a changed-only Set command using the committed value. */
