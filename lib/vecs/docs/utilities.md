@@ -144,6 +144,11 @@ for membership without instances. It follows the same slack-adjusted promotion a
 idle-only representation rules. Dense traversal keeps live cursors across emptying/refill and
 checks object identity after id reuse. Component-store membership tests stop at
 the position and identity check rather than fetching an unused instance.
+Direct injection captures store objects, never their arrays or sparse/direct mode.
+Arity-specific one-, two- and three-component invokers still call `get` for every
+visited entity, so an unrelated callback can promote, demote, empty or refill a
+store without invalidating the invoker. Optional components keep synchronous
+teardown and removed-instance reads; known required system components do not need them.
 
 ## `DenseSet`
 

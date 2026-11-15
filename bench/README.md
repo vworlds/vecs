@@ -146,6 +146,12 @@ Direct injection resolves a store once. It intentionally does **not** cache its
 representation for an entire query/system traversal: injection is not a counted
 store iteration, and synchronous callbacks can change density. Every lookup reads
 the current representation; no array snapshot or registry lookup is needed.
+One-, two- and three-component invokers unroll those store reads; they do not run
+the generic per-term resolver loop. Optional components retain removed-instance
+and teardown fallbacks. Required system components inferred from direct `with`
+conjunctions skip those fallbacks. `Iter` uses the same reused tuple and reports
+the visited entity in each direct source slot. Relationships, fan-out and clocks
+retain the generic resolver, as do larger tuples.
 Only explicit store carrier traversal pins representation and maintains cursors.
 Numeric `entity.get(id)` resolves the term from the world; class-based `get` uses
 the resolved metadata's term. Teardown and removed-instance fallbacks run on misses.
@@ -252,17 +258,44 @@ The retained cold split is independent of that storage choice.
 ### Flat positions with promotion slack
 
 Both containers retain plain-number flat positions, density 8, and a monotone
-highest-id bound. The promotion test adds a fixed 2048-slot allowance:
-`count * 8 + 2048 >= highestId + 1`. This makes low server/replicated ids direct
+highest-id bound. At eight or more members the promotion test adds a fixed
+1024-slot allowance: `count * 8 + 1024 >= highestId + 1`; otherwise the original
+`count * 8 >= highestId + 1` rule applies. This makes low server/replicated ids direct
 without per-mutation page bookkeeping; client-local ids starting at 10000 retain
-the old density threshold. Only empty, idle containers demote, and active
-traversals never switch representation. Membership-only store lookup checks the
+the old density threshold. An idle insertion beyond twice the slack-adjusted
+bound demotes in one pass instead of extending the array. The check includes
+retained position length, so a later idle insertion also repairs growth deferred
+during active traversal. Nonempty removals never demote, and active traversals
+never switch representation. Membership-only store lookup checks the
 position and entity identity without loading the instance.
 
 The `small-components-heap` scene reports retained world bytes per entity for 300
 entities and 200 populated component types (one carrier per type, spread across
 the population). Multiply by 300 for total world bytes. This exposes the cost of
 direct singleton stores; sparse-term and mixed-world heaps remain separate rows.
+
+Three alternating CPU-2-pinned processes per candidate (reverse middle order,
+five internal rounds) compared minimum populations 8 and 16 at slack 1024.
+The minimum-8/16 builds both included the same arity-specialised invokers; the
+870b208 comparison build did not, so timing differences against it are combined
+changes, not solely the population guard. Some rounds overlapped CPU-isolated
+checks and diagnostic profiling, not another timed benchmark stream.
+
+| Retained heap, bytes/unit      | 870b208 | Minimum 8 | Minimum 16 |
+| ------------------------------ | ------: | --------: | ---------: |
+| small-components-heap (entity) | 4060.48 |   4132.85 |    4063.68 |
+| sparse-terms-heap (term)       | 6395.88 |   6350.64 |    6370.72 |
+| mixed-heap (entity)            | 1437.19 |   1435.46 |    1435.50 |
+
+Keep minimum 8: all heaps stay within 3%, and it avoids a consistent timing loss
+on client-local inject/set/watch/churn. Server 40-carrier inject was 4.12/4.18
+ns per world entity/tick (minimum 8/16); composite 300-carrier server 453.70/467.44;
+client-local inject 300-carrier 34.89/36.14. Individual scenes also favor 16;
+there is no claim that 8 wins every row. After the sparse-term scene, both Query
+and Identity stores have **zero allocated position slots**, rather than 101209.
+The initial unguarded slack sweep remains rejected: all 1024/2048/4096 candidates
+retained about 15.5 KB per sparse term because those bootstrap stores grew to
+the later high query ids. Hysteretic demotion fixes that shape.
 
 ## Relationship edge updates
 
