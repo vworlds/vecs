@@ -4,6 +4,23 @@ import { ComponentStore } from "../../src/util/component_store.js";
 import { DenseEntitySet } from "../../src/util/dense_entity_set.js";
 
 describe.each(["term", "store"] as const)("%s position density invariant", (kind) => {
+  it("does not spend the low-id allowance on near-singletons", () => {
+    const world = new World();
+    const container = kind === "term" ? new DenseEntitySet() : new ComponentStore();
+    const all = Array.from({ length: 7 }, (_, i) => world.getOrCreateEntity(1000 + i));
+    for (const entity of all) {
+      if (container instanceof ComponentStore) {
+        container.set(entity, { n: entity.eid });
+      } else {
+        container.add(entity);
+      }
+    }
+    container.delete(all[0]!);
+    expect([...container]).toEqual(all.slice(1));
+    all.slice(1).forEach((entity) => expect(container.has(entity)).toBe(true));
+    world.dispose();
+  });
+
   function fixture() {
     const world = new World();
     const container = kind === "term" ? new DenseEntitySet() : new ComponentStore();
