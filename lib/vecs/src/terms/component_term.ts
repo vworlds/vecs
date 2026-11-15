@@ -1,6 +1,7 @@
 import type { EID, Entity } from "../entity/index.js";
 import type { ComponentInstance } from "../component_meta.js";
 import { ComponentStore } from "../util/component_store.js";
+import { BitPtr } from "../util/bitset.js";
 import type { World } from "../world/index.js";
 import { Term, TermEventKind, type TermConsumer } from "./term.js";
 
@@ -32,6 +33,7 @@ import { Term, TermEventKind, type TermConsumer } from "./term.js";
 export class ComponentTerm extends Term {
   /** @internal Shared instances for this component key. */
   public readonly _store: ComponentStore;
+  private readonly _bitPtr: BitPtr;
   /** Entities stored before their add hooks whose entry is not yet propagated, innermost last. */
   private readonly _staged: Entity[] = [];
   /** Per staged entry, the consumers that subscribed while it was staged; created on demand. */
@@ -46,6 +48,7 @@ export class ComponentTerm extends Term {
     const store = new ComponentStore();
     super(world, key, "component", true, onDestroy, store);
     this._store = store;
+    this._bitPtr = new BitPtr(componentEid);
     // Registration creates the leaf before the first attachment. All later
     // membership changes drive it, so no world scan is necessary.
   }
@@ -58,6 +61,14 @@ export class ComponentTerm extends Term {
   /** @internal Whether removal must preserve an injection register for term consumers. */
   public get _observed(): boolean {
     return this._consumers.size > 0;
+  }
+
+  /**
+   * Test this world's component bit, including staged and not-yet-detached
+   * teardown members. Foreign-world entities never belong to this term.
+   */
+  public override has(entity: Entity): boolean {
+    return entity.world === this.world && entity.componentBitmask.hasBit(this._bitPtr);
   }
 
   /** @internal Record storage membership before add hooks, without notifying consumers. */
@@ -103,6 +114,8 @@ export class ComponentTerm extends Term {
    * in the term only while it still carries the component and is alive. When
    * removed, resynchronize composite parents that may have read the staged
    * membership, without sending an exit to unentered direct leaf queries.
+   * Clear discarded attachment bookkeeping before notifying consumers, including
+   * when a throwing teardown interrupted an add hook before this slot detached.
    */
   public _discardStaged(entity: Entity): void {
     const staged = this._staged;
@@ -117,6 +130,13 @@ export class ComponentTerm extends Term {
     // A throwing/reentrant add may no longer match (#538). Resynchronize
     // composite parents that could have seen staged membership, not unentered leaves.
     if (!this._matches(entity) && this._store.delete(entity)) {
+      entity.componentBitmask.deleteBit(this._bitPtr);
+      const ceids = entity._ceids;
+      const slot = ceids.indexOf(this.componentEid);
+      if (slot >= 0) {
+        ceids[slot] = ceids[ceids.length - 1]!;
+        ceids.pop();
+      }
       this._emitTo(TermEventKind.Exit, entity, (consumer) => consumer._resyncsOnEvent === true);
     }
   }

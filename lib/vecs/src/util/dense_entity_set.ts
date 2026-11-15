@@ -52,14 +52,18 @@ export class DenseEntitySet implements Iterable<Entity> {
     }
   }
 
-  /** Add a live entity; promote by absolute-id density plus fixed slack only while idle. */
+  /**
+   * Add a live entity; promote by absolute-id density plus fixed slack only while idle.
+   * Sparse insertion detects duplicates by size, without a separate hash probe.
+   */
   public add(entity: Entity): boolean {
     const members = this._members;
     if (members !== undefined) {
-      if (members.has(entity)) {
+      const size = members.size;
+      members.add(entity);
+      if (members.size === size) {
         return false;
       }
-      members.add(entity);
       this._highest = Math.max(this._highest, entity.eid);
       if (
         this._active === 0 &&
