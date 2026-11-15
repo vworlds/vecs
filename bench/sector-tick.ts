@@ -19,10 +19,15 @@
  *   in-memory client per sector that acks every frame and sends input.
  *
  * The run is deterministic: one seeded PRNG per sector, a fixed `dt`, and no
- * wall-clock input to the simulation. It prints a checksum of the final state,
- * a hash of the order in which every benchmark callback fired, and a hash of
- * every byte sent to the clients. An optimization that preserves execution
- * order, hook order and reactive delivery leaves all three unchanged.
+ * wall-clock input to the simulation. It prints two kinds of fingerprint.
+ * `stateChecksum`, `traceBag` and `traceCount` are order-independent — bodies
+ * visited by entity id, per-client byte sums, and a commutative hash of every
+ * callback invocation — and only change when observable behavior changes.
+ * `orderedChecksum` and `orderedTrace` chain the same state and callbacks in
+ * engine, send and firing order, so they also change when the order in which
+ * query members are visited changes; `bench/compare.ts` reports them as
+ * informational. The order-independent accumulation sits inside the timed loop
+ * and uses integer arithmetic only.
  *
  * See `bench/README.md` for how to run, profile and compare it.
  */
@@ -361,9 +366,18 @@ class Rng {
 /** Order-sensitive hash of every benchmark callback invocation. */
 let traceHash = 0x811c9dc5;
 
+/** Order-independent bag hash of every benchmark callback invocation. */
+let traceBagHash = 0;
+
+/** Callback invocations recorded by {@link trace}. */
+let traceCount = 0;
+
 function trace(callbackId: number, eid: number): void {
   traceHash = Math.imul(traceHash ^ callbackId, 0x01000193);
   traceHash = Math.imul(traceHash ^ eid, 0x01000193);
+  traceBagHash =
+    (traceBagHash + Math.imul(Math.imul(callbackId + 1, 0x9e3779b1) ^ eid, 0x01000193)) | 0;
+  traceCount++;
 }
 
 /** Stable callback ids for {@link trace}. */
@@ -507,6 +521,8 @@ class BenchSocket implements VecsSocket {
   bytes = 0;
   messages = 0;
   hash = 0x811c9dc5;
+  /** Order-independent sum of every sent byte, so send order cannot change it. */
+  byteSum = 0;
   private readonly _handlers = new Map<string, SocketHandler[]>();
 
   constructor(id: string) {
@@ -524,10 +540,13 @@ class BenchSocket implements VecsSocket {
     this.messages++;
     this.bytes += data.length;
     let hash = this.hash;
+    let sum = this.byteSum;
     for (let i = 0; i < data.length; i++) {
       hash = Math.imul(hash ^ data[i], 0x01000193);
+      sum = (sum + data[i]) | 0;
     }
     this.hash = hash;
+    this.byteSum = sum;
   }
 
   receive(data: Uint8Array): void {
@@ -1187,7 +1206,15 @@ function tick(sectors: readonly Sector[], frame: number): void {
   }
 }
 
-function checksum(sectors: readonly Sector[]): string {
+/**
+ * FNV-1a mix of the final state. `bodies` picks the visit order and
+ * `clientHash` the per-client fingerprint mixed after the byte count.
+ */
+function stateHash(
+  sectors: readonly Sector[],
+  bodies: (sector: Sector) => readonly SimBody[],
+  clientHash: (client: BenchClient) => number
+): string {
   let hash = 0x811c9dc5;
   const mix = (value: number): void => {
     hash = Math.imul(hash ^ (value | 0), 0x01000193);
@@ -1199,7 +1226,7 @@ function checksum(sectors: readonly Sector[]): string {
     mix(sector.spawned);
     mix(sector.destroyed);
     mix(Math.round(sector.world.component(MassTotal).get(MassTotal)!.total * 1000));
-    for (const sim of sector.engine.bodies) {
+    for (const sim of bodies(sector)) {
       if (sim.alive) {
         mix(sim.entity.eid);
         mix(Math.round(sim.x * 1000));
@@ -1208,10 +1235,39 @@ function checksum(sectors: readonly Sector[]): string {
     }
     for (const client of sector.clients) {
       mix(client.socket.bytes);
-      mix(client.socket.hash);
+      mix(clientHash(client));
     }
   }
   return hex(hash);
+}
+
+/**
+ * Order-sensitive state fingerprint: bodies in engine order and each client's
+ * rolling byte hash, so a change in body or record order changes it.
+ */
+function orderedChecksum(sectors: readonly Sector[]): string {
+  return stateHash(
+    sectors,
+    (sector) => sector.engine.bodies,
+    (client) => client.socket.hash
+  );
+}
+
+/**
+ * Order-independent state fingerprint: bodies in ascending entity id and each
+ * client's sent-byte sum, so member iteration and record order cannot change
+ * it.
+ */
+function stateChecksum(sectors: readonly Sector[]): string {
+  return stateHash(
+    sectors,
+    (sector) => [...sector.engine.bodies].sort(byEntityId),
+    (client) => client.socket.byteSum
+  );
+}
+
+function byEntityId(a: SimBody, b: SimBody): number {
+  return a.entity.eid - b.entity.eid;
 }
 
 function main(): void {
@@ -1257,8 +1313,11 @@ function main(): void {
     retargetsPerTick: round((sum(sectors, (s) => s.retargets) - retargetsBefore) / CONFIG.ticks),
     spawnsPerTick: round((sum(sectors, (s) => s.spawned) - spawnedBefore) / CONFIG.ticks),
     bytesSent: sum(sectors, (sector) => sum(sector.clients, (client) => client.socket.bytes)),
-    checksum: checksum(sectors),
-    trace: hex(traceHash),
+    stateChecksum: stateChecksum(sectors),
+    traceBag: hex(traceBagHash),
+    traceCount,
+    orderedChecksum: orderedChecksum(sectors),
+    orderedTrace: hex(traceHash),
   };
 
   console.log(
@@ -1269,7 +1328,10 @@ function main(): void {
         `p95 ${result.tick.p95} ms, p99 ${result.tick.p99} ms, stdev ${result.tick.stdev} ms`,
       `  init ${result.initMs} ms, measured ${result.totalMs} ms, ` +
         `${result.retargetsPerTick} InCell retargets/tick, ${result.spawnsPerTick} spawns/tick`,
-      `  checksum ${result.checksum}, trace ${result.trace}, ${result.bytesSent} bytes sent`,
+      `  stateChecksum ${result.stateChecksum}, traceBag ${result.traceBag}, ` +
+        `traceCount ${result.traceCount}, ${result.bytesSent} bytes sent`,
+      `  orderedChecksum ${result.orderedChecksum}, orderedTrace ${result.orderedTrace} ` +
+        `(order-sensitive)`,
     ].join("\n")
   );
   console.log(`BENCH_RESULT ${JSON.stringify(result)}`);

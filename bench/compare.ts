@@ -10,8 +10,12 @@
  * every other `BENCH_*` variable is passed through to the benchmark.
  *
  * The report gives each build's mean tick time per run, and the head/base ratio
- * of every round. It also checks that both builds produced the same checksum,
- * callback trace and network bytes: a pure optimization must not change them.
+ * of every round. It also checks that both builds produced the same
+ * order-independent fingerprints — state checksum, callback bag, callback
+ * count and network bytes: a pure optimization must not change them. The
+ * order-sensitive `orderedChecksum`/`orderedTrace` are reported as a note: a
+ * difference means the order in which query members are visited changed, not a
+ * behavior change.
  */
 import { spawnSync } from "node:child_process";
 import {
@@ -25,19 +29,31 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 type BenchResult = {
   tick: { mean: number; median: number; p95: number };
-  checksum: string;
-  trace: string;
+  stateChecksum: string;
+  traceBag: string;
+  traceCount: number;
+  orderedChecksum: string;
+  orderedTrace: string;
   bytesSent: number;
 };
 
 const benchDir = dirname(fileURLToPath(import.meta.url));
-if (process.argv[2] === "--release") {
-  releaseCheck();
-} else {
+if (
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
+  main();
+}
+
+function main(): void {
+  if (process.argv[2] === "--release") {
+    releaseCheck();
+    return;
+  }
   const [baseArg, headArg] = process.argv.slice(2);
   if (baseArg === undefined) {
     console.error("usage: node bench/compare.ts <base-checkout> [head-checkout]");
@@ -82,14 +98,27 @@ if (process.argv[2] === "--release") {
       `change ${fmt((median(ratios) - 1) * 100, 1)}%`
   );
 
-  const fingerprint = (run: BenchResult): string => `${run.checksum}/${run.trace}/${run.bytesSent}`;
-  const fingerprints = new Set([...base, ...head].map(fingerprint));
-  if (fingerprints.size === 1) {
-    console.log(`behavior: identical checksum/trace/bytes ${[...fingerprints][0]}`);
+  const behavior = (run: BenchResult): string =>
+    `${run.stateChecksum}/${run.traceBag}/${run.traceCount}/${run.bytesSent}`;
+  const behaviors = new Set([...base, ...head].map(behavior));
+  if (behaviors.size === 1) {
+    console.log(`behavior: identical stateChecksum/traceBag/traceCount/bytes ${[...behaviors][0]}`);
   } else {
-    console.log(`behavior: DIFFERENT checksum/trace/bytes: ${[...fingerprints].join(", ")}`);
+    console.log(
+      `behavior: DIFFERENT stateChecksum/traceBag/traceCount/bytes: ${[...behaviors].join(", ")}`
+    );
     process.exitCode = 1;
   }
+
+  const orderedFingerprint = (run: BenchResult): string =>
+    `${run.orderedChecksum}/${run.orderedTrace}`;
+  const orderedFingerprints = new Set([...base, ...head].map(orderedFingerprint));
+  console.log(
+    orderedFingerprints.size === 1
+      ? `member order: unchanged (orderedChecksum/orderedTrace ${[...orderedFingerprints][0]})`
+      : `member order: changed (orderedChecksum/orderedTrace ${[...orderedFingerprints].join(", ")}); ` +
+          `informational, not a behavior mismatch`
+  );
 }
 
 function runOnce<T = BenchResult>(root: string, file = "sector-tick.ts"): T {
@@ -109,7 +138,16 @@ function runOnce<T = BenchResult>(root: string, file = "sector-tick.ts"): T {
   return (results.length === 1 ? results[0] : { results }) as T;
 }
 
-type Metric = { name: string; timing: boolean; bytes: boolean; values: (number | string)[] };
+type Metric = {
+  name: string;
+  timing: boolean;
+  bytes: boolean;
+  values: (number | string)[];
+  /** A difference is a member-order note, not a behavior mismatch. */
+  informational?: boolean;
+  /** This side's output predates the metric; report it unavailable, never as a mismatch. */
+  unavailable?: boolean;
+};
 type Comparison = {
   metric: string;
   previous: number | string | null;
@@ -182,7 +220,7 @@ function releaseCheck(): void {
             }
             throw error;
           }
-          const metrics = extractMetrics(file, result);
+          const metrics = extractMetrics(file, result, variant === "previous");
           const previous = samples.get(variant);
           if (!previous) {
             samples.set(variant, metrics);
@@ -282,7 +320,11 @@ function firstErrorLine(error: unknown): string {
   );
 }
 
-function extractMetrics(file: string, result: Record<string, unknown>): Metric[] {
+export function extractMetrics(
+  file: string,
+  result: Record<string, unknown>,
+  previous = false
+): Metric[] {
   if (file === "core-storage.ts") {
     return coreStorageMetrics(result);
   }
@@ -297,19 +339,10 @@ function extractMetrics(file: string, result: Record<string, unknown>): Metric[]
     }
   };
   visit(result, "");
-  const names =
-    file === "sector-tick.ts"
-      ? [
-          "tick.mean",
-          "checksum",
-          "trace",
-          "bytesSent",
-          "entities",
-          "asteroids",
-          "retargetsPerTick",
-          "spawnsPerTick",
-        ]
-      : Object.keys(flat).filter((name) => !/^(?:config|node)(?:\.|$)/.test(name));
+  if (file === "sector-tick.ts") {
+    return sectorTickMetrics(flat, previous);
+  }
+  const names = Object.keys(flat).filter((name) => !/^(?:config|node)(?:\.|$)/.test(name));
   return names.map((name) => {
     const value = flat[name];
     if (value === undefined || (typeof value === "number" && !Number.isFinite(value))) {
@@ -323,6 +356,57 @@ function extractMetrics(file: string, result: Record<string, unknown>): Metric[]
         ),
       bytes: /bytes/i.test(name),
       values: [value],
+    };
+  });
+}
+
+/** Sector rows whose values cannot depend on iteration or record order. */
+const SECTOR_ORDER_INDEPENDENT = new Set(["stateChecksum", "traceBag", "traceCount"]);
+
+/**
+ * Sector rows. `stateChecksum`, `traceBag` and `traceCount` are the behavior
+ * fingerprints, compared exactly. `orderedChecksum` and `orderedTrace` are
+ * informational: a difference means member iteration order changed, not a
+ * behavior change. Output that predates the order-independent fingerprints
+ * printed the ordered ones as `checksum` and `trace` — the recipe is the same
+ * — so they are read under their old names too; a previous release without the
+ * order-independent rows reports them as unavailable for that side instead of
+ * failing the check or reporting a mismatch.
+ */
+function sectorTickMetrics(flat: Record<string, number | string>, previous: boolean): Metric[] {
+  const names = [
+    "tick.mean",
+    "stateChecksum",
+    "traceBag",
+    "traceCount",
+    "orderedChecksum",
+    "orderedTrace",
+    "bytesSent",
+    "entities",
+    "asteroids",
+    "retargetsPerTick",
+    "spawnsPerTick",
+  ];
+  return names.map((name) => {
+    const value =
+      flat[name] ??
+      (name === "orderedChecksum"
+        ? flat.checksum
+        : name === "orderedTrace"
+          ? flat.trace
+          : undefined);
+    if (value === undefined || (typeof value === "number" && !Number.isFinite(value))) {
+      if (previous && SECTOR_ORDER_INDEPENDENT.has(name)) {
+        return { name, timing: false, bytes: false, values: [], unavailable: true };
+      }
+      throw new Error(`invalid or missing metric sector-tick.ts/${name}`);
+    }
+    return {
+      name,
+      timing: name === "tick.mean",
+      bytes: name === "bytesSent",
+      values: [value],
+      ...(name === "orderedChecksum" || name === "orderedTrace" ? { informational: true } : {}),
     };
   });
 }
@@ -365,7 +449,7 @@ function coreStorageMetrics(result: Record<string, unknown>): Metric[] {
   });
 }
 
-function compareMetric(name: string, head: Metric, previous?: Metric): Comparison {
+export function compareMetric(name: string, head: Metric, previous?: Metric): Comparison {
   const summarize = (metric: Metric): number | string =>
     metric.timing ? mean(metric.values as number[]) : metric.values[0];
   const current = summarize(head);
@@ -376,6 +460,15 @@ function compareMetric(name: string, head: Metric, previous?: Metric): Compariso
       head: current,
       delta: null,
       verdict: "no previous data",
+    };
+  }
+  if (previous.unavailable) {
+    return {
+      metric: name,
+      previous: "unavailable",
+      head: current,
+      delta: null,
+      verdict: "order-independent fingerprints unavailable for the previous release",
     };
   }
   const old = summarize(previous);
@@ -401,9 +494,11 @@ function compareMetric(name: string, head: Metric, previous?: Metric): Compariso
     verdict =
       current === old
         ? "identical"
-        : head.bytes && Number(current) > Number(old)
-          ? "WARNING: bytes grew"
-          : "changed";
+        : head.informational
+          ? "member order changed"
+          : head.bytes && Number(current) > Number(old)
+            ? "WARNING: bytes grew"
+            : "changed";
   }
   return {
     metric: name,

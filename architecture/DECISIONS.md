@@ -91,7 +91,9 @@ and system inboxes are parallel arrays. Settled in
   ([#555](https://github.com/vworlds/vecs/pull/555)).
 - Per-entity component order is kept (`_ceids`), so `toJSON`, snapshots and teardown hooks see
   the order they always did; member order of queries and terms is unspecified unless `orderBy` or
-  `cascade` is used (owner, 2026-11-14).
+  `cascade` is used (owner, 2026-11-14). The sector bench's ordered fingerprints changed with it
+  and its order-independent ones did not
+  ([#543](https://github.com/vworlds/vecs/issues/543)).
 
 **How to apply.** Read a component through the store — `_getFromMeta` when a meta is in hand —
 and never cache a store's arrays or representation across entities. Iterate members with the
