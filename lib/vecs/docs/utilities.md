@@ -138,6 +138,9 @@ Ordinary entities retain only an ordered
 list of component ids, not an instance map. Destruction temporarily retains instances
 in a teardown stash so synchronous exits can still read ordinary components; detached
 relationships disappear immediately. See [benchmark hot-path notes](../../../bench/README.md#component-store-hot-paths).
+Teardown scratch frames retain cleared tuple slots and entry-array capacity between
+entities; each borrower sets the exact active length before exposing the stash.
+No component instances remain in the reusable frame after successful teardown.
 
 Composite query terms use `DenseEntitySet` (`lib/vecs/src/util/dense_entity_set.ts`)
 for membership without instances. It follows the same slack-adjusted promotion and

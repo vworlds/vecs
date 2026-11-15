@@ -35,7 +35,8 @@ export class Lifecycle extends Components {
   /**
    * @internal Apply a `Destroy` command: fire `_exit` on every query, then
    * `onRemove` on every component, unregister from the world, and apply
-   * incoming relationship cleanup policies.
+   * incoming relationship cleanup policies. Scratch frames reuse cleared tuples
+   * and entry-array capacity, with an exact active length for each borrower.
    */
   public _destroy(this: Entity): void {
     if (this._destroyed) {
@@ -68,12 +69,13 @@ export class Lifecycle extends Components {
       teardownDepth = this.world._teardownDepth++;
       const scratch = (this.world._teardownStashes[teardownDepth] ??= { entries: [], slots: [] });
       const teardown = scratch.entries;
+      teardown.length = this._ceids.length;
       for (let i = 0; i < this._ceids.length; i++) {
         const ceid = this._ceids[i]!;
         const entry = (scratch.slots[i] ??= [ceid, undefined]);
         entry[0] = ceid;
         entry[1] = this._get(ceid);
-        teardown.push(entry);
+        teardown[i] = entry;
       }
       this._teardown = teardown;
       if (entityMeta && entityMeta.usageCount > selfCarry) {
@@ -101,7 +103,9 @@ export class Lifecycle extends Components {
         this._detachSlot(componentMeta, c, true);
       }
       this._dirtyComponentBitmask.clear();
-      this._queries.clear();
+      if (this._queries.size !== 0) {
+        this._queries.clear();
+      }
 
       this._ceids.length = 0;
       this._teardown = undefined;
@@ -128,7 +132,9 @@ export class Lifecycle extends Components {
           for (const entry of scratch.slots) {
             entry[1] = undefined;
           }
-          scratch.entries.length = 0;
+          // Keep the entry-array backing as well as tuple capacity. Clearing its
+          // length here makes the next entity's pushes allocate a fresh backing.
+          // The next borrower sets its exact length before publishing the stash.
         } else {
           // Preserve the original partial-world reads after a throwing hook, but
           // never lend its still-referenced frame to a later destroy.

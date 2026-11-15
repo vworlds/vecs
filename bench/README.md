@@ -297,6 +297,17 @@ The initial unguarded slack sweep remains rejected: all 1024/2048/4096 candidate
 retained about 15.5 KB per sparse term because those bootstrap stores grew to
 the later high query ids. Hysteretic demotion fixes that shape.
 
+### Destruction scratch allocation
+
+The 100k destroy-only profile (five warmup worlds, ten profiled worlds) identified
+the shared teardown entry array as a local allocation candidate: clearing its
+length after every entity discarded backing storage before the next push loop.
+The retained fix sets the next borrower's exact length, fills by index, and keeps
+the cleared tuple references between borrows. Component-instance references are
+still cleared after success; partial-world behavior after throwing hooks is unchanged.
+An empty query-membership set also needs no redundant clear during destruction.
+Mixed-size/empty teardown tests cover shrinking and growing scratch use.
+
 ## Relationship edge updates
 
 Run `node --import ./bench/register-dist.mjs bench/edge-coalesce.ts` after building.
