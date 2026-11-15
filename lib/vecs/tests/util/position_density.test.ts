@@ -47,6 +47,58 @@ describe.each(["term", "store"] as const)("%s position density invariant", (kind
     return { world, container, low, add, check };
   }
 
+  it("promotes past the bulk-zeroed position prefix and keeps other ids absent", () => {
+    const world = new World();
+    const container = kind === "term" ? new DenseEntitySet() : new ComponentStore();
+    const insert = (entity: Entity) =>
+      container instanceof ComponentStore
+        ? container.set(entity, { n: entity.eid })
+        : container.add(entity);
+    // Ids from 4,000: the slack rule first holds at the 426th member, so the
+    // promotion builds positions longer than the 2,048-slot template.
+    const members = Array.from({ length: 430 }, (_, i) => world.getOrCreateEntity(4000 + i));
+    members.forEach((member) => expect(insert(member)).toBe(true));
+    const absent = [1001, 2047, 2048, 2049, 3999, 4430, 9000].map((id) =>
+      world.getOrCreateEntity(id)
+    );
+    expect(container.size).toBe(430);
+    members.forEach((member) => expect(container.has(member)).toBe(true));
+    absent.forEach((entity) => expect(container.has(entity)).toBe(false));
+    // Direct removal swaps the tail into the hole, which a sparse container would not do.
+    container.delete(members[0]!);
+    expect([...container][0]).toBe(members[429]);
+    if (container instanceof ComponentStore) {
+      expect(container.get(members[429]!)).toEqual({ n: members[429]!.eid });
+      expect(container.get(absent[2]!)).toBeUndefined();
+    }
+    world.dispose();
+  });
+
+  it("stays correct across repeated empty-and-refill promotions", () => {
+    const world = new World();
+    const container = kind === "term" ? new DenseEntitySet() : new ComponentStore();
+    const insert = (entity: Entity) =>
+      container instanceof ComponentStore
+        ? container.set(entity, { n: entity.eid })
+        : container.add(entity);
+    const all = Array.from({ length: 48 }, (_, i) => world.getOrCreateEntity(200 + i * 3));
+    for (let cycle = 0; cycle < 4; cycle++) {
+      // Each cycle promotes a different subset, so a position left over from an
+      // earlier promotion would surface as a false member.
+      const members = all.filter((_, i) => (i + cycle) % 2 === 0);
+      members.forEach((member) => expect(insert(member)).toBe(true));
+      expect(container.size).toBe(members.length);
+      for (const entity of all) {
+        expect(container.has(entity)).toBe(members.includes(entity));
+      }
+      expect(new Set(container)).toEqual(new Set(members));
+      members.forEach((member) => expect(container.delete(member)).toBe(true));
+      expect(container.size).toBe(0);
+      all.forEach((entity) => expect(container.has(entity)).toBe(false));
+    }
+    world.dispose();
+  });
+
   it("demotes a bootstrap-promoted population before adding a distant member", () => {
     const { world, container, low, add, check } = fixture();
     const high = world.getOrCreateEntity(100000);
