@@ -738,13 +738,15 @@ export class Components extends Relationships {
     return c;
   }
 
-  /** @internal Apply one relationship-edge addition. */
+  /** @internal Apply one edge addition; the component bit skips an absent relationship's store read. */
   public _addTarget(this: Entity, meta: ComponentMeta, target: Entity): void {
     this._assertTargetWorld(target);
     if (this._destroyed || target._destroyed) {
       return;
     }
-    const existing = this._getFromMeta(meta) as Relationship | undefined;
+    const existing = this.componentBitmask.hasBit(meta.bitPtr)
+      ? (this._getFromMeta(meta) as Relationship | undefined)
+      : undefined;
     if (existing?._hasTarget(target)) {
       return;
     }
@@ -948,14 +950,14 @@ export class Components extends Relationships {
     }
   }
 
-  /** @internal Store one component eid without expanding interface aliases. */
+  /** @internal Store one component eid, testing its bit for presence without expanding aliases. */
   protected _storeRaw(
     this: Entity,
     meta: ComponentMeta,
     instance: ComponentInstance,
     isAdd: boolean
   ): void {
-    const existing = meta._term._store.has(this);
+    const existing = this.componentBitmask.hasBit(meta.bitPtr);
     this.componentBitmask.addBit(meta.bitPtr);
     if (existing) {
       meta._term._store.set(this, instance);

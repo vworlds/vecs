@@ -149,6 +149,10 @@ Component terms own their stores for instances, carrier iteration and counts;
 leaf `has` checks world identity and the entity's component bit instead of the
 store representation. Staging and detachment keep that bit in step with the
 store, including discarded staged additions after an interrupted teardown.
+Sparse attachment uses the bit for presence and one native `Map.set`; sparse
+term-container insertion uses one `Set.add`. Both detect new membership from the
+size change, avoiding a separate hash probe. Sparse container deletion already
+uses native `delete` without a presence probe.
 See [storage internals](../lib/vecs/docs/utilities.md#shared-component-storage)
 for the teardown membership contract. Sparse instance lookup is a native `Map` read; direct lookup
 reads an id position, checks entity identity, then reads the parallel instance.
