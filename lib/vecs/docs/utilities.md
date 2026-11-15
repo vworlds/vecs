@@ -115,22 +115,29 @@ for (const [key, value] of map) {
 Each component's pinned term owns one internal `ComponentStore`
 (`lib/vecs/src/util/component_store.ts`), combining carrier membership with instances.
 Sparse stores use `Map<Entity, instance>` without id-indexed arrays. At sufficient
-density, stores promote to parallel entity/instance arrays and paged id positions;
+density, stores promote to parallel entity/instance arrays and flat id positions;
 lookup checks entity identity because ids can be recycled. Direct removals move both
 arrays together and adjust active iteration cursors, so nested carrier cleanup skips
 deleted carriers and visits new ones without repeating unchanged survivors.
 
-Promotion happens only on an idle insertion when the carrier count times the store's
-density constant reaches the number of occupied pages times the page size. Sparse stores
-count members per page exactly, deleting the count when a page loses its last carrier.
-Direct pages allocate on first use, remain until emptying, and have zero for absent ids;
-the outer table grows by pushing undefined entries, not by writing past its length.
-This makes small offset populations eligible without paying for the ids below them.
+Promotion happens only on an idle insertion when `count * DENSITY + SLACK` reaches
+`highestId + 1`. Both containers use density 8 and fixed slack of 2048 slots.
+The highest sparse id is a monotone bound until membership empties; removing a high-id
+carrier does not lower it. Slack makes small low-id populations direct without a
+page table or per-mutation page counts. Client-local populations starting at 10000
+remain subject to the density threshold. Direct positions grow by pushing zeros,
+never by writing past the array's length; zero denotes an absent id.
 Only empty, idle stores demote;
 active traversals never change representation. Ordinary entities retain only an ordered
 list of component ids, not an instance map. Destruction temporarily retains instances
 in a teardown stash so synchronous exits can still read ordinary components; detached
 relationships disappear immediately. See [benchmark hot-path notes](../../../bench/README.md#component-store-hot-paths).
+
+Composite query terms use `DenseEntitySet` (`lib/vecs/src/util/dense_entity_set.ts`)
+for membership without instances. It follows the same slack-adjusted promotion and
+idle-only representation rules. Dense traversal keeps live cursors across emptying/refill and
+checks object identity after id reuse. Component-store membership tests stop at
+the position and identity check rather than fetching an unused instance.
 
 ## `DenseSet`
 

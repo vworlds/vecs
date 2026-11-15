@@ -2,12 +2,15 @@ import type { Entity } from "../entity/index.js";
 
 type Cursor = { next: number };
 const DENSITY = 8;
+const SLACK = 2048;
 
 /**
  * Live entity membership with native Set storage for sparse populations and
  * cursor-safe dense storage for populations that justify direct id lookup.
  * Removal order is unspecified. Deleted entries are skipped, additions are
  * visited, and only reinsertions can repeat, including in nested traversals.
+ * Fixed promotion slack makes small low-id populations direct. Sparse membership
+ * keeps a monotone highest-id bound until emptying.
  * Representation changes occur only when no traversal is active.
  * @internal
  */
@@ -48,7 +51,7 @@ export class DenseEntitySet implements Iterable<Entity> {
     }
   }
 
-  /** Add a live entity and return whether it was new; promote only while idle. */
+  /** Add a live entity; promote by absolute-id density plus fixed slack only while idle. */
   public add(entity: Entity): boolean {
     const members = this._members;
     if (members !== undefined) {
@@ -57,7 +60,7 @@ export class DenseEntitySet implements Iterable<Entity> {
       }
       members.add(entity);
       this._highest = Math.max(this._highest, entity.eid);
-      if (this._active === 0 && members.size * DENSITY >= this._highest + 1) {
+      if (this._active === 0 && members.size * DENSITY + SLACK >= this._highest + 1) {
         this._promote(members);
       }
     } else {
@@ -208,7 +211,7 @@ export class DenseEntitySet implements Iterable<Entity> {
 
   private _record(entity: Entity, position: number): void {
     const positions = this._positions!;
-    // Push intervening zeros rather than assigning past the array's length.
+    // Push intervening entries rather than assigning past the array's length.
     while (positions.length <= entity.eid) {
       positions.push(0);
     }

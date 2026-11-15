@@ -71,7 +71,8 @@ type TickCase =
   | "point"
   | "singleton-get"
   | "sparse-inject";
-type HeapCase = "heap" | "composite-heap" | "sparse-terms-heap" | "mixed-heap";
+type HeapCase =
+  "heap" | "composite-heap" | "sparse-terms-heap" | "mixed-heap" | "small-components-heap";
 type CaseName = TickCase | HeapCase;
 type ResultLine = {
   case: CaseName;
@@ -108,15 +109,18 @@ const CASES: readonly CaseName[] = [
   "singleton-get",
   "sparse-inject",
   "mixed-heap",
+  "small-components-heap",
 ];
-const SMALL_CASES: readonly TickCase[] = ["inject", "set", "watch", "churn", "point"];
+const SMALL_CASES: readonly TickCase[] = ["inject", "set", "watch", "churn", "point", "composite"];
 const benchFile = fileURLToPath(import.meta.url);
 const registerDist = resolve(dirname(benchFile), "register-dist.mjs");
 
 if (process.argv[2] === "--heap") {
   const heapCase = process.argv[4] as HeapCase;
   assert(
-    ["heap", "composite-heap", "sparse-terms-heap", "mixed-heap"].includes(heapCase),
+    ["heap", "composite-heap", "sparse-terms-heap", "mixed-heap", "small-components-heap"].includes(
+      heapCase
+    ),
     "unknown heap case"
   );
   runHeapChild(positiveValue(process.argv[3], "heap size"), heapCase);
@@ -154,20 +158,23 @@ if (process.argv[2] === "--heap") {
     if (smallOnly) {
       continue;
     }
-    for (const size of caseName === "sparse-terms-heap" || caseName === "mixed-heap"
-      ? ([100_000] as const)
-      : SIZES) {
+    for (const size of caseName === "small-components-heap"
+      ? [300]
+      : caseName === "sparse-terms-heap" || caseName === "mixed-heap"
+        ? [100_000]
+        : SIZES) {
       const line =
         caseName === "heap" ||
         caseName === "composite-heap" ||
         caseName === "sparse-terms-heap" ||
-        caseName === "mixed-heap"
+        caseName === "mixed-heap" ||
+        caseName === "small-components-heap"
           ? runHeap(size, rounds, caseName)
           : runTickCase(
               caseName,
               size,
-              warmupTicks ?? TICKS[caseName][size][0],
-              ticks ?? TICKS[caseName][size][1],
+              warmupTicks ?? TICKS[caseName][size as (typeof SIZES)[number]][0],
+              ticks ?? TICKS[caseName][size as (typeof SIZES)[number]][1],
               rounds
             );
       console.log(`CORE_STORAGE_RESULT ${JSON.stringify(line)}`);
@@ -256,6 +263,10 @@ function runHeap(size: number, rounds: number, caseName: HeapCase): ResultLine {
 /** Build a watch or composite world, settle it, and report retained heap. */
 function runHeapChild(size: number, heapCase: HeapCase): void {
   assert(typeof globalThis.gc === "function", "run the heap child with --expose-gc");
+  if (heapCase === "small-components-heap") {
+    runSmallComponentsHeapChild(size);
+    return;
+  }
   if (heapCase === "mixed-heap") {
     runMixedHeapChild(size);
     return;
@@ -276,6 +287,26 @@ function runHeapChild(size: number, heapCase: HeapCase): void {
   assert.equal(checksum, expectedChecksum(caseName, size, 0, HEAP_SETTLE_TICKS), "heap child");
   console.log(JSON.stringify({ bytesPerUnit, checksum }));
   scene.world.dispose();
+}
+
+/** Total retained world cost per entity with 200 populated singleton component stores. */
+function runSmallComponentsHeapChild(size: number): void {
+  globalThis.gc!();
+  const before = process.memoryUsage().heapUsed;
+  const world = new World();
+  const keys = Array.from({ length: 200 }, () => class Data {});
+  keys.forEach((key) => world.component(key));
+  const all = Array.from({ length: size }, () => world.entity());
+  keys.forEach((key, i) => all[i % size]!.add(key));
+  globalThis.gc!();
+  const bytesPerUnit = (process.memoryUsage().heapUsed - before) / size;
+  const slots = keys.reduce((sum, key) => sum + world.component(key).instanceCount(), 0);
+  assert.equal(slots, 200);
+  keys.forEach((key, i) => assert(all[i % size]!.has(key)));
+  console.log(
+    JSON.stringify({ bytesPerUnit, checksum: `entities:${size};keys:200;slots:${slots}` })
+  );
+  world.dispose();
 }
 
 /** Incremental retained bytes per sparse query, including its leaf and scaffolding. */

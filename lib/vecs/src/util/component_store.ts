@@ -2,26 +2,24 @@ import type { ComponentInstance } from "../component_meta.js";
 import type { Entity } from "../entity/index.js";
 
 type Cursor = { next: number };
-// Promote the distributed 40-of-300 scenes; geometry measurements live in bench/README.md.
-const DENSITY = 16;
-const PAGE_BITS = 8;
-const PAGE_SIZE = 1 << PAGE_BITS;
-const PAGE_MASK = PAGE_SIZE - 1;
+const DENSITY = 8;
+const SLACK = 2048;
 
 /**
  * Component instances and live carrier membership in one density-adaptive store.
  * Direct-mode cursor mechanics deliberately mirror DenseEntitySet: composition
  * would add a second lookup hop, while inheritance would couple term storage to
- * its container. Sparse stores count occupied pages without allocating pages.
+ * its container. Sparse stores allocate no id-indexed arrays. Fixed promotion
+ * slack makes low-id populations direct without per-mutation page bookkeeping.
  * @internal
  */
 export class ComponentStore implements Iterable<Entity> {
   private _members: Map<Entity, ComponentInstance> | undefined = new Map();
   private _dense: Entity[] | undefined;
   private _instances: ComponentInstance[] | undefined;
-  private _positions: (number[] | undefined)[] | undefined;
+  private _positions: number[] | undefined;
   private _cursors: Cursor[] | undefined;
-  private _pageCounts: Map<number, number> | undefined;
+  private _highest = 0;
   private _active = 0;
 
   public get size(): number {
@@ -59,17 +57,15 @@ export class ComponentStore implements Iterable<Entity> {
     return false;
   }
 
-  /** Insert or replace, promoting by occupied-page density only when idle; return whether new. */
+  /** Insert or replace; promote by absolute-id density plus fixed slack only while idle. */
   public set(entity: Entity, instance: ComponentInstance): boolean {
     const members = this._members;
     if (members !== undefined) {
       const existed = members.has(entity);
       members.set(entity, instance);
       if (!existed) {
-        const page = entity.eid >> PAGE_BITS;
-        const counts = (this._pageCounts ??= new Map());
-        counts.set(page, (counts.get(page) ?? 0) + 1);
-        if (this._active === 0 && members.size * DENSITY >= counts.size * PAGE_SIZE) {
+        this._highest = Math.max(this._highest, entity.eid);
+        if (this._active === 0 && members.size * DENSITY + SLACK >= this._highest + 1) {
           this._promote(members);
         }
       }
@@ -90,13 +86,14 @@ export class ComponentStore implements Iterable<Entity> {
   public clear(): void {
     if (this._members !== undefined) {
       this._members.clear();
-      this._pageCounts = undefined;
+      this._highest = 0;
     } else if (this._active === 0) {
       this._demote();
     } else {
       this._dense!.length = 0;
       this._instances!.length = 0;
       this._positions!.length = 0;
+      this._highest = 0;
       for (const cursor of this._cursors!) {
         cursor.next = 0;
       }
@@ -108,18 +105,8 @@ export class ComponentStore implements Iterable<Entity> {
     const members = this._members;
     if (members !== undefined) {
       const removed = members.delete(entity);
-      if (removed) {
-        const page = entity.eid >> PAGE_BITS;
-        const counts = this._pageCounts!;
-        const count = counts.get(page)! - 1;
-        if (count === 0) {
-          counts.delete(page);
-        } else {
-          counts.set(page, count);
-        }
-        if (members.size === 0) {
-          this._pageCounts = undefined;
-        }
+      if (members.size === 0) {
+        this._highest = 0;
       }
       return removed;
     }
@@ -136,7 +123,7 @@ export class ComponentStore implements Iterable<Entity> {
         const moved = dense[last]!;
         dense[index] = moved;
         this._instances![index] = this._instances![last]!;
-        this._positions![moved.eid >> PAGE_BITS]![moved.eid & PAGE_MASK] = index + 1;
+        this._positions![moved.eid] = index + 1;
       }
     } else {
       let hole = index;
@@ -159,8 +146,9 @@ export class ComponentStore implements Iterable<Entity> {
     }
     dense.pop();
     this._instances!.pop();
-    this._positions![entity.eid >> PAGE_BITS]![entity.eid & PAGE_MASK] = 0;
+    this._positions![entity.eid] = 0;
     if (dense.length === 0) {
+      this._highest = 0;
       if (this._active === 0) {
         this._demote();
       }
@@ -196,22 +184,24 @@ export class ComponentStore implements Iterable<Entity> {
     }
   }
 
-  /** Map or paged identity-checked instance lookup, without a world-registry hop. */
+  /** Map or flat identity-checked instance lookup, without a world-registry hop. */
   public get(entity: Entity): ComponentInstance | undefined {
     const members = this._members;
     if (members !== undefined) {
       return members.get(entity);
     }
-    const page = this._positions![entity.eid >> PAGE_BITS];
-    if (page === undefined) {
-      return undefined;
-    }
-    const slot = page[entity.eid & PAGE_MASK];
+    const slot = this._positions![entity.eid];
     return slot > 0 && this._dense![slot - 1] === entity ? this._instances![slot - 1] : undefined;
   }
 
+  /** Test membership and identity without loading the component instance. */
   public has(entity: Entity): boolean {
-    return this.get(entity) !== undefined;
+    const members = this._members;
+    if (members !== undefined) {
+      return members.has(entity);
+    }
+    const slot = this._positions![entity.eid];
+    return slot > 0 && this._dense![slot - 1] === entity;
   }
 
   private _demote(): void {
@@ -220,7 +210,7 @@ export class ComponentStore implements Iterable<Entity> {
     this._positions = undefined;
     this._cursors = undefined;
     this._members = new Map();
-    this._pageCounts = undefined;
+    this._highest = 0;
   }
 
   private _move(from: number, to: number): void {
@@ -228,16 +218,12 @@ export class ComponentStore implements Iterable<Entity> {
       const entity = this._dense![from]!;
       this._dense![to] = entity;
       this._instances![to] = this._instances![from]!;
-      this._positions![entity.eid >> PAGE_BITS]![entity.eid & PAGE_MASK] = to + 1;
+      this._positions![entity.eid] = to + 1;
     }
   }
 
   private _position(entity: Entity): number {
-    const page = this._positions![entity.eid >> PAGE_BITS];
-    if (page === undefined) {
-      return -1;
-    }
-    const slot = page[entity.eid & PAGE_MASK];
+    const slot = this._positions![entity.eid];
     return slot > 0 && this._dense![slot - 1] === entity ? slot - 1 : -1;
   }
 
@@ -250,17 +236,14 @@ export class ComponentStore implements Iterable<Entity> {
       this._record(this._dense[i]!, i);
     }
     this._members = undefined;
-    this._pageCounts = undefined;
   }
 
   private _record(entity: Entity, position: number): void {
     const positions = this._positions!;
-    const pageIndex = entity.eid >> PAGE_BITS;
-    while (positions.length <= pageIndex) {
-      positions.push(undefined);
+    while (positions.length <= entity.eid) {
+      positions.push(0);
     }
-    const page = (positions[pageIndex] ??= new Array<number>(PAGE_SIZE).fill(0));
-    page[entity.eid & PAGE_MASK] = position + 1;
+    positions[entity.eid] = position + 1;
   }
 
   private _release(cursor: Cursor): void {

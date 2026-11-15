@@ -3,6 +3,68 @@ import { type Entity, World } from "../../src/index.js";
 import { DenseEntitySet } from "../../src/util/dense_entity_set.js";
 
 describe("DenseEntitySet", () => {
+  it.each([1000, 10000])("uses promotion slack only for low-id populations at %i", (offset) => {
+    const world = new World();
+    const set = new DenseEntitySet();
+    const all = Array.from({ length: 3 }, (_, i) => world.getOrCreateEntity(offset + i));
+    all.forEach((entity) => set.add(entity));
+    set.delete(all[0]!);
+    expect([...set]).toEqual(offset === 1000 ? [all[2], all[1]] : all.slice(1));
+    expect(set.has(all[0]!)).toBe(false);
+    world.dispose();
+  });
+
+  it.each([1000, 10000])(
+    "matches a Set oracle across id ranges and live refills at %i",
+    (offset) => {
+      const world = new World();
+      const set = new DenseEntitySet();
+      const all = Array.from({ length: 600 }, (_, i) => world.getOrCreateEntity(offset + i));
+      const oracle = new Set(all);
+      all.forEach((entity) => set.add(entity));
+      const absent = world.getOrCreateEntity(offset + 30000);
+      expect(set.has(absent)).toBe(false);
+      expect(set.delete(absent)).toBe(false);
+      const check = () => {
+        expect(new Set(set)).toEqual(oracle);
+        expect(set.size).toBe(oracle.size);
+        all.forEach((entity) => expect(set.has(entity)).toBe(oracle.has(entity)));
+      };
+      const iterator = set[Symbol.iterator]();
+      const first = iterator.next().value as Entity;
+      const page = all.filter((entity) => entity.eid >> 8 === (offset + 300) >> 8);
+      page.forEach((entity) => expect(set.delete(entity)).toBe(oracle.delete(entity)));
+      check();
+      page.forEach((entity) => {
+        expect(set.add(entity)).toBe(true);
+        oracle.add(entity);
+      });
+      const rest = [...iterator];
+      expect(new Set([first, ...rest])).toEqual(oracle);
+      expect(rest).toHaveLength(oracle.size - 1);
+      let seed = 548;
+      for (let step = 0; step < 1000; step++) {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        const entity = all[seed % all.length]!;
+        if (seed & 0x10000) {
+          const existed = oracle.has(entity);
+          oracle.add(entity);
+          expect(set.add(entity)).toBe(!existed);
+        } else {
+          expect(set.delete(entity)).toBe(oracle.delete(entity));
+        }
+        if (step % 100 === 0) {
+          check();
+        }
+      }
+      check();
+      set.clear();
+      oracle.clear();
+      check();
+      world.dispose();
+    }
+  );
+
   it("does no work for an empty callback traversal and can be filled afterward", () => {
     const world = new World();
     const set = new DenseEntitySet();
@@ -178,7 +240,8 @@ describe("DenseEntitySet", () => {
     ["callback", "delete"],
   ] as const)("defers promotion during active %s traversal via %s", (kind, removal) => {
     const world = densityWorld();
-    const entities = Array.from({ length: 65 }, () => world.entity());
+    // Above the fixed low-id allowance: the first insertion must remain sparse.
+    const entities = Array.from({ length: 65 }, (_, i) => world.getOrCreateEntity(2200 + i));
     const replacement = world.entity();
     const set = new DenseEntitySet();
     set.add(entities[0]!);
@@ -234,7 +297,7 @@ describe("DenseEntitySet", () => {
   ] as const)("defers demotion during active %s traversal via %s", (kind, removal) => {
     const world = densityWorld();
     const entities = Array.from({ length: 32 }, () => world.entity());
-    const sparse = [1000, 1001, 1002].map((id) => world.getOrCreateEntity(id));
+    const sparse = [10000, 10001, 10002].map((id) => world.getOrCreateEntity(id));
     const set = new DenseEntitySet();
     entities.forEach((entity) => set.add(entity));
     const outer = set[Symbol.iterator]();
@@ -288,7 +351,7 @@ describe("DenseEntitySet", () => {
     } else {
       entities.slice(1).forEach((entity) => expect(set.delete(entity)).toBe(true));
     }
-    const sparse = [1000, 1001, 1002].map((id) => world.getOrCreateEntity(id));
+    const sparse = [10000, 10001, 10002].map((id) => world.getOrCreateEntity(id));
     sparse.forEach((entity) => set.add(entity));
     set.delete(sparse[0]!);
     expect([...set]).toEqual(sparse.slice(1));

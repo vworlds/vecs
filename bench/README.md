@@ -68,21 +68,22 @@ Timings remain per **world entity**, not per carrier. Set `BENCH_SMALL_WORLD=1`
 to run only these rows. Defaults are 2000 warmup and 10000 measured ticks; the
 ordinary tick and round overrides apply. Churn rotates a tenth of the carriers.
 
-| Case              | Body                                                                                                                       |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| iterate           | `each([], ...)`, no injection                                                                                              |
-| inject            | `each([Pos, Vel], ...)` writing in place                                                                                   |
-| set               | `each([Pos, Vel], ...)` calling `entity.set(Pos, {...})`, no watcher                                                       |
-| watch             | as `set`, plus a second system with `update({ watch: Pos }, ...)`                                                          |
-| churn             | each tick a rotating tenth of the entities loses `Vel` and the previous tenth gains it back, one `each([Pos, Vel])` system |
-| heap              | bytes per entity retained after building the `watch` world, measured in a fresh process                                    |
-| composite         | `churn` with 16 distinct populated composite queries sharing Pos/Vel, each with synchronous enter/exit callbacks           |
-| composite-heap    | bytes per entity retained by the `composite` world in a fresh process                                                      |
-| sparse-terms-heap | incremental bytes per query term for 200 ten-member queries in a 100,000-entity world, in a fresh process                  |
-| point             | `entity.get(Vel)` on a precomputed deterministic random permutation, every entity carrying Vel                             |
-| singleton-get     | repeated `entity.get(Vel)` on its single carrier in an otherwise large world                                               |
-| sparse-inject     | `each([Vel])` over distributed carriers making up 3% of the population; sparse from first insertion                        |
-| mixed-heap        | retained bytes per entity with local ids from 10000 and 200 mixed-density component keys, at 100k entities                 |
+| Case                  | Body                                                                                                                       |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| iterate               | `each([], ...)`, no injection                                                                                              |
+| inject                | `each([Pos, Vel], ...)` writing in place                                                                                   |
+| set                   | `each([Pos, Vel], ...)` calling `entity.set(Pos, {...})`, no watcher                                                       |
+| watch                 | as `set`, plus a second system with `update({ watch: Pos }, ...)`                                                          |
+| churn                 | each tick a rotating tenth of the entities loses `Vel` and the previous tenth gains it back, one `each([Pos, Vel])` system |
+| heap                  | bytes per entity retained after building the `watch` world, measured in a fresh process                                    |
+| composite             | `churn` with 16 distinct populated composite queries sharing Pos/Vel, each with synchronous enter/exit callbacks           |
+| composite-heap        | bytes per entity retained by the `composite` world in a fresh process                                                      |
+| sparse-terms-heap     | incremental bytes per query term for 200 ten-member queries in a 100,000-entity world, in a fresh process                  |
+| point                 | `entity.get(Vel)` on a precomputed deterministic random permutation, every entity carrying Vel                             |
+| singleton-get         | repeated `entity.get(Vel)` on its single carrier in an otherwise large world                                               |
+| sparse-inject         | `each([Vel])` over distributed carriers making up 3% of the population; sparse from first insertion                        |
+| mixed-heap            | retained bytes per entity with local ids from 10000 and 200 mixed-density component keys, at 100k entities                 |
+| small-components-heap | retained world bytes per entity at 300 entities, with 200 registered components populated once each                        |
 
 Each line reports the median, min and max nanoseconds per entity per tick over the rounds
 (bytes per entity for `heap`), the tick counts it used, and a checksum of component field sums
@@ -166,12 +167,12 @@ These are builder timings, not the quiet perf-runner acceptance results.
 | inject        | 44.91     | 43.96      | 45.13      |
 | churn         | 132.40    | 131.69     | 137.45     |
 
-### Paged component-store measurements
+### Rejected paged component-store measurements
 
-The store now uses 256-id plain-number pages and density 16. Sparse per-page
+The rejected prototype used 256-id plain-number pages and density 16. Sparse per-page
 counts make the density denominator independent of the absolute id offset;
 see [storage internals](../lib/vecs/docs/utilities.md#shared-component-storage).
-Terms still use their previous representation; these measurements cover only the
+Terms still used their previous representation; these measurements cover only the
 component-store stage, not the full lookup-path acceptance matrix.
 
 On the builder (Node 24.15.0, Xeon E3-1270 v6), page bits 7/8/9 and plain/Int32
@@ -189,7 +190,7 @@ medians (ns per world entity per tick):
 | churn / 10k     |      120.33 |      120.67 |
 | churn / 100k    |      144.72 |      147.01 |
 
-Keep plain pages for the large-world injection advantage; small-world results
+Plain pages won the large-world injection comparison; small-world results
 were mixed. Density 8/16/32 comparisons on CPU 4 did not separate the singleton
 or 3%-density rows consistently. Density 16 makes both 40-carrier offset scenes
 direct; density 32 had no consistent small-world benefit. Inspection confirmed
@@ -244,8 +245,24 @@ local benchmark streams, gave:
 Assign uses ten million writes and one million warmup writes; foreach uses its
 default two million calls. Assign update counts were zero; foreach checksum was
 8800000 in every process. The cold split recovers equal assign locally, not the
-remaining foreach gap. Term paging, injector specialisation and the retained
-page-counter heap question remain gated on orchestrator direction and runner data.
+remaining foreach gap. Subsequent term-paging measurements regressed static any-of
+and composite, so paging and page counters were rejected in both containers.
+The retained cold split is independent of that storage choice.
+
+### Flat positions with promotion slack
+
+Both containers retain plain-number flat positions, density 8, and a monotone
+highest-id bound. The promotion test adds a fixed 2048-slot allowance:
+`count * 8 + 2048 >= highestId + 1`. This makes low server/replicated ids direct
+without per-mutation page bookkeeping; client-local ids starting at 10000 retain
+the old density threshold. Only empty, idle containers demote, and active
+traversals never switch representation. Membership-only store lookup checks the
+position and entity identity without loading the instance.
+
+The `small-components-heap` scene reports retained world bytes per entity for 300
+entities and 200 populated component types (one carrier per type, spread across
+the population). Multiply by 300 for total world bytes. This exposes the cost of
+direct singleton stores; sparse-term and mixed-world heaps remain separate rows.
 
 ## Relationship edge updates
 
