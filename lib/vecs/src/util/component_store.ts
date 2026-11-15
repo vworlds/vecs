@@ -1,5 +1,6 @@
 import type { ComponentInstance } from "../component_meta.js";
 import type { Entity } from "../entity/index.js";
+import { zeroPositions } from "./zero_positions.js";
 
 type Cursor = { next: number };
 const DENSITY = 8;
@@ -255,13 +256,20 @@ export class ComponentStore implements Iterable<Entity> {
   }
 
   private _promote(members: Map<Entity, ComponentInstance>): void {
-    this._dense = [...members.keys()];
-    this._instances = [...members.values()];
-    this._positions = [];
-    this._cursors = [];
-    for (let i = 0; i < this._dense.length; i++) {
-      this._record(this._dense[i]!, i);
+    const dense = [...members.keys()];
+    let highest = 0;
+    for (let i = 0; i < dense.length; i++) {
+      highest = Math.max(highest, dense[i]!.eid);
     }
+    // Sized by the carriers' own ids, not the monotone bound, and zeroed in bulk.
+    const positions = zeroPositions(highest + 1);
+    for (let i = 0; i < dense.length; i++) {
+      positions[dense[i]!.eid] = i + 1;
+    }
+    this._dense = dense;
+    this._instances = [...members.values()];
+    this._positions = positions;
+    this._cursors = [];
     this._members = undefined;
   }
 

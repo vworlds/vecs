@@ -98,23 +98,33 @@ and system inboxes are parallel arrays. Settled in
   and its order-independent ones did not
   ([#543](https://github.com/vworlds/vecs/issues/543)).
 
-**How to apply.** Read a component through the store — `_getFromMeta` when a meta is in hand —
-and never cache a store's arrays or representation across entities. Iterate members with the
-live traversal, never by index. A change to either container or to the promotion constants needs
-the [`core-storage` bench](../bench/README.md#core-storage-cases) on the perf runner, including
-the 300-entity rows and the heap rows, because every earlier variant looked right on one size
-and wrong on another; a hot-path function that grows must be checked for lost inlining
-(`World.entity` fell out of the budget once, [#555](https://github.com/vworlds/vecs/pull/555)).
-See [shared component storage](../lib/vecs/docs/utilities.md#shared-component-storage) for the
-container semantics.
+**How to apply.** Read a component through the store — `_getFromMeta` when a meta is in hand — and
+never cache a store's arrays or representation across entities. Iterate members with the live
+traversal, never by index. A change to either container or to the promotion constants needs the
+[`core-storage` bench](../bench/README.md#core-storage-cases) on the perf runner, including the
+300-entity rows and the heap rows, because every earlier variant looked right on one size and wrong
+on another; a hot-path function that grows must be checked for lost inlining (`World.entity` fell
+out of the budget once, [#555](https://github.com/vworlds/vecs/pull/555)). See [shared component
+storage](../lib/vecs/docs/utilities.md#shared-component-storage) for the container semantics. A
+micro-benchmark whose hot loop calls an entity mutator at more than one site can land in two JIT
+modes about 10% apart: the immediate `set` chain (about 1,470 bytecodes) cannot fit a caller's
+inlining budget (920), so the result depends on whether the mutator or the loop is optimised first,
+and a small shift on such a row must be checked with `--concurrent-recompilation-delay` across
+several processes before it is read as a regression
+([#560](https://github.com/vworlds/vecs/pull/560)). `modified` and `add` each have a path that skips
+the store read when nothing needs the instance, and promotion zero-fills its position array in one
+bulk copy; tests that fail when any single guard is removed protect the first two
+(`tests/entity/modified_observers.test.ts`, `tests/entity/add_default.test.ts`).
 
-**Known residuals.** Measured end to end against `dev` on the perf runner
-([run](https://github.com/vworlds/perf-test/actions/runs/43691682294)). Three things are slower
-than before the track, all on components or terms in the sparse representation. An immediate
-`modified` on a component with fewer than eight carriers costs 125-128% (about 14 ns on a 53 ns
-operation; the deferred form is at 100%). An entity entering a dynamic `anyOf` union by gaining
-such a component costs 110-125%; leaving it, and entering or leaving a static `any` union, are at
-or below their previous cost. A composite query in a world of a few hundred client-local entities
-(ids from 10000, which the promotion allowance does not reach) costs 109%. Their causes are not
-established. Plain `set` and `assign` on a rare component, and singleton reads, are at their
-previous cost.
+**Known residuals.** Measured end to end against `dev` on the perf runner after
+[#560](https://github.com/vworlds/vecs/pull/560)
+([run](https://github.com/vworlds/perf-test/actions/runs/43714619251), [watched
+rows](https://github.com/vworlds/perf-test/actions/runs/43731472203)). An immediate `modified` on a
+component with fewer than eight carriers that also has an `update` watcher costs 114-119%, about 15
+ns: delivering the instance needs a hash lookup in the sparse store, where the previous per-entity
+map read an array. Removing it needs a different sparse representation. The same write with no
+observer, and every other `update` routing row, is at 67-71%. An entity entering a dynamic `anyOf`
+union inside a non-deferred write costs 110%; deferred it is at 95%. A composite query in a world of
+a few hundred client-local entities (ids from 10000, which the promotion allowance does not reach)
+costs 109%. Plain `set` and `assign` on a rare component, and singleton reads, are at their previous
+cost.

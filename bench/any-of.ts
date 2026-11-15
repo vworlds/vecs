@@ -15,6 +15,9 @@ for (const n of [keys, writes, warmup, rounds]) {
   assert(Number.isSafeInteger(n) && n > 0);
 }
 const diamondOnly = process.argv.includes("diamond");
+// Opt-in: give every key component an update watcher, so `update` rows price
+// delivery of the instance as well as routing. Rows are not comparable across modes.
+const watch = process.env.BENCH_WATCH === "1";
 
 for (let round = 1; round <= rounds; round++) {
   const variants = diamondOnly
@@ -55,6 +58,16 @@ for (let round = 1; round <= rounds; round++) {
             }
           },
         });
+        let updates = 0;
+        if (watch) {
+          components.forEach((c, k) =>
+            w
+              .query(`watch${k}`)
+              .with(c)
+              .update({ watch: c }, () => updates++)
+              .build()
+          );
+        }
         const entities = Array.from({ length: 100 }, (_, i) => {
           const e = w.entity().add(X);
           if (operation === "update") {
@@ -108,8 +121,11 @@ for (let round = 1; round <= rounds; round++) {
           return (elapsed * 1e6) / count;
         }
         run(warmup);
-        enters = exits = 0;
+        enters = exits = updates = 0;
         const nsPerWrite = run(writes);
+        if (watch && operation === "update" && !updateX) {
+          assert.equal(updates, writes);
+        }
         assert.equal(enters, operation === "update" ? 0 : writes);
         assert.equal(exits, operation === "update" ? 0 : writes);
         console.log(
@@ -120,6 +136,7 @@ for (let round = 1; round <= rounds; round++) {
               operation,
               deferred,
               keys,
+              watch,
               writes,
               nsPerWrite,
               enters,

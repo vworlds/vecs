@@ -1,4 +1,5 @@
 import type { Entity } from "../entity/index.js";
+import { zeroPositions } from "./zero_positions.js";
 
 type Cursor = { next: number };
 const DENSITY = 8;
@@ -226,12 +227,18 @@ export class DenseEntitySet implements Iterable<Entity> {
 
   private _promote(members: Set<Entity>): void {
     const dense = [...members];
-    this._dense = dense;
-    this._positions = [];
-    this._cursors = [];
+    let highest = 0;
     for (let i = 0; i < dense.length; i++) {
-      this._record(dense[i]!, i);
+      highest = Math.max(highest, dense[i]!.eid);
     }
+    // Sized by the members' own ids, not the monotone bound, and zeroed in bulk.
+    const positions = zeroPositions(highest + 1);
+    for (let i = 0; i < dense.length; i++) {
+      positions[dense[i]!.eid] = i + 1;
+    }
+    this._dense = dense;
+    this._positions = positions;
+    this._cursors = [];
     this._members = undefined;
   }
 

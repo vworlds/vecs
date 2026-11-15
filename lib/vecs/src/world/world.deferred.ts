@@ -186,7 +186,11 @@ export class Deferred extends Queries {
         (payload as ((entity: Entity) => void) | undefined)?.(entity);
         return;
       case CommandKind.Set:
-        entity._set(meta, payload as Partial<ComponentInstance> | undefined);
+        if (payload === undefined) {
+          entity._addDefault(meta);
+        } else {
+          entity._set(meta, payload as Partial<ComponentInstance>);
+        }
         return;
       case CommandKind.Assign:
         entity._assign(meta, payload as Partial<ComponentInstance>);

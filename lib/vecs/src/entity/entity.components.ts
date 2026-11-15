@@ -53,16 +53,46 @@ export class Components extends Relationships {
   }
 
   /**
+   * @internal Apply a plain `add`: materialize the component when it is absent.
+   * Equivalent to {@link _set} without data, which only needs presence. The
+   * component bit answers that without the store read, a hash miss while the
+   * store is sparse; it agrees with the store on a live entity. Kept apart from
+   * `_set`, whose body the deferred `set` drain is sensitive to.
+   */
+  public _addDefault(this: Entity, meta: ComponentMeta): void {
+    if (this._destroyed || meta.isRelationship || this.componentBitmask.hasBit(meta.bitPtr)) {
+      return;
+    }
+    this._materialize(meta, undefined);
+  }
+
+  /**
    * @internal Apply a pending modification and route events to watching queries.
    * Data writes fire `onSet`; deferred relationships prepare that hook separately
    * so its queued mutations can apply before routing. Edge-only updates never fire it.
+   *
+   * A modification nothing observes (no `set` hook, interface alias, update
+   * watcher or acting refresh consumer) only clears the pending bit: the
+   * instance is not read, which on a sparse store is a hash lookup. Presence
+   * comes from the component bit, which agrees with the store on a live entity.
    */
   public _modified(this: Entity, meta: ComponentMeta): void {
-    if (meta.isRelationship && this.world.deferred) {
+    const world = this.world;
+    if (meta.isRelationship && world.deferred) {
       this._modifiedRelationship(meta);
       return;
     }
     if (this._destroyed) {
+      return;
+    }
+    if (
+      meta._onSet === undefined &&
+      meta._implementsClosure === undefined &&
+      world._updateWatchers[meta.eid] === undefined &&
+      !meta._term._refreshObserved() &&
+      this.componentBitmask.hasBit(meta.bitPtr)
+    ) {
+      this._dirtyComponentBitmask.deleteBit(meta.bitPtr);
       return;
     }
     const c = this._getFromMeta(meta);
@@ -297,7 +327,7 @@ export class Components extends Relationships {
     if (this.world.deferred) {
       this.world._enqueue(CommandKind.Set, this, componentMeta);
     } else {
-      this._set(componentMeta, undefined);
+      this._addDefault(componentMeta);
     }
     return this as unknown as this;
   }
