@@ -11,6 +11,9 @@ Run `node --import ./bench/register-dist.mjs bench/any-of.ts` after building. It
 `any(X, all(X, Extra))` measures non-watched refresh costs; pass `diamond` to run only
 that case against an older build with `BENCH_VECS_ROOT`. No update callback is installed,
 so updates price membership maintenance rather than explicit watch dispatch.
+A `modified` nothing observes does not read the instance, so these rows no longer
+price the store lookup; `BENCH_WATCH=1` gives every key an update watcher and prices
+delivery, including the sparse-store read. Rows of the two modes are not comparable.
 `ANYOF_RESULT` reports each round's nanoseconds per write and exact transition counts.
 `BENCH_KEYS` (16), `BENCH_WRITES` (200,000), `BENCH_WARMUP_WRITES` (20,000), and
 `BENCH_ROUNDS` (5) accept positive integers. Modes alternate order per round; deferred

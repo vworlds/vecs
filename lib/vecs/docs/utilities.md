@@ -130,6 +130,10 @@ carrier does not lower it. Slack makes small low-id populations direct without a
 page table or per-mutation page counts. Client-local populations starting at 10000
 remain subject to the density threshold. Direct positions grow by pushing zeros,
 never by writing past the array's length; zero denotes an absent id.
+Promotion builds that array, sized by the members' highest id, from one bulk copy of a
+shared 2,048-slot zero template (`lib/vecs/src/util/zero_positions.ts`) and pushes only
+the remainder. Promotion code runs too rarely to leave the cold JIT tiers, where a push
+loop cost a set that empties and refills about 25 ns per insertion in `bench/any-of.ts`.
 An idle insertion demotes when the new id or retained position length exceeds
 twice `(newCount * DENSITY + SLACK)`, converting members and instances in one pass.
 This hysteresis bounds growth after low-id promotion without switching at every
@@ -157,7 +161,10 @@ partial world usable after a throwing teardown hook.
 Attachment checks use that same bit before writing the store. Sparse store and
 term-container insertions detect a new member from the size change after native
 `Map.set` or `Set.add`, rather than hashing the entity in a separate presence
-probe. Their sparse removals use native `delete` directly; entity teardown still
+probe. A plain `add` decides from the bit alone and never reads
+the store; `set` with data still reads it, since it needs the instance. A `modified` that nothing observes (no `set` hook, interface alias,
+update watcher or acting refresh consumer) clears its pending bit without reading
+the instance; an observed one still pays the store lookup, a hash lookup while sparse. Their sparse removals use native `delete` directly; entity teardown still
 reads the removed instance when needed for hooks and injection.
 
 Composite query terms use `DenseEntitySet` (`lib/vecs/src/util/dense_entity_set.ts`)

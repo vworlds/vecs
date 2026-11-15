@@ -1,0 +1,4 @@
+- [vecs] Changed: A `modified` that nothing observes (no `set` hook, interface alias, update watcher or acting refresh consumer) clears its pending bit without reading the component instance.
+- [vecs] Changed: A plain `add` decides presence from the entity's component bit without reading the component store.
+- [vecs] Changed: Promotion to direct storage zero-fills the position array from a shared template in one bulk copy instead of a push loop.
+- [vecs] Tests: Cover observed and unobserved `modified`, promotion past the template length, and repeated empty-and-refill promotions.
