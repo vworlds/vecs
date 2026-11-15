@@ -6,10 +6,10 @@ describe("ComponentStore", () => {
   it.each([1000, 10000])("uses promotion slack only for low-id populations at %i", (offset) => {
     const world = new World();
     const store = new ComponentStore();
-    const all = Array.from({ length: 3 }, (_, i) => world.getOrCreateEntity(offset + i));
+    const all = Array.from({ length: 16 }, (_, i) => world.getOrCreateEntity(offset + i));
     all.forEach((entity) => store.set(entity, { n: entity.eid }));
     store.delete(all[0]!);
-    expect([...store]).toEqual(offset === 1000 ? [all[2], all[1]] : all.slice(1));
+    expect([...store]).toEqual(offset === 1000 ? [all[15], ...all.slice(1, 15)] : all.slice(1));
     all.slice(1).forEach((entity) => expect(store.get(entity)).toEqual({ n: entity.eid }));
     world.dispose();
   });
@@ -210,7 +210,7 @@ describe("ComponentStore", () => {
     const world = new World();
     const store = new ComponentStore();
     // Above the low-id allowance initially, but enough carriers to promote later.
-    const all = Array.from({ length: 256 }, (_, i) => world.getOrCreateEntity(2200 + i));
+    const all = Array.from({ length: 256 }, (_, i) => world.getOrCreateEntity(1200 + i));
     store.set(all[0]!, { n: 0 });
     expect(() =>
       store.forEachLive(() => {

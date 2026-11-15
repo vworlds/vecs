@@ -6,10 +6,10 @@ describe("DenseEntitySet", () => {
   it.each([1000, 10000])("uses promotion slack only for low-id populations at %i", (offset) => {
     const world = new World();
     const set = new DenseEntitySet();
-    const all = Array.from({ length: 3 }, (_, i) => world.getOrCreateEntity(offset + i));
+    const all = Array.from({ length: 16 }, (_, i) => world.getOrCreateEntity(offset + i));
     all.forEach((entity) => set.add(entity));
     set.delete(all[0]!);
-    expect([...set]).toEqual(offset === 1000 ? [all[2], all[1]] : all.slice(1));
+    expect([...set]).toEqual(offset === 1000 ? [all[15], ...all.slice(1, 15)] : all.slice(1));
     expect(set.has(all[0]!)).toBe(false);
     world.dispose();
   });
@@ -241,7 +241,7 @@ describe("DenseEntitySet", () => {
   ] as const)("defers promotion during active %s traversal via %s", (kind, removal) => {
     const world = densityWorld();
     // Above the fixed low-id allowance: the first insertion must remain sparse.
-    const entities = Array.from({ length: 65 }, (_, i) => world.getOrCreateEntity(2200 + i));
+    const entities = Array.from({ length: 65 }, (_, i) => world.getOrCreateEntity(1200 + i));
     const replacement = world.entity();
     const set = new DenseEntitySet();
     set.add(entities[0]!);

@@ -120,15 +120,21 @@ lookup checks entity identity because ids can be recycled. Direct removals move 
 arrays together and adjust active iteration cursors, so nested carrier cleanup skips
 deleted carriers and visits new ones without repeating unchanged survivors.
 
-Promotion happens only on an idle insertion when `count * DENSITY + SLACK` reaches
-`highestId + 1`. Both containers use density 8 and fixed slack of 2048 slots.
+Promotion happens only on an idle insertion when `count * DENSITY` reaches
+`highestId + 1`, or at least eight members qualify with a fixed 1024-slot allowance.
+Both containers use density 8. The allowance does not promote near-singletons.
 The highest sparse id is a monotone bound until membership empties; removing a high-id
 carrier does not lower it. Slack makes small low-id populations direct without a
 page table or per-mutation page counts. Client-local populations starting at 10000
 remain subject to the density threshold. Direct positions grow by pushing zeros,
 never by writing past the array's length; zero denotes an absent id.
-Only empty, idle stores demote;
-active traversals never change representation. Ordinary entities retain only an ordered
+An idle insertion demotes when the new id or retained position length exceeds
+twice `(newCount * DENSITY + SLACK)`, converting members and instances in one pass.
+This hysteresis bounds growth after low-id promotion without switching at every
+boundary insertion. Removal never demotes nonempty membership. An active traversal
+defers demotion to a later idle insertion, including one within the grown range.
+Empty idle stores also demote; active traversals never change representation.
+Ordinary entities retain only an ordered
 list of component ids, not an instance map. Destruction temporarily retains instances
 in a teardown stash so synchronous exits can still read ordinary components; detached
 relationships disappear immediately. See [benchmark hot-path notes](../../../bench/README.md#component-store-hot-paths).

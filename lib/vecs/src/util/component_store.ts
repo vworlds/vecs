@@ -3,7 +3,8 @@ import type { Entity } from "../entity/index.js";
 
 type Cursor = { next: number };
 const DENSITY = 8;
-const SLACK = 2048;
+const SLACK = 1024;
+const MIN_DIRECT = 8;
 
 /**
  * Component instances and live carrier membership in one density-adaptive store.
@@ -65,7 +66,11 @@ export class ComponentStore implements Iterable<Entity> {
       members.set(entity, instance);
       if (!existed) {
         this._highest = Math.max(this._highest, entity.eid);
-        if (this._active === 0 && members.size * DENSITY + SLACK >= this._highest + 1) {
+        if (
+          this._active === 0 &&
+          (members.size * DENSITY >= this._highest + 1 ||
+            (members.size >= MIN_DIRECT && members.size * DENSITY + SLACK >= this._highest + 1))
+        ) {
           this._promote(members);
         }
       }
@@ -75,6 +80,16 @@ export class ComponentStore implements Iterable<Entity> {
     if (index >= 0) {
       this._instances![index] = instance;
       return false;
+    }
+    if (
+      this._active === 0 &&
+      Math.max(entity.eid + 1, this._positions!.length) >
+        2 * ((this._dense!.length + 1) * DENSITY + SLACK)
+    ) {
+      this._demote(true);
+      this._members!.set(entity, instance);
+      this._highest = Math.max(this._highest, entity.eid);
+      return true;
     }
     this._dense!.push(entity);
     this._instances!.push(instance);
@@ -204,13 +219,21 @@ export class ComponentStore implements Iterable<Entity> {
     return slot > 0 && this._dense![slot - 1] === entity;
   }
 
-  private _demote(): void {
+  private _demote(preserve = false): void {
+    const members = new Map<Entity, ComponentInstance>();
+    this._highest = 0;
+    if (preserve) {
+      for (let i = 0; i < this._dense!.length; i++) {
+        const entity = this._dense![i]!;
+        members.set(entity, this._instances![i]!);
+        this._highest = Math.max(this._highest, entity.eid);
+      }
+    }
     this._dense = undefined;
     this._instances = undefined;
     this._positions = undefined;
     this._cursors = undefined;
-    this._members = new Map();
-    this._highest = 0;
+    this._members = members;
   }
 
   private _move(from: number, to: number): void {
