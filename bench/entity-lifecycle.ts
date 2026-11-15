@@ -12,6 +12,8 @@ class Vel {
 }
 
 const selectedSize = process.argv[2] === undefined ? undefined : Number(process.argv[2]);
+const rounds = positiveInteger("BENCH_ROUNDS", 31);
+const warmupRounds = positiveInteger("BENCH_WARMUP_ROUNDS", 20);
 assert(
   selectedSize === undefined || selectedSize === 10_000 || selectedSize === 100_000,
   "expected optional size 10000 or 100000"
@@ -19,7 +21,7 @@ assert(
 for (const count of selectedSize === undefined ? [10_000, 100_000] : [selectedSize]) {
   const create: number[] = [];
   const destroy: number[] = [];
-  for (let round = -2; round < 5; round++) {
+  for (let round = -warmupRounds; round < rounds; round++) {
     const world = new World();
     const pos = world.component(Pos);
     const vel = world.component(Vel);
@@ -46,11 +48,22 @@ for (const count of selectedSize === undefined ? [10_000, 100_000] : [selectedSi
     world.dispose();
   }
   console.log(
-    `ENTITY_LIFECYCLE_RESULT ${JSON.stringify({ count, create: summary(create), destroy: summary(destroy), checksum: `created:${count};destroyed:${count}` })}`
+    `ENTITY_LIFECYCLE_RESULT ${JSON.stringify({ count, rounds, warmupRounds, create: summary(create), destroy: summary(destroy), checksum: `created:${count};destroyed:${count}` })}`
   );
 }
 
 function summary(samples: number[]) {
   const sorted = samples.slice().sort((a, b) => a - b);
-  return { median: sorted[2]!, min: sorted[0]!, max: sorted[4]! };
+  const middle = sorted.length >> 1;
+  return {
+    median: sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2,
+    min: sorted[0]!,
+    max: sorted[sorted.length - 1]!,
+  };
+}
+
+function positiveInteger(name: string, fallback: number): number {
+  const value = Number(process.env[name] ?? fallback);
+  assert(Number.isSafeInteger(value) && value > 0, `${name} must be a positive integer`);
+  return value;
 }

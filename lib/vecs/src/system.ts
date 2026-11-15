@@ -613,7 +613,14 @@ export class System<R extends ComponentType[] = []>
     this.track();
     const { components, useIter } = normalizeFanInjectCallbackArgs(arg0);
     const callback = arg1 as InjectedCallback;
-    this._eachCallback = makeInjectedInvoker(this.world, components, useIter, callback, this);
+    this._eachCallback = makeInjectedInvoker(
+      this.world,
+      components,
+      useIter,
+      callback,
+      this,
+      this._dsl
+    );
     return this;
   }
 

@@ -2,14 +2,16 @@ import type { ComponentInstance } from "../component_meta.js";
 import type { Entity } from "../entity/index.js";
 
 type Cursor = { next: number };
-// Full-horizon builder runs did not separate 8 from 16 consistently; match terms.
 const DENSITY = 8;
+const SLACK = 1024;
+const MIN_DIRECT = 8;
 
 /**
  * Component instances and live carrier membership in one density-adaptive store.
  * Direct-mode cursor mechanics deliberately mirror DenseEntitySet: composition
  * would add a second lookup hop, while inheritance would couple term storage to
- * its container. Sparse stores allocate no id-indexed arrays.
+ * its container. Sparse stores allocate no id-indexed arrays. Fixed promotion
+ * slack makes low-id populations direct without per-mutation page bookkeeping.
  * @internal
  */
 export class ComponentStore implements Iterable<Entity> {
@@ -56,7 +58,7 @@ export class ComponentStore implements Iterable<Entity> {
     return false;
   }
 
-  /** Insert or replace without changing carrier order; return whether new. */
+  /** Insert or replace; promote by absolute-id density plus fixed slack only while idle. */
   public set(entity: Entity, instance: ComponentInstance): boolean {
     const members = this._members;
     if (members !== undefined) {
@@ -64,7 +66,11 @@ export class ComponentStore implements Iterable<Entity> {
       members.set(entity, instance);
       if (!existed) {
         this._highest = Math.max(this._highest, entity.eid);
-        if (this._active === 0 && members.size * DENSITY >= this._highest + 1) {
+        if (
+          this._active === 0 &&
+          (members.size * DENSITY >= this._highest + 1 ||
+            (members.size >= MIN_DIRECT && members.size * DENSITY + SLACK >= this._highest + 1))
+        ) {
           this._promote(members);
         }
       }
@@ -74,6 +80,16 @@ export class ComponentStore implements Iterable<Entity> {
     if (index >= 0) {
       this._instances![index] = instance;
       return false;
+    }
+    if (
+      this._active === 0 &&
+      Math.max(entity.eid + 1, this._positions!.length) >
+        2 * ((this._dense!.length + 1) * DENSITY + SLACK)
+    ) {
+      this._demote(true);
+      this._members!.set(entity, instance);
+      this._highest = Math.max(this._highest, entity.eid);
+      return true;
     }
     this._dense!.push(entity);
     this._instances!.push(instance);
@@ -183,7 +199,7 @@ export class ComponentStore implements Iterable<Entity> {
     }
   }
 
-  /** Identity-checked instance lookup, without a world-registry hop. */
+  /** Map or flat identity-checked instance lookup, without a world-registry hop. */
   public get(entity: Entity): ComponentInstance | undefined {
     const members = this._members;
     if (members !== undefined) {
@@ -193,17 +209,31 @@ export class ComponentStore implements Iterable<Entity> {
     return slot > 0 && this._dense![slot - 1] === entity ? this._instances![slot - 1] : undefined;
   }
 
+  /** Test membership and identity without loading the component instance. */
   public has(entity: Entity): boolean {
-    return this.get(entity) !== undefined;
+    const members = this._members;
+    if (members !== undefined) {
+      return members.has(entity);
+    }
+    const slot = this._positions![entity.eid];
+    return slot > 0 && this._dense![slot - 1] === entity;
   }
 
-  private _demote(): void {
+  private _demote(preserve = false): void {
+    const members = new Map<Entity, ComponentInstance>();
+    this._highest = 0;
+    if (preserve) {
+      for (let i = 0; i < this._dense!.length; i++) {
+        const entity = this._dense![i]!;
+        members.set(entity, this._instances![i]!);
+        this._highest = Math.max(this._highest, entity.eid);
+      }
+    }
     this._dense = undefined;
     this._instances = undefined;
     this._positions = undefined;
     this._cursors = undefined;
-    this._members = new Map();
-    this._highest = 0;
+    this._members = members;
   }
 
   private _move(from: number, to: number): void {

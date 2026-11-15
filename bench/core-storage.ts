@@ -2,6 +2,8 @@
  * Core storage benchmark cases for the storage epic: iteration, injected
  * in-place writes, deferred `set`, watcher delivery, component churn and
  * retained heap, at 10,000 and 100,000 entities with two small components.
+ * Lookup/write/churn rows also cover 300 entities, 300 or 40 Vel carriers,
+ * and entity id pools starting at 1000 or 10000; BENCH_SMALL_WORLD=1 isolates them.
  * Composite rows add 16 distinct populated queries to the churn scene and
  * measure its enter/exit cost and retained heap separately.
  * The sparse-term heap row measures 200 ten-member queries in a 100k world.
@@ -69,7 +71,8 @@ type TickCase =
   | "point"
   | "singleton-get"
   | "sparse-inject";
-type HeapCase = "heap" | "composite-heap" | "sparse-terms-heap" | "mixed-heap";
+type HeapCase =
+  "heap" | "composite-heap" | "sparse-terms-heap" | "mixed-heap" | "small-components-heap";
 type CaseName = TickCase | HeapCase;
 type ResultLine = {
   case: CaseName;
@@ -82,6 +85,8 @@ type ResultLine = {
   terms?: number;
   ticks?: number;
   warmupTicks?: number;
+  carriers?: number;
+  firstId?: number;
 };
 type Scene = {
   world: World;
@@ -104,14 +109,18 @@ const CASES: readonly CaseName[] = [
   "singleton-get",
   "sparse-inject",
   "mixed-heap",
+  "small-components-heap",
 ];
+const SMALL_CASES: readonly TickCase[] = ["inject", "set", "watch", "churn", "point", "composite"];
 const benchFile = fileURLToPath(import.meta.url);
 const registerDist = resolve(dirname(benchFile), "register-dist.mjs");
 
 if (process.argv[2] === "--heap") {
   const heapCase = process.argv[4] as HeapCase;
   assert(
-    ["heap", "composite-heap", "sparse-terms-heap", "mixed-heap"].includes(heapCase),
+    ["heap", "composite-heap", "sparse-terms-heap", "mixed-heap", "small-components-heap"].includes(
+      heapCase
+    ),
     "unknown heap case"
   );
   runHeapChild(positiveValue(process.argv[3], "heap size"), heapCase);
@@ -124,21 +133,48 @@ if (process.argv[2] === "--heap") {
   const rounds = positiveInteger("BENCH_ROUNDS", 5);
   const ticks = optionalPositiveInteger("BENCH_TICKS");
   const warmupTicks = optionalPositiveInteger("BENCH_WARMUP_TICKS");
+  const smallOnly = process.env.BENCH_SMALL_WORLD === "1";
+  assert(
+    !smallOnly || only === undefined || SMALL_CASES.includes(only as TickCase),
+    `BENCH_SMALL_WORLD requires one of ${SMALL_CASES.join(", ")}`
+  );
   for (const caseName of only === undefined ? CASES : [only]) {
-    for (const size of caseName === "sparse-terms-heap" || caseName === "mixed-heap"
-      ? ([100_000] as const)
-      : SIZES) {
+    if (SMALL_CASES.includes(caseName as TickCase)) {
+      for (const firstId of [1000, 10000]) {
+        for (const carriers of [300, 40]) {
+          const line = runTickCase(
+            caseName as TickCase,
+            300,
+            warmupTicks ?? 2000,
+            ticks ?? 10000,
+            rounds,
+            carriers,
+            firstId
+          );
+          console.log(`CORE_STORAGE_RESULT ${JSON.stringify(line)}`);
+        }
+      }
+    }
+    if (smallOnly) {
+      continue;
+    }
+    for (const size of caseName === "small-components-heap"
+      ? [300]
+      : caseName === "sparse-terms-heap" || caseName === "mixed-heap"
+        ? [100_000]
+        : SIZES) {
       const line =
         caseName === "heap" ||
         caseName === "composite-heap" ||
         caseName === "sparse-terms-heap" ||
-        caseName === "mixed-heap"
+        caseName === "mixed-heap" ||
+        caseName === "small-components-heap"
           ? runHeap(size, rounds, caseName)
           : runTickCase(
               caseName,
               size,
-              warmupTicks ?? TICKS[caseName][size][0],
-              ticks ?? TICKS[caseName][size][1],
+              warmupTicks ?? TICKS[caseName][size as (typeof SIZES)[number]][0],
+              ticks ?? TICKS[caseName][size as (typeof SIZES)[number]][1],
               rounds
             );
       console.log(`CORE_STORAGE_RESULT ${JSON.stringify(line)}`);
@@ -164,12 +200,14 @@ function runTickCase(
   size: number,
   warmupTicks: number,
   ticks: number,
-  rounds: number
+  rounds: number,
+  carriers = size,
+  firstId?: number
 ): ResultLine {
-  const expected = expectedChecksum(caseName, size, warmupTicks, ticks);
+  const expected = expectedChecksum(caseName, carriers, warmupTicks, ticks);
   const samples: number[] = [];
   for (let round = 0; round < rounds; round++) {
-    const scene = buildScene(caseName, size);
+    const scene = buildScene(caseName, size, carriers, firstId);
     timeTicks(scene, 0, warmupTicks);
     scene.reset();
     const ms = timeTicks(scene, warmupTicks, ticks);
@@ -186,6 +224,7 @@ function runTickCase(
     checksum: expected,
     ticks,
     warmupTicks,
+    ...(firstId === undefined ? {} : { carriers, firstId }),
   };
 }
 
@@ -224,6 +263,10 @@ function runHeap(size: number, rounds: number, caseName: HeapCase): ResultLine {
 /** Build a watch or composite world, settle it, and report retained heap. */
 function runHeapChild(size: number, heapCase: HeapCase): void {
   assert(typeof globalThis.gc === "function", "run the heap child with --expose-gc");
+  if (heapCase === "small-components-heap") {
+    runSmallComponentsHeapChild(size);
+    return;
+  }
   if (heapCase === "mixed-heap") {
     runMixedHeapChild(size);
     return;
@@ -244,6 +287,26 @@ function runHeapChild(size: number, heapCase: HeapCase): void {
   assert.equal(checksum, expectedChecksum(caseName, size, 0, HEAP_SETTLE_TICKS), "heap child");
   console.log(JSON.stringify({ bytesPerUnit, checksum }));
   scene.world.dispose();
+}
+
+/** Total retained world cost per entity with 200 populated singleton component stores. */
+function runSmallComponentsHeapChild(size: number): void {
+  globalThis.gc!();
+  const before = process.memoryUsage().heapUsed;
+  const world = new World();
+  const keys = Array.from({ length: 200 }, () => class Data {});
+  keys.forEach((key) => world.component(key));
+  const all = Array.from({ length: size }, () => world.entity());
+  keys.forEach((key, i) => all[i % size]!.add(key));
+  globalThis.gc!();
+  const bytesPerUnit = (process.memoryUsage().heapUsed - before) / size;
+  const slots = keys.reduce((sum, key) => sum + world.component(key).instanceCount(), 0);
+  assert.equal(slots, 200);
+  keys.forEach((key, i) => assert(all[i % size]!.has(key)));
+  console.log(
+    JSON.stringify({ bytesPerUnit, checksum: `entities:${size};keys:200;slots:${slots}` })
+  );
+  world.dispose();
 }
 
 /** Incremental retained bytes per sparse query, including its leaf and scaffolding. */
@@ -324,21 +387,46 @@ function runSparseTermHeapChild(size: number): void {
 }
 
 /** Build a fresh world for one tick case with its per-tick hook and counters. */
-function buildScene(caseName: TickCase, size: number): Scene {
-  const world = new World();
+function buildScene(caseName: TickCase, size: number, carriers = size, firstId?: number): Scene {
+  const world = new World(
+    firstId === undefined
+      ? undefined
+      : {
+          idPools: [
+            { name: "component", min: 1, max: 899 },
+            { name: "module", min: 900, max: firstId - 1 },
+            { name: "entity", min: firstId },
+          ],
+        }
+  );
   world.component(Pos);
   world.component(Vel);
+  const population: Entity[] = [];
   const all: Entity[] = [];
   for (let i = 0; i < size; i++) {
     const entity = world.entity().add(Pos);
+    population.push(entity);
+    // Spread the partial component across the whole id range, including both pages.
+    const selected = Math.floor(((i + 1) * carriers) / size) > Math.floor((i * carriers) / size);
     if (
-      (caseName !== "sparse-inject" && caseName !== "singleton-get") ||
+      (caseName !== "sparse-inject" && caseName !== "singleton-get" && selected) ||
       (caseName === "sparse-inject" && i % 100 < 3) ||
       (caseName === "singleton-get" && i === size - 1)
     ) {
       entity.add(Vel);
     }
-    all.push(entity);
+    if (selected) {
+      all.push(entity);
+    }
+  }
+  assert.equal(all.length, carriers);
+  assert.equal(population.length, size);
+  assert.equal(world.component(Pos).instanceCount(), size);
+  if (firstId !== undefined) {
+    // Pipeline infrastructure uses a few entity ids before the measured population.
+    assert(population[0]!.eid >= firstId && population[0]!.eid < firstId + 256);
+    assert.equal(population[size - 1]!.eid - population[0]!.eid, size - 1);
+    assert.equal(world.component(Vel).instanceCount(), carriers);
   }
   const noop = (): void => {};
   switch (caseName) {
@@ -463,7 +551,7 @@ function buildScene(caseName: TickCase, size: number): Scene {
     }
     case "churn":
     case "composite": {
-      const window = size / 10;
+      const window = all.length / 10;
       let visits = 0;
       let previous: Entity[] | null = null;
       let enters = 0;
@@ -493,7 +581,7 @@ function buildScene(caseName: TickCase, size: number): Scene {
       for (let block = 0; block < 10; block++) {
         const current: Entity[] = [];
         for (let j = 0; j < window; j++) {
-          current.push(all[(block * window + j) % size]!);
+          current.push(all[(block * window + j) % all.length]!);
         }
         windows.push(current);
       }

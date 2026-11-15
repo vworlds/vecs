@@ -338,6 +338,7 @@ function coreStorageMetrics(result: Record<string, unknown>): Metric[] {
     unknown
   >[];
   return rows.flatMap((row) => {
+    const suffix = row.firstId === undefined ? "" : `-id${row.firstId}-carriers${row.carriers}`;
     const median = row.median;
     const checksum = row.checksum;
     if (typeof median !== "number" || !Number.isFinite(median) || typeof checksum !== "string") {
@@ -345,7 +346,7 @@ function coreStorageMetrics(result: Record<string, unknown>): Metric[] {
     }
     return [
       {
-        name: `${row.case}-${row.entities}.median`,
+        name: `${row.case}-${row.entities}${suffix}.median`,
         timing: true,
         bytes:
           row.case === "heap" ||
@@ -355,7 +356,7 @@ function coreStorageMetrics(result: Record<string, unknown>): Metric[] {
         values: [median],
       },
       {
-        name: `${row.case}-${row.entities}.checksum`,
+        name: `${row.case}-${row.entities}${suffix}.checksum`,
         timing: false,
         bytes: false,
         values: [checksum],

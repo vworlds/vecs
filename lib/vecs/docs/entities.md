@@ -55,6 +55,9 @@ world.getEntity("player"); // lookup only — undefined when absent
 `world.entity(ref)` also accepts a registered component class (returning its component entity) or
 an `Entity` (validating it belongs to this world). Names are maintained by `IdentityModule`:
 setting `entity.name` writes the `Identity` component, and duplicate names are last-writer-wins.
+Component references are lookup-only: missing ids, unregistered classes and entity
+references no longer registered throw rather than create an entity. Only the no-argument and name
+forms create entities.
 
 `world.entities` is a read-only view of every live entity keyed by id, and `world.clearAllEntities()`
 destroys **every** entity in the world — ordinary entities first, then component entities once

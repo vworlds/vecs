@@ -2,12 +2,16 @@ import type { Entity } from "../entity/index.js";
 
 type Cursor = { next: number };
 const DENSITY = 8;
+const SLACK = 1024;
+const MIN_DIRECT = 8;
 
 /**
  * Live entity membership with native Set storage for sparse populations and
  * cursor-safe dense storage for populations that justify direct id lookup.
  * Removal order is unspecified. Deleted entries are skipped, additions are
  * visited, and only reinsertions can repeat, including in nested traversals.
+ * Fixed promotion slack makes small low-id populations direct. Sparse membership
+ * keeps a monotone highest-id bound until emptying.
  * Representation changes occur only when no traversal is active.
  * @internal
  */
@@ -48,7 +52,7 @@ export class DenseEntitySet implements Iterable<Entity> {
     }
   }
 
-  /** Add a live entity and return whether it was new; promote only while idle. */
+  /** Add a live entity; promote by absolute-id density plus fixed slack only while idle. */
   public add(entity: Entity): boolean {
     const members = this._members;
     if (members !== undefined) {
@@ -57,13 +61,27 @@ export class DenseEntitySet implements Iterable<Entity> {
       }
       members.add(entity);
       this._highest = Math.max(this._highest, entity.eid);
-      if (this._active === 0 && members.size * DENSITY >= this._highest + 1) {
+      if (
+        this._active === 0 &&
+        (members.size * DENSITY >= this._highest + 1 ||
+          (members.size >= MIN_DIRECT && members.size * DENSITY + SLACK >= this._highest + 1))
+      ) {
         this._promote(members);
       }
     } else {
       const dense = this._dense!;
       if (this._position(entity) >= 0) {
         return false;
+      }
+      if (
+        this._active === 0 &&
+        Math.max(entity.eid + 1, this._positions!.length) >
+          2 * ((dense.length + 1) * DENSITY + SLACK)
+      ) {
+        this._demote(true);
+        this._members!.add(entity);
+        this._highest = Math.max(this._highest, entity.eid);
+        return true;
       }
       dense.push(entity);
       this._record(entity, dense.length - 1);
@@ -174,12 +192,19 @@ export class DenseEntitySet implements Iterable<Entity> {
     return this._members !== undefined ? this._members.has(entity) : this._position(entity) >= 0;
   }
 
-  private _demote(): void {
+  private _demote(preserve = false): void {
+    const members = new Set<Entity>();
+    this._highest = 0;
+    if (preserve) {
+      for (const entity of this._dense!) {
+        members.add(entity);
+        this._highest = Math.max(this._highest, entity.eid);
+      }
+    }
     this._dense = undefined;
     this._positions = undefined;
     this._cursors = undefined;
-    this._members = new Set();
-    this._highest = 0;
+    this._members = members;
   }
 
   private _move(from: number, to: number): void {
@@ -208,7 +233,7 @@ export class DenseEntitySet implements Iterable<Entity> {
 
   private _record(entity: Entity, position: number): void {
     const positions = this._positions!;
-    // Push intervening zeros rather than assigning past the array's length.
+    // Push intervening entries rather than assigning past the array's length.
     while (positions.length <= entity.eid) {
       positions.push(0);
     }

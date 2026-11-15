@@ -6,7 +6,7 @@ import {
 } from "./component.js";
 import { Entity, RESERVED_EID as TARGET_ENTITY, type EID } from "./entity/index.js";
 import { type World } from "./world/index.js";
-import { _resolveRelationship, type MaybeRequired } from "./dsl.js";
+import { _resolveRelationship, type MaybeRequired, type QueryDSL } from "./dsl.js";
 import type { ComponentStore } from "./util/component_store.js";
 
 // Injection uses the reserved id to keep target projection arrays numeric and SMI-friendly.
@@ -567,17 +567,27 @@ export function normalizeFanInjectCallbackArgs(callbackOrInject: FanInjectCallba
   return { components: callbackOrInject, useIter: false };
 }
 
+/**
+ * Build one reusable callback tuple. Direct component arities 1–3 capture stores
+ * but read their current representation per entity; other terms retain the resolver.
+ * Required system components need no removed-instance or teardown fallback.
+ */
 export function makeInjectedInvoker(
   world: World,
   components: readonly FanInjectElement[],
   useIter: boolean,
   callback: InjectedCallback,
-  clock?: InjectClock
+  clock?: InjectClock,
+  required?: QueryDSL
 ): (e: Entity) => void {
+  const hasClock = components.some((term) => term === Now || term === Delta);
   const specialized = specializeClockInject(world, components, useIter, callback, clock, "entity");
   components = specialized.components;
   callback = specialized.callback as InjectedCallback;
   const inject = mapInject(world, components);
+  if (!hasClock && inject.length >= 1 && inject.length <= 3 && inject.every(_isStoreInject)) {
+    return _makeDirectInvoker(world, inject, useIter, callback, required);
+  }
   const arity = injectArity(inject);
   const resolved = new Array(arity);
   const down = _findSingleDownInject(inject);
@@ -626,6 +636,77 @@ export function makeInjectedInvoker(
     getInjected(e, inject, false, resolved);
     callback(e, resolved);
   };
+}
+
+type StoreInject = Extract<ResolvedInjectTerm, { store: ComponentStore }>;
+
+function _isStoreInject(term: ResolvedInjectTerm): term is StoreInject {
+  return typeof term !== "number" && "store" in term;
+}
+
+function _makeDirectInvoker(
+  world: World,
+  inject: readonly StoreInject[],
+  useIter: boolean,
+  callback: InjectedCallback,
+  required: QueryDSL | undefined
+): (e: Entity) => void {
+  const resolved: InjectedValue[] = new Array(inject.length);
+  if (useIter) {
+    const it = new Iter(inject.length);
+    const original = callback;
+    callback = (e: Entity | Iter, values: readonly InjectedValue[]) => {
+      it.entity = e as Entity;
+      it.src.fill(e as Entity);
+      original(it, values);
+    };
+  }
+  const first = inject[0]!;
+  const store0 = first.store;
+  const required0 = _requiresDirectComponent(world, required, first.ceid);
+  if (inject.length === 1) {
+    return (e: Entity) => {
+      resolved[0] = store0.get(e) ?? (required0 ? undefined : _directFallback(e, first.ceid));
+      callback(e, resolved);
+    };
+  }
+  const second = inject[1]!;
+  const store1 = second.store;
+  const required1 = _requiresDirectComponent(world, required, second.ceid);
+  if (inject.length === 2) {
+    return (e: Entity) => {
+      resolved[0] = store0.get(e) ?? (required0 ? undefined : _directFallback(e, first.ceid));
+      resolved[1] = store1.get(e) ?? (required1 ? undefined : _directFallback(e, second.ceid));
+      callback(e, resolved);
+    };
+  }
+  const third = inject[2]!;
+  const store2 = third.store;
+  const required2 = _requiresDirectComponent(world, required, third.ceid);
+  return (e: Entity) => {
+    resolved[0] = store0.get(e) ?? (required0 ? undefined : _directFallback(e, first.ceid));
+    resolved[1] = store1.get(e) ?? (required1 ? undefined : _directFallback(e, second.ceid));
+    resolved[2] = store2.get(e) ?? (required2 ? undefined : _directFallback(e, third.ceid));
+    callback(e, resolved);
+  };
+}
+
+function _requiresDirectComponent(world: World, query: QueryDSL | undefined, ceid: EID): boolean {
+  if (query === undefined || typeof query === "boolean") {
+    return false;
+  }
+  if (typeof query === "number" || typeof query === "function" || query instanceof Entity) {
+    return world.entity(query).eid === ceid;
+  }
+  if (Array.isArray(query)) {
+    return query.some((ref) => world.entity(ref).eid === ceid);
+  }
+  // Only infer requirements from conjunctions, never opaque hints or disjunctions.
+  return "all" in query && query.all.some((part) => _requiresDirectComponent(world, part, ceid));
+}
+
+function _directFallback(e: Entity, ceid: EID): ComponentInstance | undefined {
+  return e._getTeardown(ceid) ?? _removedInjected(e, ceid);
 }
 
 /**

@@ -115,17 +115,43 @@ for (const [key, value] of map) {
 Each component's pinned term owns one internal `ComponentStore`
 (`lib/vecs/src/util/component_store.ts`), combining carrier membership with instances.
 Sparse stores use `Map<Entity, instance>` without id-indexed arrays. At sufficient
-density, stores promote to parallel entity/instance arrays and direct id positions;
+density, stores promote to parallel entity/instance arrays and flat id positions;
 lookup checks entity identity because ids can be recycled. Direct removals move both
 arrays together and adjust active iteration cursors, so nested carrier cleanup skips
 deleted carriers and visits new ones without repeating unchanged survivors.
 
-Promotion happens only on an idle insertion when the carrier count times the store's
-density constant reaches its monotone highest-id bound. Only empty, idle stores demote;
-active traversals never change representation. Ordinary entities retain only an ordered
+Promotion happens only on an idle insertion when `count * DENSITY` reaches
+`highestId + 1`, or at least eight members qualify with a fixed 1024-slot allowance.
+Both containers use density 8. The allowance does not promote near-singletons.
+The highest sparse id is a monotone bound until membership empties; removing a high-id
+carrier does not lower it. Slack makes small low-id populations direct without a
+page table or per-mutation page counts. Client-local populations starting at 10000
+remain subject to the density threshold. Direct positions grow by pushing zeros,
+never by writing past the array's length; zero denotes an absent id.
+An idle insertion demotes when the new id or retained position length exceeds
+twice `(newCount * DENSITY + SLACK)`, converting members and instances in one pass.
+This hysteresis bounds growth after low-id promotion without switching at every
+boundary insertion. Removal never demotes nonempty membership. An active traversal
+defers demotion to a later idle insertion, including one within the grown range.
+Empty idle stores also demote; active traversals never change representation.
+Ordinary entities retain only an ordered
 list of component ids, not an instance map. Destruction temporarily retains instances
 in a teardown stash so synchronous exits can still read ordinary components; detached
 relationships disappear immediately. See [benchmark hot-path notes](../../../bench/README.md#component-store-hot-paths).
+Teardown scratch frames retain cleared tuple slots and entry-array capacity between
+entities; each borrower sets the exact active length before exposing the stash.
+No component instances remain in the reusable frame after successful teardown.
+
+Composite query terms use `DenseEntitySet` (`lib/vecs/src/util/dense_entity_set.ts`)
+for membership without instances. It follows the same slack-adjusted promotion and
+idle-only representation rules. Dense traversal keeps live cursors across emptying/refill and
+checks object identity after id reuse. Component-store membership tests stop at
+the position and identity check rather than fetching an unused instance.
+Direct injection captures store objects, never their arrays or sparse/direct mode.
+Arity-specific one-, two- and three-component invokers still call `get` for every
+visited entity, so an unrelated callback can promote, demote, empty or refill a
+store without invalidating the invoker. Optional components keep synchronous
+teardown and removed-instance reads; known required system components do not need them.
 
 ## `DenseSet`
 
