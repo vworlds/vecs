@@ -124,6 +124,7 @@ export abstract class Term implements TermConsumer {
    * @internal Whether a refresh hint would reach a consumer that acts on it now:
    * a membership event is in flight, or some consumer refreshes while quiescent.
    * While `false`, {@link _emitRefresh} delivers nothing and runs no user code.
+   * `_emitRefresh` tests the same two fields in place; keep the two in step.
    */
   public _refreshObserved(): boolean {
     return this._quiescentRefreshConsumers !== 0 || this.world._termEmitDepth !== 0;
@@ -277,7 +278,10 @@ export abstract class Term implements TermConsumer {
    * consumer would do anything.
    */
   protected _emitRefresh(entity: Entity): void {
-    if (!this._refreshObserved()) {
+    // The condition of `_refreshObserved`, repeated in place: this body is inlined
+    // into every `set` and `modified` root, and one more callee there shifts
+    // what else fits in the optimizer's inlining budget.
+    if (this._quiescentRefreshConsumers === 0 && this.world._termEmitDepth === 0) {
       return;
     }
     this._consumers.forEach((consumer) => consumer.onTermRefresh?.(entity));
