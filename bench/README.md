@@ -55,6 +55,15 @@ three kinds.
 
 ## Core storage cases
 
+### Which rows judge which change
+
+Iteration and injection are judged by `iterate`, `inject`, `point`, `singleton-get` and
+`sparse-inject`; deferred writes by `set` and `watch`; structural churn by `churn` and
+`composite`; small worlds by the 300-entity rows; and retained memory by the heap rows
+(`heap`, `composite-heap`, `sparse-terms-heap`, `mixed-heap`, `small-components-heap`). Verdicts
+come from the perf runner, with base and head built and measured in one job; builder timings are
+directional evidence only.
+
 Run `node --import ./bench/register-dist.mjs bench/core-storage.ts` after building. It prices
 the core storage epic's cases at 10,000 and 100,000 entities carrying two small components,
 with one `CORE_STORAGE_RESULT` line per case and size:
@@ -547,8 +556,8 @@ does not cancel identical results.
 
 ## Known trade-off: bulk create and destroy
 
-`IterableArrayMap` (`lib/vecs/src/util/array_map.ts`) holds every entity's components and the
-world's entity table. It keeps its entries in parallel arrays that grow by `push`. Before, each
+`IterableArrayMap` (`lib/vecs/src/util/array_map.ts`) holds the world's entity table. It keeps its
+entries in parallel arrays that grow by `push`. Before, each
 entry was its own `[key, value]` array literal. The new layout took about 9% off the sector-tick
 benchmark's mean tick, but V8 cannot pretenure it the way it pretenured the per-entry literals.
 
