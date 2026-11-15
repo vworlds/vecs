@@ -144,6 +144,16 @@ Teardown scratch frames retain cleared tuple slots and entry-array capacity betw
 entities; each borrower sets the exact active length before exposing the stash.
 No component instances remain in the reusable frame after successful teardown.
 
+Component leaf terms answer `has(entity)` from the entity's component bit using
+a precomputed pointer, rejecting entities from another world first. The store
+still owns instances, carrier iteration and counts. Staged additions set both
+the bit and store before hooks; removals clear both before exit callbacks.
+During destruction, not-yet-detached components remain members even though the
+entity is already marked destroyed. If a throwing add hook interrupts teardown,
+discarding its staged store entry also clears that component's bit and id-list
+entry before notifying composite consumers. This does not make the rest of a
+partial world usable after a throwing teardown hook.
+
 Composite query terms use `DenseEntitySet` (`lib/vecs/src/util/dense_entity_set.ts`)
 for membership without instances. It follows the same slack-adjusted promotion and
 idle-only representation rules. Dense traversal keeps live cursors across emptying/refill and
