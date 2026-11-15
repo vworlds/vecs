@@ -53,6 +53,20 @@ export class Components extends Relationships {
   }
 
   /**
+   * @internal Apply a plain `add`: materialize the component when it is absent.
+   * Equivalent to {@link _set} without data, which only needs presence. The
+   * component bit answers that without the store read, a hash miss while the
+   * store is sparse; it agrees with the store on a live entity. Kept apart from
+   * `_set`, whose body the deferred `set` drain is sensitive to.
+   */
+  public _addDefault(this: Entity, meta: ComponentMeta): void {
+    if (this._destroyed || meta.isRelationship || this.componentBitmask.hasBit(meta.bitPtr)) {
+      return;
+    }
+    this._materialize(meta, undefined);
+  }
+
+  /**
    * @internal Apply a pending modification and route events to watching queries.
    * Data writes fire `onSet`; deferred relationships prepare that hook separately
    * so its queued mutations can apply before routing. Edge-only updates never fire it.
@@ -231,20 +245,14 @@ export class Components extends Relationships {
       return;
     }
 
-    if (props === undefined) {
-      // A plain `add` only needs presence, which the component bit answers
-      // without the store read (a hash lookup while the store is sparse).
-      if (!this.componentBitmask.hasBit(meta.bitPtr)) {
-        this._materialize(meta, undefined);
-      }
-      return;
-    }
     const existing = this._getFromMeta(meta);
     const c = existing ?? this._materialize(meta, props);
-    if (existing) {
-      Object.assign(c, props);
+    if (props !== undefined) {
+      if (existing) {
+        Object.assign(c, props);
+      }
+      this._notifyComponentSet(meta, c, existing !== undefined);
     }
-    this._notifyComponentSet(meta, c, existing !== undefined);
   }
 
   /** @internal Apply a changed-only Set command using the committed value. */
@@ -319,7 +327,7 @@ export class Components extends Relationships {
     if (this.world.deferred) {
       this.world._enqueue(CommandKind.Set, this, componentMeta);
     } else {
-      this._set(componentMeta, undefined);
+      this._addDefault(componentMeta);
     }
     return this as unknown as this;
   }
