@@ -58,13 +58,17 @@ export class ComponentStore implements Iterable<Entity> {
     return false;
   }
 
-  /** Insert or replace; promote by absolute-id density plus fixed slack only while idle. */
+  /**
+   * Insert or replace; promote by absolute-id density plus fixed slack only while idle.
+   * Sparse insertion detects new membership by size, without a separate hash probe.
+   */
   public set(entity: Entity, instance: ComponentInstance): boolean {
     const members = this._members;
     if (members !== undefined) {
-      const existed = members.has(entity);
+      const size = members.size;
       members.set(entity, instance);
-      if (!existed) {
+      const added = members.size !== size;
+      if (added) {
         this._highest = Math.max(this._highest, entity.eid);
         if (
           this._active === 0 &&
@@ -74,7 +78,7 @@ export class ComponentStore implements Iterable<Entity> {
           this._promote(members);
         }
       }
-      return !existed;
+      return added;
     }
     const index = this._position(entity);
     if (index >= 0) {

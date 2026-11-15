@@ -266,8 +266,8 @@ export class Bitset {
  * archetype checks ({@link Bitset.hasBit}, {@link Bitset.addBit}) avoid
  * repeating the arithmetic on every entity update.
  *
- * One `BitPtr` is created per registered component type and stored on
- * `ComponentMeta.bitPtr`.
+ * Component metadata and component leaf terms each resolve their pointer once;
+ * leaf terms also support plain entity keys without registered component metadata.
  */
 export class BitPtr {
   /** Index of the 32-bit word that contains this bit. */
