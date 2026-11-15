@@ -73,7 +73,9 @@ map.size; // 0
 backed by dense entries plus sparse indexes. Use it when callers need fast `forEach` or `values`
 over present entries. Random access reads the entry's dense position from a slot array indexed by
 key, which holds only small integers so V8 keeps it on its fast path, then reads the value from a
-dense value array. Iteration walks the dense key and value arrays directly.
+dense value array. Iteration walks the dense key and value arrays directly. In vecs itself it
+holds the world's entity table (`world.entities`); component instances live in the
+[shared component stores](#shared-component-storage) instead.
 
 Deletes keep the dense arrays dense by moving the last entry into the removed position, so
 iteration is always a tight loop without sparse holes. Compared with `ArrayMap`, this costs extra
