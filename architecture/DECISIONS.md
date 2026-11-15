@@ -62,7 +62,10 @@ A component's instances and its carrier set live in one `ComponentStore` on its 
 arrays with a flat, id-indexed, identity-checked position array once dense. Promotion happens on
 an idle insert: `count * 8 >= highest id + 1`, or at least 8 members and
 `count * 8 + 1024 >= highest id + 1`; an idle insert that would stretch a direct set past twice
-that bound demotes it. The representation never changes during an active iteration of the set.
+that bound demotes it. A component term answers `has` from the entity's bitmask, which agrees with
+its store at every observable point
+([#557](https://github.com/vworlds/vecs/pull/557)). The representation never changes during an
+active iteration of the set.
 Entities keep only the ordered list of their component ids (`_ceids`). The deferred command queue
 and system inboxes are parallel arrays. Settled in
 [#543](https://github.com/vworlds/vecs/issues/543).
@@ -91,7 +94,9 @@ and system inboxes are parallel arrays. Settled in
   ([#555](https://github.com/vworlds/vecs/pull/555)).
 - Per-entity component order is kept (`_ceids`), so `toJSON`, snapshots and teardown hooks see
   the order they always did; member order of queries and terms is unspecified unless `orderBy` or
-  `cascade` is used (owner, 2026-11-14).
+  `cascade` is used (owner, 2026-11-14). The sector bench's ordered fingerprints changed with it
+  and its order-independent ones did not
+  ([#543](https://github.com/vworlds/vecs/issues/543)).
 
 **How to apply.** Read a component through the store — `_getFromMeta` when a meta is in hand —
 and never cache a store's arrays or representation across entities. Iterate members with the
@@ -103,8 +108,13 @@ and wrong on another; a hot-path function that grows must be checked for lost in
 See [shared component storage](../lib/vecs/docs/utilities.md#shared-component-storage) for the
 container semantics.
 
-**Known residuals.** Adding or `modified` on a component with fewer than eight carriers is 7-16%
-slower than before the track (`any-of` enter and inline update rows,
-[perf runner](https://github.com/vworlds/perf-test/actions/runs/43675517836)); entering or
-leaving a sparse term carries a residual of unestablished cause
-([#71](https://github.com/vworlds/vecs/issues/71)).
+**Known residuals.** Measured end to end against `dev` on the perf runner
+([run](https://github.com/vworlds/perf-test/actions/runs/43691682294)). Three things are slower
+than before the track, all on components or terms in the sparse representation. An immediate
+`modified` on a component with fewer than eight carriers costs 125-128% (about 14 ns on a 53 ns
+operation; the deferred form is at 100%). An entity entering a dynamic `anyOf` union by gaining
+such a component costs 110-125%; leaving it, and entering or leaving a static `any` union, are at
+or below their previous cost. A composite query in a world of a few hundred client-local entities
+(ids from 10000, which the promotion allowance does not reach) costs 109%. Their causes are not
+established. Plain `set` and `assign` on a rare component, and singleton reads, are at their
+previous cost.

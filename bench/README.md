@@ -439,16 +439,29 @@ Tune the workload with environment variables:
 
 The benchmark prints a summary and a `BENCH_RESULT` JSON line with the tick time statistics (mean,
 median, p95, p99, min, max, standard deviation, all in milliseconds per tick of all sectors) and
-three fingerprints:
+its fingerprints, in two kinds:
 
-- `checksum`: the final simulation state, entity counts, mass totals and network byte counts;
-- `trace`: an order-sensitive hash of every benchmark callback (`enter`, `exit`, `update`, `each`,
-  hooks) with the entity it ran for;
-- `bytesSent`: the total bytes `ServerWorld` sent to the clients, whose content also feeds the
-  checksum.
+- `stateChecksum`: the final simulation state — entity counts, mass totals, per-client byte counts,
+  and the simulated bodies visited in ascending entity id, with each client's sent bytes summed
+  instead of chained, so iteration and record order cannot change it;
+- `traceBag` and `traceCount`: a commutative hash of every benchmark callback (`enter`, `exit`,
+  `update`, `each`, hooks) with the entity it ran for, plus how many fired;
+- `orderedChecksum` and `orderedTrace`: the same state and callbacks, but chained in engine body
+  order, send order and firing order;
+- `bytesSent`: the total bytes `ServerWorld` sent to the clients.
 
-The run is deterministic, so the fingerprints only change when behavior changes. An optimization
-that keeps execution order, hook order and reactive delivery the same leaves all three unchanged.
+`stateChecksum`, `traceBag`, `traceCount` and `bytesSent` are behavior fingerprints: the run is
+deterministic, so they only change when observable behavior changes, and an optimization that
+keeps execution order, hook order and reactive delivery the same leaves them unchanged.
+`orderedChecksum` and `orderedTrace` are order-sensitive: they also change when the order in which
+query members are visited changes — unspecified unless `orderBy` or `cascade` is used — so
+`bench/compare.ts` reports a difference as a member-order note, not a behavior mismatch. The
+order-independent accumulation runs inside the timed loop and uses integer arithmetic only (two
+multiplies, an add and a counter per callback invocation; one add per sent byte).
+
+Before the order-independent fingerprints existed, the ordered ones were printed as `checksum` and
+`trace`; `bench/compare.ts` reads both spellings, so comparisons involving older output keep
+working.
 
 ### Profile
 
@@ -463,7 +476,9 @@ Open the `.cpuprofile` in Chrome DevTools (Performance panel) or [speedscope](ht
 
 `compare.ts` runs the benchmark against two built checkouts in alternating order, in a fresh
 process per run, and reports each build's mean tick time and the per-round head/base ratio. It also
-fails when the two builds disagree on any fingerprint.
+fails when the two builds disagree on the behavior fingerprints (`stateChecksum`, `traceBag`,
+`traceCount`, `bytesSent`); a difference in `orderedChecksum`/`orderedTrace` prints a member-order
+note and does not fail the comparison.
 
 ```bash
 git worktree add --detach .worktrees/base origin/dev
@@ -533,7 +548,12 @@ when a matching benchmark file is present. It defaults to three alternating runs
 build; set `BENCH_ROUNDS` to an integer of at least three for more runs. Missing release
 package APIs produce “no previous data” for that benchmark; benchmark crashes fail the
 command. Each deterministic metric is compared exactly, including repeatability within
-each build; all changes are shown, with a warning when bytes increase. Timing means warn
+each build; all changes are shown, with a warning when bytes increase. For the sector
+benchmark, `stateChecksum`, `traceBag` and `traceCount` are compared as behavior
+fingerprints, and an `orderedChecksum`/`orderedTrace` difference prints a
+`member order changed` note rather than a change; output that predates the
+order-independent fingerprints still fills the ordered rows from its `checksum`/`trace`
+fields and reports the order-independent ones as unavailable for that side. Timing means warn
 only above 10% regression and when the absolute difference exceeds both builds'
 run-to-run ranges. Warnings exit zero and become annotations in GitHub Actions.
 
