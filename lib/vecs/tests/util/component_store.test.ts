@@ -3,6 +3,82 @@ import { type Entity, World } from "../../src/index.js";
 import { ComponentStore } from "../../src/util/component_store.js";
 
 describe("ComponentStore", () => {
+  it.each([1000, 10000])("matches a Set oracle across pages and live refills at %i", (offset) => {
+    const world = new World();
+    const store = new ComponentStore();
+    const oracle = new Set<Entity>();
+    const all = Array.from({ length: 600 }, (_, i) => world.getOrCreateEntity(offset + i));
+    const values = new Map(all.map((entity) => [entity, { n: entity.eid }]));
+    const check = () => {
+      expect(new Set(store)).toEqual(oracle);
+      expect(store.size).toBe(oracle.size);
+      for (const entity of all) {
+        expect(store.has(entity)).toBe(oracle.has(entity));
+        expect(store.get(entity)).toBe(oracle.has(entity) ? values.get(entity) : undefined);
+      }
+    };
+    for (const entity of all) {
+      store.set(entity, values.get(entity)!);
+      oracle.add(entity);
+    }
+    const absent = world.getOrCreateEntity(offset + 30000);
+    expect(store.get(absent)).toBeUndefined();
+    expect(store.has(absent)).toBe(false);
+    expect(store.delete(absent)).toBe(false);
+    check();
+    const iterator = store[Symbol.iterator]();
+    const first = iterator.next().value as Entity;
+    const page = all.filter((entity) => entity.eid >> 8 === (offset + 300) >> 8);
+    for (const entity of page) {
+      expect(store.delete(entity)).toBe(oracle.delete(entity));
+    }
+    check();
+    for (const entity of page) {
+      store.set(entity, values.get(entity)!);
+      oracle.add(entity);
+    }
+    const remaining = [...iterator];
+    expect(new Set([first, ...remaining])).toEqual(oracle);
+    expect(remaining).toHaveLength(oracle.size - 1);
+    let seed = 548;
+    for (let step = 0; step < 1000; step++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      const entity = all[seed % all.length]!;
+      if (seed & 0x10000) {
+        const existed = oracle.has(entity);
+        oracle.add(entity);
+        expect(store.set(entity, values.get(entity)!)).toBe(!existed);
+      } else {
+        expect(store.delete(entity)).toBe(oracle.delete(entity));
+      }
+      if (step % 100 === 0) {
+        check();
+      }
+    }
+    check();
+    store.clear();
+    oracle.clear();
+    check();
+    world.dispose();
+  });
+
+  it("keeps scattered carriers readable while sparse page counts empty and refill", () => {
+    const world = new World();
+    const store = new ComponentStore();
+    const all = Array.from({ length: 10 }, (_, i) => world.getOrCreateEntity(10000 + i * 10000));
+    for (const entity of all) {
+      store.set(entity, { n: entity.eid });
+    }
+    for (const entity of all) {
+      expect(store.delete(entity)).toBe(true);
+      expect(store.delete(entity)).toBe(false);
+      store.set(entity, { n: entity.eid });
+    }
+    expect(new Set(store)).toEqual(new Set(all));
+    all.forEach((entity) => expect(store.get(entity)).toEqual({ n: entity.eid }));
+    world.dispose();
+  });
+
   it("keeps moved instances aligned while draining without an active traversal", () => {
     const world = new World();
     const store = new ComponentStore();

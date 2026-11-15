@@ -152,7 +152,7 @@ Writes and relationship reads that already resolved metadata use that same direc
 store path, without looking the term up again by id. Empty entity-cursor injection
 selects a callback-only invoker once; it does not enter the component resolver per entity.
 
-Store density uses 8, matching term membership. Three CPU-2-pinned processes per
+The pre-paging store used density 8, matching term membership. Three CPU-2-pinned processes per
 candidate, at default horizons, alternated 8/16/32 then 32/16/8 on the builder.
 The 100k medians below are ns per world entity per tick (ns/read for singleton).
 Checksums matched across candidates. There was no consistent advantage for 16;
@@ -165,6 +165,54 @@ These are builder timings, not the quiet perf-runner acceptance results.
 | singleton-get | 21.96     | 21.68      | 20.67      |
 | inject        | 44.91     | 43.96      | 45.13      |
 | churn         | 132.40    | 131.69     | 137.45     |
+
+### Paged component-store measurements
+
+The store now uses 256-id plain-number pages and density 16. Sparse per-page
+counts make the density denominator independent of the absolute id offset;
+see [storage internals](../lib/vecs/docs/utilities.md#shared-component-storage).
+Terms still use their previous representation; these measurements cover only the
+component-store stage, not the full lookup-path acceptance matrix.
+
+On the builder (Node 24.15.0, Xeon E3-1270 v6), page bits 7/8/9 and plain/Int32
+pages were compared in forward/reverse CPU-2-pinned processes, with five rounds
+per row. Bits 9 left the server-offset 40-carrier case sparse and its injection
+slower (8.70/10.20 ns per world entity versus 7.09/7.27 at bits 8).
+Bits 7 had no consistent small-world advantage and noisier large-world results.
+Three further alternating processes per page type at bits 8 gave these process
+medians (ns per world entity per tick):
+
+| Case / entities | Plain pages | Int32 pages |
+| --------------- | ----------: | ----------: |
+| inject / 10k    |       48.91 |       50.49 |
+| inject / 100k   |       56.90 |       61.54 |
+| churn / 10k     |      120.33 |      120.67 |
+| churn / 100k    |      144.72 |      147.01 |
+
+Keep plain pages for the large-world injection advantage; small-world results
+were mixed. Density 8/16/32 comparisons on CPU 4 did not separate the singleton
+or 3%-density rows consistently. Density 16 makes both 40-carrier offset scenes
+direct; density 32 had no consistent small-world benefit. Inspection confirmed
+three allocated pages for the server population and two for the client population,
+while ten carriers spread across 100k ids stayed sparse. Singletons stay sparse.
+A forced-direct singleton experiment measured 22.41 versus 23.14 ns/read at 100k,
+with overlapping process ranges; promoting every singleton would also promote the
+scattered case, so that policy was not selected.
+
+Paging alone does **not** recover the sparse single-entity write regression.
+With no concurrent local benchmark streams, three alternating CPU-2-pinned runs
+of `assign.ts equal` at ten million writes (one million warmup) measured:
+
+| Immediate equal assign | f30ad26 | After component storage | Paged store |
+| ---------------------- | ------: | ----------------------: | ----------: |
+| props                  |   25.70 |                   30.69 |       29.32 |
+| instance               |   23.56 |                   27.88 |       27.96 |
+
+All update fingerprints remained zero. The task's stop gate therefore applies
+before term paging or invoker specialisation. Local profiling retains the sparse
+Map/metadata lookup path; changing direct page geometry cannot remove that work.
+The earlier geometry/density sweeps overlapped other CPU-pinned local work and
+are directional, not quiet-runner acceptance results.
 
 ## Relationship edge updates
 

@@ -2,6 +2,8 @@
  * Core storage benchmark cases for the storage epic: iteration, injected
  * in-place writes, deferred `set`, watcher delivery, component churn and
  * retained heap, at 10,000 and 100,000 entities with two small components.
+ * Lookup/write/churn rows also cover 300 entities, 300 or 40 Vel carriers,
+ * and entity id pools starting at 1000 or 10000; BENCH_SMALL_WORLD=1 isolates them.
  * Composite rows add 16 distinct populated queries to the churn scene and
  * measure its enter/exit cost and retained heap separately.
  * The sparse-term heap row measures 200 ten-member queries in a 100k world.
@@ -107,6 +109,7 @@ const CASES: readonly CaseName[] = [
   "sparse-inject",
   "mixed-heap",
 ];
+const SMALL_CASES: readonly TickCase[] = ["inject", "set", "watch", "churn", "point"];
 const benchFile = fileURLToPath(import.meta.url);
 const registerDist = resolve(dirname(benchFile), "register-dist.mjs");
 
@@ -127,8 +130,12 @@ if (process.argv[2] === "--heap") {
   const ticks = optionalPositiveInteger("BENCH_TICKS");
   const warmupTicks = optionalPositiveInteger("BENCH_WARMUP_TICKS");
   const smallOnly = process.env.BENCH_SMALL_WORLD === "1";
+  assert(
+    !smallOnly || only === undefined || SMALL_CASES.includes(only as TickCase),
+    `BENCH_SMALL_WORLD requires one of ${SMALL_CASES.join(", ")}`
+  );
   for (const caseName of only === undefined ? CASES : [only]) {
-    if (["inject", "set", "watch", "churn", "point"].includes(caseName)) {
+    if (SMALL_CASES.includes(caseName as TickCase)) {
       for (const firstId of [1000, 10000]) {
         for (const carriers of [300, 40]) {
           const line = runTickCase(

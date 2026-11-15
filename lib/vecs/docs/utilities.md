@@ -115,13 +115,18 @@ for (const [key, value] of map) {
 Each component's pinned term owns one internal `ComponentStore`
 (`lib/vecs/src/util/component_store.ts`), combining carrier membership with instances.
 Sparse stores use `Map<Entity, instance>` without id-indexed arrays. At sufficient
-density, stores promote to parallel entity/instance arrays and direct id positions;
+density, stores promote to parallel entity/instance arrays and paged id positions;
 lookup checks entity identity because ids can be recycled. Direct removals move both
 arrays together and adjust active iteration cursors, so nested carrier cleanup skips
 deleted carriers and visits new ones without repeating unchanged survivors.
 
 Promotion happens only on an idle insertion when the carrier count times the store's
-density constant reaches its monotone highest-id bound. Only empty, idle stores demote;
+density constant reaches the number of occupied pages times the page size. Sparse stores
+count members per page exactly, deleting the count when a page loses its last carrier.
+Direct pages allocate on first use, remain until emptying, and have zero for absent ids;
+the outer table grows by pushing undefined entries, not by writing past its length.
+This makes small offset populations eligible without paying for the ids below them.
+Only empty, idle stores demote;
 active traversals never change representation. Ordinary entities retain only an ordered
 list of component ids, not an instance map. Destruction temporarily retains instances
 in a teardown stash so synchronous exits can still read ordinary components; detached
