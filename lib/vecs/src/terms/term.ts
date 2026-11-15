@@ -120,6 +120,15 @@ export abstract class Term implements TermConsumer {
     return this._entities.has(entity);
   }
 
+  /**
+   * @internal Whether a refresh hint would reach a consumer that acts on it now:
+   * a membership event is in flight, or some consumer refreshes while quiescent.
+   * While `false`, {@link _emitRefresh} delivers nothing and runs no user code.
+   */
+  public _refreshObserved(): boolean {
+    return this._quiescentRefreshConsumers !== 0 || this.world._termEmitDepth !== 0;
+  }
+
   /** @internal Traverse live membership without a generator; order is unspecified. */
   public _forEachLive(callback: (entity: Entity) => void): void {
     this._entities.forEachLive(callback);
@@ -268,7 +277,7 @@ export abstract class Term implements TermConsumer {
    * consumer would do anything.
    */
   protected _emitRefresh(entity: Entity): void {
-    if (this._quiescentRefreshConsumers === 0 && this.world._termEmitDepth === 0) {
+    if (!this._refreshObserved()) {
       return;
     }
     this._consumers.forEach((consumer) => consumer.onTermRefresh?.(entity));
