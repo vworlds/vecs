@@ -166,6 +166,34 @@ describe("World - id pools", () => {
 });
 
 describe("World - entity management", () => {
+  it.each(["player", ""])("keeps named creation and reference errors intact for %j", (name) => {
+    const w = new World();
+    const named = w.entity(name);
+    expect(named.name).toBe(name);
+    if (name === "") {
+      // IdentityModule deliberately does not index empty names (same as the baseline).
+      expect(w.entity(name)).not.toBe(named);
+      expect(w.getEntity(name)).toBeUndefined();
+    } else {
+      expect(w.entity(name)).toBe(named);
+      expect(w.getEntity(name)).toBe(named);
+    }
+    expect(w.entity(named.eid)).toBe(named);
+    expect(w.entity(named)).toBe(named);
+    const fresh = w.entity();
+    expect(fresh).not.toBe(named);
+    expect(fresh.name).toBeUndefined();
+    class Unregistered {}
+    expect(() => w.entity(Unregistered)).toThrow(
+      "unregistered component entity for component class 'Unregistered'"
+    );
+    expect(() => w.entity(999)).toThrow("No entity with eid 999");
+    const eid = fresh.eid;
+    fresh.destroy();
+    expect(() => w.entity(fresh)).toThrow(`No entity with eid ${eid}`);
+    w.dispose();
+  });
+
   it("getEntity(id) returns the entity or undefined", () => {
     const w = new World();
     const e = w.entity();

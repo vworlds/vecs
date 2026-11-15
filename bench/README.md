@@ -214,6 +214,39 @@ Map/metadata lookup path; changing direct page geometry cannot remove that work.
 The earlier geometry/density sweeps overlapped other CPU-pinned local work and
 are directional, not quiet-runner acceptance results.
 
+#### Inlining follow-up
+
+Deoptimisation traces showed no repeated lookup deoptimisation: both base and
+paged builds had the same one-off equality-helper feedback bailout when moving
+from props to instances. TurboFan traces instead showed budget-sensitive inlining
+decisions across the larger shared-store call graph. Individual `assign` bytecode
+stayed at 119 bytes, but its nested lookup grew from a 34-byte array-map get to
+`_getFromMeta` (40), store get (103), and the miss-only teardown helper (43).
+Whether `World.entity`, `getEntity`, or the outer `assign` fitted varied with
+compilation order; they were not universally uninlined. Raising the diagnostic
+inlining budget from 920 to 2000 admitted more calls but did not by itself recover
+the full baseline. Splitting store get did not improve the equal-assign rows and
+was discarded.
+
+Keep `World.entity`'s creation/name and missing-reference error branches in cold
+helpers instead: its reference-lookup body drops from 186 to 47 bytecode bytes.
+This allows it and `getEntity` to inline alongside store lookup under the default
+budget, without changing reference validation, creation, deferral or error behavior.
+Five further alternating CPU-2-pinned processes per build, with no concurrent
+local benchmark streams, gave:
+
+| Row                    | f30ad26 | Paged before cold split | Paged with cold split |
+| ---------------------- | ------: | ----------------------: | --------------------: |
+| equal assign, props    |   25.61 |                   28.99 |                 25.58 |
+| equal assign, instance |   23.80 |                   27.69 |                 24.05 |
+| foreach injected       |   70.70 |                   76.20 |                 76.30 |
+
+Assign uses ten million writes and one million warmup writes; foreach uses its
+default two million calls. Assign update counts were zero; foreach checksum was
+8800000 in every process. The cold split recovers equal assign locally, not the
+remaining foreach gap. Term paging, injector specialisation and the retained
+page-counter heap question remain gated on orchestrator direction and runner data.
+
 ## Relationship edge updates
 
 Run `node --import ./bench/register-dist.mjs bench/edge-coalesce.ts` after building.
