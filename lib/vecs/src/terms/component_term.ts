@@ -1,4 +1,6 @@
 import type { EID, Entity } from "../entity/index.js";
+import type { ComponentInstance } from "../component_meta.js";
+import { ComponentStore } from "../util/component_store.js";
 import type { World } from "../world/index.js";
 import { Term, TermEventKind, type TermConsumer } from "./term.js";
 
@@ -28,6 +30,8 @@ import { Term, TermEventKind, type TermConsumer } from "./term.js";
  *   about component values.
  */
 export class ComponentTerm extends Term {
+  /** @internal Shared instances for this component key. */
+  public readonly _store: ComponentStore;
   /** Entities stored before their add hooks whose entry is not yet propagated, innermost last. */
   private readonly _staged: Entity[] = [];
   /** Per staged entry, the consumers that subscribed while it was staged; created on demand. */
@@ -39,7 +43,9 @@ export class ComponentTerm extends Term {
     public readonly componentEid: EID,
     onDestroy: (term: Term) => void
   ) {
-    super(world, key, "component", true, onDestroy);
+    const store = new ComponentStore();
+    super(world, key, "component", true, onDestroy, store);
+    this._store = store;
     // Registration creates the leaf before the first attachment. All later
     // membership changes drive it, so no world scan is necessary.
   }
@@ -55,8 +61,8 @@ export class ComponentTerm extends Term {
   }
 
   /** @internal Record storage membership before add hooks, without notifying consumers. */
-  public _stageAdded(entity: Entity): void {
-    this._entities.add(entity);
+  public _stageAdded(entity: Entity, instance: ComponentInstance): void {
+    this._store.set(entity, instance);
     this._staged.push(entity);
   }
 
@@ -108,7 +114,9 @@ export class ComponentTerm extends Term {
       return;
     }
     this._removeStaged(index);
-    if (!this._matches(entity) && this._entities.delete(entity)) {
+    // A throwing/reentrant add may no longer match (#538). Resynchronize
+    // composite parents that could have seen staged membership, not unentered leaves.
+    if (!this._matches(entity) && this._store.delete(entity)) {
       this._emitTo(TermEventKind.Exit, entity, (consumer) => consumer._resyncsOnEvent === true);
     }
   }

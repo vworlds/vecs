@@ -27,6 +27,8 @@ execution (100 writes per drain). Candidates are reused to exclude caller alloca
 enqueue and drain, and checks exact update counts. `BENCH_WRITES` (1,000,000) and
 `BENCH_WARMUP_WRITES` (100,000) must be positive multiples of 100. Pass `set` to
 measure an older build without `assign`; alternate base/head with `BENCH_VECS_ROOT`.
+Pass `equal` to isolate immediate equal `assign` (props and instance candidates)
+for CPU profiling, without changing warmup or measured rounds.
 
 The default run also includes a mixed drain case (`mixed` runs only that case):
 each 100-command batch alternates 50 `set` writes to one entity and 50 `assign`
@@ -68,6 +70,10 @@ with one `CORE_STORAGE_RESULT` line per case and size:
 | composite         | `churn` with 16 distinct populated composite queries sharing Pos/Vel, each with synchronous enter/exit callbacks           |
 | composite-heap    | bytes per entity retained by the `composite` world in a fresh process                                                      |
 | sparse-terms-heap | incremental bytes per query term for 200 ten-member queries in a 100,000-entity world, in a fresh process                  |
+| point             | `entity.get(Vel)` on a precomputed deterministic random permutation, every entity carrying Vel                             |
+| singleton-get     | repeated `entity.get(Vel)` on its single carrier in an otherwise large world                                               |
+| sparse-inject     | `each([Vel])` over distributed carriers making up 3% of the population; sparse from first insertion                        |
+| mixed-heap        | retained bytes per entity with local ids from 10000 and 200 mixed-density component keys, at 100k entities                 |
 
 Each line reports the median, min and max nanoseconds per entity per tick over the rounds
 (bytes per entity for `heap`), the tick counts it used, and a checksum of component field sums
@@ -100,6 +106,53 @@ those ten high-id entities. The result reports `terms: 200` and bytes per term,
 not bytes per entity.
 `bench:release-check` includes one timing row (the
 median) and one fingerprint row (the checksum) per case and size.
+
+`mixed-heap` uses ten ubiquitous keys, thirty keys on every 33rd entity, sixty
+on every 1000th entity, and one hundred singleton keys. It includes the whole
+world, not just the stores. `point` uses the same permutation for every round;
+`singleton-get` times the successful lookup, not an absent lookup. Both assert
+the sum of successful reads. `sparse-inject` reports nanoseconds per world entity
+per tick like the other core rows; multiply by 100/3 for cost per carrier.
+
+Run `node --import ./bench/register-dist.mjs bench/entity-lifecycle.ts` for separate
+creation and destruction timings at 10k and 100k entities (or pass `10000` or
+`100000` as the positional argument to isolate one size for CPU profiling). For each size, two warmup
+worlds precede five measured rounds. Each round creates two-component entities in
+a fresh world, then times destruction without setup. It asserts component counts
+before and after.
+
+### Component-store hot paths
+
+Component terms own their stores and use them for membership, so instances and
+carrier counts cannot drift. Sparse lookup is a native `Map` read; direct lookup
+reads an id position, checks entity identity, then reads the parallel instance.
+Direct-mode cursor mechanics duplicate `DenseEntitySet` rather than composing a
+second container into that lookup path. See [storage internals](../lib/vecs/docs/utilities.md#shared-component-storage).
+
+Direct injection resolves a store once. It intentionally does **not** cache its
+representation for an entire query/system traversal: injection is not a counted
+store iteration, and synchronous callbacks can change density. Every lookup reads
+the current representation; no array snapshot or registry lookup is needed.
+Only explicit store carrier traversal pins representation and maintains cursors.
+Numeric `entity.get(id)` resolves the term from the world; class-based `get` uses
+the resolved metadata's term. Teardown and removed-instance fallbacks run on misses.
+Writes and relationship reads that already resolved metadata use that same direct
+store path, without looking the term up again by id. Empty entity-cursor injection
+selects a callback-only invoker once; it does not enter the component resolver per entity.
+
+Store density uses 8, matching term membership. Three CPU-2-pinned processes per
+candidate, at default horizons, alternated 8/16/32 then 32/16/8 on the builder.
+The 100k medians below are ns per world entity per tick (ns/read for singleton).
+Checksums matched across candidates. There was no consistent advantage for 16;
+32 had two slow sparse-injection processes (5.86–5.88 versus 1.19 in its third).
+These are builder timings, not the quiet perf-runner acceptance results.
+
+| Case          | Density 8 | Density 16 | Density 32 |
+| ------------- | --------- | ---------- | ---------- |
+| sparse-inject | 1.24      | 1.23       | 5.86       |
+| singleton-get | 21.96     | 21.68      | 20.67      |
+| inject        | 44.91     | 43.96      | 45.13      |
+| churn         | 132.40    | 131.69     | 137.45     |
 
 ## Relationship edge updates
 

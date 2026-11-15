@@ -11,6 +11,28 @@ class Tag {}
 class FriendOf extends Relationship {}
 
 describe("Iter cursor", () => {
+  it("keeps empty each injection deferred and passes an empty tuple", () => {
+    const world = new World();
+    world.component(Tag);
+    const entity = world.entity().add(Tag);
+    const seen: unknown[] = [];
+    // This deliberately measures the no-component callback path: no data is read.
+    world
+      .system("empty-injection")
+      .with(Tag)
+      .each([], (current, tuple) => {
+        seen.push([current, tuple.length]);
+        current.remove(Tag);
+        expect(current.has(Tag)).toBe(true);
+      })
+      .build();
+    world.progress(0, 16);
+    world.progress(16, 16);
+    expect(seen).toEqual([[entity, 0]]);
+    expect(entity.has(Tag)).toBe(false);
+    world.dispose();
+  });
+
   describe("plural target injection", () => {
     it("injects one row-array slot and keeps singular injection on the first target", () => {
       const w = new World();

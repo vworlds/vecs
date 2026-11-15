@@ -1,5 +1,6 @@
 import type { Entity } from "../entity/index.js";
 import { DenseEntitySet } from "../util/dense_entity_set.js";
+import type { ComponentStore } from "../util/component_store.js";
 import type { World } from "../world/index.js";
 
 export const enum TermEventKind {
@@ -85,7 +86,7 @@ export abstract class Term implements TermConsumer {
   /** @internal */
   protected readonly _consumers = new Set<TermConsumer>();
   /** @internal */
-  protected readonly _entities = new DenseEntitySet();
+  protected readonly _entities: DenseEntitySet | ComponentStore;
   private _destroyed = false;
   private readonly _childUnsubscribes: (() => void)[] = [];
   /** Consumers that may act on a refresh while no membership event is in flight. */
@@ -96,8 +97,11 @@ export abstract class Term implements TermConsumer {
     public readonly key: string,
     public readonly kind: TermKind,
     private readonly _pinned: boolean,
-    private readonly _onDestroy: (term: Term) => void
-  ) {}
+    private readonly _onDestroy: (term: Term) => void,
+    entities: DenseEntitySet | ComponentStore = new DenseEntitySet()
+  ) {
+    this._entities = entities;
+  }
 
   public get count(): number {
     return this._entities.size;

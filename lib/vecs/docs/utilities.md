@@ -42,7 +42,8 @@ sparse JavaScript array. Lookups are a single array read and memory usage is one
 array. Use it when you only need random access (`get`, `set`, `has`, `delete`) by non-negative
 integer keys and don't need iteration.
 
-The world and entity APIs return read-only `ArrayMap` views (e.g. `entity.components`).
+The world uses these numeric indexes internally. For component enumeration, use the
+[entity component view](./entities.md#enumerating-components), not an `ArrayMap` cast.
 
 ```ts
 import { ArrayMap } from "@vworlds/vecs";
@@ -108,6 +109,23 @@ for (const [key, value] of map) {
 | `[Symbol.iterator]` | Same as `entries()`; supports `for..of`.                                                              |
 | `clear()`           | Remove all entries and reset `size` to zero.                                                          |
 | `size`              | The number of entries currently in the map.                                                           |
+
+## Shared component storage
+
+Each component's pinned term owns one internal `ComponentStore`
+(`lib/vecs/src/util/component_store.ts`), combining carrier membership with instances.
+Sparse stores use `Map<Entity, instance>` without id-indexed arrays. At sufficient
+density, stores promote to parallel entity/instance arrays and direct id positions;
+lookup checks entity identity because ids can be recycled. Direct removals move both
+arrays together and adjust active iteration cursors, so nested carrier cleanup skips
+deleted carriers and visits new ones without repeating unchanged survivors.
+
+Promotion happens only on an idle insertion when the carrier count times the store's
+density constant reaches its monotone highest-id bound. Only empty, idle stores demote;
+active traversals never change representation. Ordinary entities retain only an ordered
+list of component ids, not an instance map. Destruction temporarily retains instances
+in a teardown stash so synchronous exits can still read ordinary components; detached
+relationships disappear immediately. See [benchmark hot-path notes](../../../bench/README.md#component-store-hot-paths).
 
 ## `DenseSet`
 
