@@ -82,6 +82,8 @@ type ResultLine = {
   terms?: number;
   ticks?: number;
   warmupTicks?: number;
+  carriers?: number;
+  firstId?: number;
 };
 type Scene = {
   world: World;
@@ -124,7 +126,27 @@ if (process.argv[2] === "--heap") {
   const rounds = positiveInteger("BENCH_ROUNDS", 5);
   const ticks = optionalPositiveInteger("BENCH_TICKS");
   const warmupTicks = optionalPositiveInteger("BENCH_WARMUP_TICKS");
+  const smallOnly = process.env.BENCH_SMALL_WORLD === "1";
   for (const caseName of only === undefined ? CASES : [only]) {
+    if (["inject", "set", "watch", "churn", "point"].includes(caseName)) {
+      for (const firstId of [1000, 10000]) {
+        for (const carriers of [300, 40]) {
+          const line = runTickCase(
+            caseName as TickCase,
+            300,
+            warmupTicks ?? 2000,
+            ticks ?? 10000,
+            rounds,
+            carriers,
+            firstId
+          );
+          console.log(`CORE_STORAGE_RESULT ${JSON.stringify(line)}`);
+        }
+      }
+    }
+    if (smallOnly) {
+      continue;
+    }
     for (const size of caseName === "sparse-terms-heap" || caseName === "mixed-heap"
       ? ([100_000] as const)
       : SIZES) {
@@ -164,12 +186,14 @@ function runTickCase(
   size: number,
   warmupTicks: number,
   ticks: number,
-  rounds: number
+  rounds: number,
+  carriers = size,
+  firstId?: number
 ): ResultLine {
-  const expected = expectedChecksum(caseName, size, warmupTicks, ticks);
+  const expected = expectedChecksum(caseName, carriers, warmupTicks, ticks);
   const samples: number[] = [];
   for (let round = 0; round < rounds; round++) {
-    const scene = buildScene(caseName, size);
+    const scene = buildScene(caseName, size, carriers, firstId);
     timeTicks(scene, 0, warmupTicks);
     scene.reset();
     const ms = timeTicks(scene, warmupTicks, ticks);
@@ -186,6 +210,7 @@ function runTickCase(
     checksum: expected,
     ticks,
     warmupTicks,
+    ...(firstId === undefined ? {} : { carriers, firstId }),
   };
 }
 
@@ -324,21 +349,46 @@ function runSparseTermHeapChild(size: number): void {
 }
 
 /** Build a fresh world for one tick case with its per-tick hook and counters. */
-function buildScene(caseName: TickCase, size: number): Scene {
-  const world = new World();
+function buildScene(caseName: TickCase, size: number, carriers = size, firstId?: number): Scene {
+  const world = new World(
+    firstId === undefined
+      ? undefined
+      : {
+          idPools: [
+            { name: "component", min: 1, max: 899 },
+            { name: "module", min: 900, max: firstId - 1 },
+            { name: "entity", min: firstId },
+          ],
+        }
+  );
   world.component(Pos);
   world.component(Vel);
+  const population: Entity[] = [];
   const all: Entity[] = [];
   for (let i = 0; i < size; i++) {
     const entity = world.entity().add(Pos);
+    population.push(entity);
+    // Spread the partial component across the whole id range, including both pages.
+    const selected = Math.floor(((i + 1) * carriers) / size) > Math.floor((i * carriers) / size);
     if (
-      (caseName !== "sparse-inject" && caseName !== "singleton-get") ||
+      (caseName !== "sparse-inject" && caseName !== "singleton-get" && selected) ||
       (caseName === "sparse-inject" && i % 100 < 3) ||
       (caseName === "singleton-get" && i === size - 1)
     ) {
       entity.add(Vel);
     }
-    all.push(entity);
+    if (selected) {
+      all.push(entity);
+    }
+  }
+  assert.equal(all.length, carriers);
+  assert.equal(population.length, size);
+  assert.equal(world.component(Pos).instanceCount(), size);
+  if (firstId !== undefined) {
+    // Pipeline infrastructure uses a few entity ids before the measured population.
+    assert(population[0]!.eid >= firstId && population[0]!.eid < firstId + 256);
+    assert.equal(population[size - 1]!.eid - population[0]!.eid, size - 1);
+    assert.equal(world.component(Vel).instanceCount(), carriers);
   }
   const noop = (): void => {};
   switch (caseName) {
@@ -463,7 +513,7 @@ function buildScene(caseName: TickCase, size: number): Scene {
     }
     case "churn":
     case "composite": {
-      const window = size / 10;
+      const window = all.length / 10;
       let visits = 0;
       let previous: Entity[] | null = null;
       let enters = 0;
@@ -493,7 +543,7 @@ function buildScene(caseName: TickCase, size: number): Scene {
       for (let block = 0; block < 10; block++) {
         const current: Entity[] = [];
         for (let j = 0; j < window; j++) {
-          current.push(all[(block * window + j) % size]!);
+          current.push(all[(block * window + j) % all.length]!);
         }
         windows.push(current);
       }

@@ -59,6 +59,15 @@ Run `node --import ./bench/register-dist.mjs bench/core-storage.ts` after buildi
 the core storage epic's cases at 10,000 and 100,000 entities carrying two small components,
 with one `CORE_STORAGE_RESULT` line per case and size:
 
+The `inject`, `set`, `watch`, `churn` and `point` cases also run at 300 entities,
+with Vel on all 300 or on 40 carriers distributed across the population. Each runs
+with the entity id pool starting at 1000 and at 10000 (client-style); pipeline
+infrastructure consumes nine ids before the population. Result fields `firstId`
+(the pool start) and `carriers` distinguish these rows. Pos is on every entity.
+Timings remain per **world entity**, not per carrier. Set `BENCH_SMALL_WORLD=1`
+to run only these rows. Defaults are 2000 warmup and 10000 measured ticks; the
+ordinary tick and round overrides apply. Churn rotates a tenth of the carriers.
+
 | Case              | Body                                                                                                                       |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | iterate           | `each([], ...)`, no injection                                                                                              |
@@ -116,10 +125,13 @@ per tick like the other core rows; multiply by 100/3 for cost per carrier.
 
 Run `node --import ./bench/register-dist.mjs bench/entity-lifecycle.ts` for separate
 creation and destruction timings at 10k and 100k entities (or pass `10000` or
-`100000` as the positional argument to isolate one size for CPU profiling). For each size, two warmup
-worlds precede five measured rounds. Each round creates two-component entities in
+`100000` as the positional argument to isolate one size for CPU profiling). For each size, warmup
+worlds are controlled by `BENCH_WARMUP_ROUNDS` (20); `BENCH_ROUNDS` defaults to 31
+measured rounds. Each round creates two-component entities in
 a fresh world, then times destruction without setup. It asserts component counts
 before and after.
+The longer horizon lets allocation and JIT tiers settle. Compare process medians
+back to back; min/max still expose individual GC outliers rather than hiding them.
 
 ### Component-store hot paths
 
