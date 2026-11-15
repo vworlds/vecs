@@ -68,9 +68,8 @@ describe("ComponentTerm bitmask membership", () => {
     class Right {}
     class Linked extends Relationship {}
     const world = new World();
-    const keys = [Data, Reentrant, Alias, Concrete, Left, Right, Linked].map((Class) =>
-      world.component(Class)
-    );
+    const classes = [Data, Reentrant, Alias, Concrete, Left, Right, Linked];
+    const keys = classes.map((Class) => world.component(Class));
     world.component(Concrete).set(Implements, { interfaces: [Alias] });
     world.setExclusiveComponents(Left, Right);
     const calls: string[] = [];
@@ -112,7 +111,7 @@ describe("ComponentTerm bitmask membership", () => {
           check(entity, "query enter");
           calls.push(`q+${i}`);
         })
-        .update({ watch: key }, (entity) => {
+        .update({ watch: classes[i] }, (entity) => {
           check(entity, "query update");
           calls.push(`q~${i}`);
         })
@@ -128,7 +127,7 @@ describe("ComponentTerm bitmask membership", () => {
           check(entity, "inbox enter");
           calls.push(`s+${i}`);
         })
-        .update({ watch: key }, (entity) => {
+        .update({ watch: classes[i] }, (entity) => {
           check(entity, "inbox update");
           calls.push(`s~${i}`);
         })
