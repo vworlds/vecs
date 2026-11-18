@@ -902,3 +902,67 @@ describe("Iter cursor", () => {
     });
   });
 });
+
+describe("Iter cursor source slots for direct components", () => {
+  class A {
+    n = 0;
+  }
+  class B {
+    n = 0;
+  }
+  class C {
+    n = 0;
+  }
+  class D {
+    n = 0;
+  }
+
+  // Arities 1 to 3 take the direct invokers; 4 takes the generic resolver.
+  it.each([1, 2, 3, 4])("reports the visited entity in each of %i slots", (arity) => {
+    const world = new World();
+    const classes = [A, B, C, D].slice(0, arity);
+    classes.forEach((Class) => world.component(Class));
+    const entities = Array.from({ length: 4 }, (_, n) => {
+      const entity = world.entity();
+      classes.forEach((Class) => entity.set(Class, { n }));
+      return entity;
+    });
+    // Beyond one class the last injected component is optional; its slot still names the entity.
+    entities[2]!.remove(classes[arity - 1]!);
+    const seen = new Map<Entity, { src: unknown[]; values: unknown[] }>();
+    const record = (it: Iter, values: readonly ({ n: number } | undefined)[]) => {
+      seen.set(it.entity, { src: [...it.src], values: values.map((value) => value?.n) });
+    };
+    // With one class the query requires it, so the entity that lost it is not visited.
+    const required = arity === 1 ? classes : classes.slice(0, arity - 1);
+    world
+      .system("direct-iter")
+      .with(...required)
+      .each({ cursor: Iter, inject: classes }, record as never);
+    world.progress(0, 16);
+
+    const expected = arity === 1 ? entities.filter((_, n) => n !== 2) : entities;
+    expect([...seen.keys()]).toEqual(expected);
+    for (const entity of expected) {
+      const n = entities.indexOf(entity);
+      const values = classes.map(() => n as number | undefined);
+      if (n === 2) {
+        values[arity - 1] = undefined;
+      }
+      expect(seen.get(entity)).toEqual({ src: classes.map(() => entity), values });
+    }
+
+    // The query-level traversal builds its own invoker and must agree.
+    seen.clear();
+    world
+      .query("direct-iter-query")
+      .with(classes[0]!)
+      .build()
+      .forEach({ cursor: Iter, inject: classes }, record as never);
+    for (const [entity, { src }] of seen) {
+      expect(src).toEqual(classes.map(() => entity));
+    }
+    expect(seen.size).toBe(arity === 1 ? 3 : 4);
+    world.dispose();
+  });
+});

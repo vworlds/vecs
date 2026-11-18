@@ -130,6 +130,15 @@ export abstract class Term implements TermConsumer {
     return this._quiescentRefreshConsumers !== 0 || this.world._termEmitDepth !== 0;
   }
 
+  /**
+   * @internal The live membership container, for a caller that tests its size on
+   * every run and must not pay this term's accessor on the way. It is the same
+   * object for the term's lifetime; read `size` from it live and cache nothing else.
+   */
+  public _sizeSource(): { readonly size: number } {
+    return this._entities;
+  }
+
   /** @internal Traverse live membership without a generator; order is unspecified. */
   public _forEachLive(callback: (entity: Entity) => void): void {
     this._entities.forEachLive(callback);

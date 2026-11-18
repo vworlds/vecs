@@ -7,6 +7,8 @@
  * Composite rows add 16 distinct populated queries to the churn scene and
  * measure its enter/exit cost and retained heap separately.
  * The sparse-term heap row measures 200 ten-member queries in a 100k world.
+ * `inject-iter` repeats `inject` with the Iter cursor. The `reader` rows time a
+ * watcher system alone through `world.stats`, at 5, 21 and 320 events per run.
  *
  * Run after building:
  *
@@ -27,7 +29,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { World, type Entity } from "@vworlds/vecs";
+import { Iter, World, type Entity } from "@vworlds/vecs";
 
 class Pos {
   x = 0;
@@ -45,6 +47,15 @@ const COMPOSITE_TERMS = 16;
 const SPARSE_TERMS = 200;
 const SPARSE_MEMBERS = 10;
 /**
+ * Update events replayed per reader run, each with its fixed `[warmupTicks, ticks]`.
+ * Five prices the fixed cost of a run, 320 the cost per event, 21 a typical watcher.
+ */
+const READER_EVENTS: readonly (readonly [number, number, number])[] = [
+  [5, 20_000, 100_000],
+  [21, 10_000, 50_000],
+  [320, 1_000, 5_000],
+];
+/**
  * Fixed `[warmupTicks, ticks]` per case and size. The write-heavy cases carry
  * about six times the headroom of today's core, so a 6x faster storage still
  * measures a ~200 ms region; a full default run takes about two minutes now.
@@ -52,6 +63,7 @@ const SPARSE_MEMBERS = 10;
 const TICKS: Record<TickCase, Record<(typeof SIZES)[number], [number, number]>> = {
   iterate: { 10_000: [300, 900], 100_000: [50, 150] },
   inject: { 10_000: [400, 1_200], 100_000: [30, 90] },
+  "inject-iter": { 10_000: [400, 1_200], 100_000: [30, 90] },
   set: { 10_000: [200, 600], 100_000: [12, 30] },
   watch: { 10_000: [120, 360], 100_000: [12, 30] },
   churn: { 10_000: [200, 600], 100_000: [12, 36] },
@@ -64,6 +76,7 @@ const TICKS: Record<TickCase, Record<(typeof SIZES)[number], [number, number]>> 
 type TickCase =
   | "iterate"
   | "inject"
+  | "inject-iter"
   | "set"
   | "watch"
   | "churn"
@@ -73,7 +86,7 @@ type TickCase =
   | "sparse-inject";
 type HeapCase =
   "heap" | "composite-heap" | "sparse-terms-heap" | "mixed-heap" | "small-components-heap";
-type CaseName = TickCase | HeapCase;
+type CaseName = TickCase | HeapCase | "reader";
 type ResultLine = {
   case: CaseName;
   entities: number;
@@ -98,8 +111,10 @@ type Scene = {
 const CASES: readonly CaseName[] = [
   "iterate",
   "inject",
+  "inject-iter",
   "set",
   "watch",
+  "reader",
   "churn",
   "heap",
   "composite",
@@ -156,6 +171,13 @@ if (process.argv[2] === "--heap") {
       }
     }
     if (smallOnly) {
+      continue;
+    }
+    if (caseName === "reader") {
+      for (const [events, readerWarmup, readerTicks] of READER_EVENTS) {
+        const line = runReader(events, warmupTicks ?? readerWarmup, ticks ?? readerTicks, rounds);
+        console.log(`CORE_STORAGE_RESULT ${JSON.stringify(line)}`);
+      }
       continue;
     }
     for (const size of caseName === "small-components-heap"
@@ -225,6 +247,69 @@ function runTickCase(
     ticks,
     warmupTicks,
     ...(firstId === undefined ? {} : { carriers, firstId }),
+  };
+}
+
+/**
+ * Time a watcher system alone, as a consumer's per-system timer sees it: its inbox
+ * replay, the clearing of that inbox and its own flush, between two clock reads per
+ * run. The writer's routing into the inbox is outside the sample, so a saving there
+ * cannot hide a cost here. Reports nanoseconds per replayed event, clock included.
+ */
+function runReader(events: number, warmupTicks: number, ticks: number, rounds: number): ResultLine {
+  const total = warmupTicks + ticks;
+  // Deliveries are the tick numbers warmupTicks + 1 .. total, once per entity.
+  const measured = (total * (total + 1) - warmupTicks * (warmupTicks + 1)) / 2;
+  const expected = `sum:${events * total};watched:${events * measured};runs:${ticks}`;
+  const samples: number[] = [];
+  for (let round = 0; round < rounds; round++) {
+    const world = new World();
+    world.component(Pos);
+    world.component(Vel);
+    const all: Entity[] = [];
+    for (let i = 0; i < events; i++) {
+      all.push(world.entity().add(Pos).add(Vel));
+    }
+    let watched = 0;
+    world
+      .system("reader.write")
+      .with(Pos, Vel)
+      .each([Pos, Vel], (entity, [pos, vel]) => {
+        entity.set(Pos, { x: pos.x + vel.x });
+      });
+    const reader = world
+      .system("reader.read")
+      .with(Pos)
+      .update({ watch: Pos }, (_entity, pos) => {
+        watched += pos.x;
+      });
+    world.stats.enableSystems();
+    for (let tick = 0; tick < warmupTicks; tick++) {
+      world.progress(tick * DELTA_MS, DELTA_MS);
+    }
+    watched = 0;
+    world.stats.resetSystems();
+    for (let tick = warmupTicks; tick < total; tick++) {
+      world.progress(tick * DELTA_MS, DELTA_MS);
+    }
+    const timing = world.stats.systems().find((row) => row.system === reader);
+    assert(timing !== undefined, "reader system has no timing row");
+    assert.equal(
+      `sum:${sumPos(all)};watched:${watched};runs:${timing.runs}`,
+      expected,
+      `reader/${events} round ${round}`
+    );
+    samples.push((timing.totalMs * 1e6) / (events * ticks));
+    world.dispose();
+  }
+  return {
+    case: "reader",
+    entities: events,
+    rounds,
+    ...summary(samples),
+    checksum: expected,
+    ticks,
+    warmupTicks,
   };
 }
 
@@ -512,6 +597,22 @@ function buildScene(caseName: TickCase, size: number, carriers = size, firstId?:
         checksum: () => `sum:${sumPos(all)}`,
       };
     }
+    case "inject-iter": {
+      // The Iter cursor with direct components: the source slots are written per entity.
+      world
+        .system("inject-iter")
+        .with(Pos, Vel)
+        .each({ cursor: Iter, inject: [Pos, Vel] }, (it, [pos, vel]) => {
+          pos.x += vel.x;
+          pos.y += it.src[1] === it.entity ? vel.y : 0;
+        });
+      return {
+        world,
+        perTick: null,
+        reset: noop,
+        checksum: () => `sum:${sumPos(all)}`,
+      };
+    }
     case "set": {
       world
         .system("set")
@@ -639,6 +740,7 @@ function expectedChecksum(
     case "iterate":
       return `visits:${size * ticks}`;
     case "inject":
+    case "inject-iter":
       return `sum:${2 * size * total}`;
     case "set":
       return `sum:${size * total}`;

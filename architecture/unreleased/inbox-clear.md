@@ -1,0 +1,5 @@
+- [vecs] Changed: A system clears its drained inbox with a counted loop instead of two `Array.prototype.fill` calls, which cost every running system about 30 ns per run and watcher systems about 4 ns more per replayed event.
+- [vecs] Changed: `each` and `forEach` with the `Iter` cursor and one to three direct components write `it.src` by arity instead of calling `fill` per entity.
+- [vecs] Changed: An idle `each` system tests its root term's membership container directly instead of going through the query's and the term's `count` accessors.
+- [vecs] Tests: Cover inbox release after a drain and after `disable()`, `Iter` source slots for one to four direct components, and `each` systems starting and stopping with their membership across leaf, composite and ordered queries.
+- [repo] Added: `core-storage` rows `reader` (a watcher system timed alone at 5, 21 and 320 events per run) and `inject-iter` (the `Iter` cursor with direct components).
