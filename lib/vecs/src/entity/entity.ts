@@ -25,8 +25,9 @@ export const RESERVED_EID = 0;
  *
  * Inside a system body or `forEach` iteration the world is in **deferred
  * mode**: `add` / `attach` / `set` / `ensure` / `modified` / `remove` /
- * `destroy` only enqueue commands. The data layer (the components map and
- * `componentBitmask`) is mutated when the world drains its queue. Concretely,
+ * `destroy` only enqueue commands. The data layer (the shared component
+ * stores, the entity's component id list, and `componentBitmask`) is mutated
+ * when the world drains its queue. Concretely,
  * while deferred:
  *
  * - `entity.get(C)` / `entity.getMut(C)` returns `undefined` after `entity.add(C)` (no instance yet).

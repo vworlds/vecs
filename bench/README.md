@@ -11,6 +11,9 @@ Run `node --import ./bench/register-dist.mjs bench/any-of.ts` after building. It
 `any(X, all(X, Extra))` measures non-watched refresh costs; pass `diamond` to run only
 that case against an older build with `BENCH_VECS_ROOT`. No update callback is installed,
 so updates price membership maintenance rather than explicit watch dispatch.
+A `modified` nothing observes does not read the instance, so these rows no longer
+price the store lookup; `BENCH_WATCH=1` gives every key an update watcher and prices
+delivery, including the sparse-store read. Rows of the two modes are not comparable.
 `ANYOF_RESULT` reports each round's nanoseconds per write and exact transition counts.
 `BENCH_KEYS` (16), `BENCH_WRITES` (200,000), `BENCH_WARMUP_WRITES` (20,000), and
 `BENCH_ROUNDS` (5) accept positive integers. Modes alternate order per round; deferred
@@ -27,6 +30,8 @@ execution (100 writes per drain). Candidates are reused to exclude caller alloca
 enqueue and drain, and checks exact update counts. `BENCH_WRITES` (1,000,000) and
 `BENCH_WARMUP_WRITES` (100,000) must be positive multiples of 100. Pass `set` to
 measure an older build without `assign`; alternate base/head with `BENCH_VECS_ROOT`.
+Pass `equal` to isolate immediate equal `assign` (props and instance candidates)
+for CPU profiling, without changing warmup or measured rounds.
 
 The default run also includes a mixed drain case (`mixed` runs only that case):
 each 100-command batch alternates 50 `set` writes to one entity and 50 `assign`
@@ -50,6 +55,278 @@ The benchmark checks that reactive/empty-query callbacks never fire and `run`
 callbacks fire every frame. Compare alternating builds with identical settings.
 `bench:release-check` includes timing and deterministic fingerprint rows for all
 three kinds.
+
+## Core storage cases
+
+### Which rows judge which change
+
+Iteration and injection are judged by `iterate`, `inject`, `point`, `singleton-get` and
+`sparse-inject`; deferred writes by `set` and `watch`; structural churn by `churn` and
+`composite`; small worlds by the 300-entity rows; and retained memory by the heap rows
+(`heap`, `composite-heap`, `sparse-terms-heap`, `mixed-heap`, `small-components-heap`). Verdicts
+come from the perf runner, with base and head built and measured in one job; builder timings are
+directional evidence only.
+
+Run `node --import ./bench/register-dist.mjs bench/core-storage.ts` after building. It prices
+the core storage epic's cases at 10,000 and 100,000 entities carrying two small components,
+with one `CORE_STORAGE_RESULT` line per case and size:
+
+The `inject`, `set`, `watch`, `churn` and `point` cases also run at 300 entities,
+with Vel on all 300 or on 40 carriers distributed across the population. Each runs
+with the entity id pool starting at 1000 and at 10000 (client-style); pipeline
+infrastructure consumes nine ids before the population. Result fields `firstId`
+(the pool start) and `carriers` distinguish these rows. Pos is on every entity.
+Timings remain per **world entity**, not per carrier. Set `BENCH_SMALL_WORLD=1`
+to run only these rows. Defaults are 2000 warmup and 10000 measured ticks; the
+ordinary tick and round overrides apply. Churn rotates a tenth of the carriers.
+
+| Case                  | Body                                                                                                                       |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| iterate               | `each([], ...)`, no injection                                                                                              |
+| inject                | `each([Pos, Vel], ...)` writing in place                                                                                   |
+| set                   | `each([Pos, Vel], ...)` calling `entity.set(Pos, {...})`, no watcher                                                       |
+| watch                 | as `set`, plus a second system with `update({ watch: Pos }, ...)`                                                          |
+| churn                 | each tick a rotating tenth of the entities loses `Vel` and the previous tenth gains it back, one `each([Pos, Vel])` system |
+| heap                  | bytes per entity retained after building the `watch` world, measured in a fresh process                                    |
+| composite             | `churn` with 16 distinct populated composite queries sharing Pos/Vel, each with synchronous enter/exit callbacks           |
+| composite-heap        | bytes per entity retained by the `composite` world in a fresh process                                                      |
+| sparse-terms-heap     | incremental bytes per query term for 200 ten-member queries in a 100,000-entity world, in a fresh process                  |
+| point                 | `entity.get(Vel)` on a precomputed deterministic random permutation, every entity carrying Vel                             |
+| singleton-get         | repeated `entity.get(Vel)` on its single carrier in an otherwise large world                                               |
+| sparse-inject         | `each([Vel])` over distributed carriers making up 3% of the population; sparse from first insertion                        |
+| mixed-heap            | retained bytes per entity with local ids from 10000 and 200 mixed-density component keys, at 100k entities                 |
+| small-components-heap | retained world bytes per entity at 300 entities, with 200 registered components populated once each                        |
+
+Each line reports the median, min and max nanoseconds per entity per tick over the rounds
+(bytes per entity for `heap`), the tick counts it used, and a checksum of component field sums
+and callback counts that the benchmark asserts exactly every round; it only changes when
+observable behavior changes. Tick counts are fixed per case and size so both builds measure
+equal work, with a warm-up, and the timed loop is one small shared function, so a case is not
+bimodal between JIT tiers. `iterate` is sized for today's core; the four write-heavy cases
+carry about six times the headroom, so even a 6x faster storage core still measures a
+roughly 200 ms region per round, and a full default run takes about two minutes on the
+current core. `BENCH_ROUNDS` (5) sets the rounds per case and size; `BENCH_TICKS` and
+`BENCH_WARMUP_TICKS` override the tick counts uniformly. Every override must be a positive
+integer. The `heap` case spawns one fresh `--expose-gc` child process per round and reports
+the `heapUsed` delta across building the world and settling it with three ticks, so no other
+case's garbage pollutes the measurement. The `churn` case precomputes its ten membership
+windows outside the timed loop, which therefore contains only the `remove`/`add` calls and
+the system. Pass a case name to isolate it for `node --cpu-prof`; unknown names fail rather
+than producing an empty run. Set `BENCH_VECS_ROOT` to run the same benchmark against another
+built checkout. Timings need an idle host; compare base and head in alternating processes,
+and the checksums must stay identical. The `composite` case adds 16 distinct
+`with(Pos, Vel).without(Absent)` queries to the churn scene, with a different
+absent key per query. It checks exact enter/exit callback totals in addition to
+the ordinary churn fingerprint. `composite-heap` measures that world's retained
+bytes per entity with the same fresh-process method as `heap`.
+`sparse-terms-heap` runs only at 100,000 entities. It measures the incremental
+post-GC heap after adding 200 unique component keys to the last ten entities and
+building one direct component query per key, divided by 200 query-root terms.
+The resting world's heap is excluded; component instances, definitions, leaf
+indexes, and query scaffolding are included. Each query must contain exactly
+those ten high-id entities. The result reports `terms: 200` and bytes per term,
+not bytes per entity.
+`bench:release-check` includes one timing row (the
+median) and one fingerprint row (the checksum) per case and size.
+
+`mixed-heap` uses ten ubiquitous keys, thirty keys on every 33rd entity, sixty
+on every 1000th entity, and one hundred singleton keys. It includes the whole
+world, not just the stores. `point` uses the same permutation for every round;
+`singleton-get` times the successful lookup, not an absent lookup. Both assert
+the sum of successful reads. `sparse-inject` reports nanoseconds per world entity
+per tick like the other core rows; multiply by 100/3 for cost per carrier.
+
+Run `node --import ./bench/register-dist.mjs bench/entity-lifecycle.ts` for separate
+creation and destruction timings at 10k and 100k entities (or pass `10000` or
+`100000` as the positional argument to isolate one size for CPU profiling). For each size, warmup
+worlds are controlled by `BENCH_WARMUP_ROUNDS` (20); `BENCH_ROUNDS` defaults to 31
+measured rounds. Each round creates two-component entities in
+a fresh world, then times destruction without setup. It asserts component counts
+before and after.
+The longer horizon lets allocation and JIT tiers settle. Compare process medians
+back to back; min/max still expose individual GC outliers rather than hiding them.
+
+### Component-store hot paths
+
+Component terms own their stores for instances, carrier iteration and counts;
+leaf `has` checks world identity and the entity's component bit instead of the
+store representation. Staging and detachment keep that bit in step with the
+store, including discarded staged additions after an interrupted teardown.
+Sparse attachment uses the bit for presence and one native `Map.set`; sparse
+term-container insertion uses one `Set.add`. Both detect new membership from the
+size change, avoiding a separate hash probe. Sparse container deletion already
+uses native `delete` without a presence probe.
+See [storage internals](../lib/vecs/docs/utilities.md#shared-component-storage)
+for the teardown membership contract. Sparse instance lookup is a native `Map` read; direct lookup
+reads an id position, checks entity identity, then reads the parallel instance.
+Direct-mode cursor mechanics duplicate `DenseEntitySet` rather than composing a
+second container into that lookup path.
+
+Direct injection resolves a store once. It intentionally does **not** cache its
+representation for an entire query/system traversal: injection is not a counted
+store iteration, and synchronous callbacks can change density. Every lookup reads
+the current representation; no array snapshot or registry lookup is needed.
+One-, two- and three-component invokers unroll those store reads; they do not run
+the generic per-term resolver loop. Optional components retain removed-instance
+and teardown fallbacks. Required system components inferred from direct `with`
+conjunctions skip those fallbacks. `Iter` uses the same reused tuple and reports
+the visited entity in each direct source slot. Relationships, fan-out and clocks
+retain the generic resolver, as do larger tuples.
+Only explicit store carrier traversal pins representation and maintains cursors.
+Numeric `entity.get(id)` resolves the term from the world; class-based `get` uses
+the resolved metadata's term. Teardown and removed-instance fallbacks run on misses.
+Writes and relationship reads that already resolved metadata use that same direct
+store path, without looking the term up again by id. Empty entity-cursor injection
+selects a callback-only invoker once; it does not enter the component resolver per entity.
+
+The pre-paging store used density 8, matching term membership. Three CPU-2-pinned processes per
+candidate, at default horizons, alternated 8/16/32 then 32/16/8 on the builder.
+The 100k medians below are ns per world entity per tick (ns/read for singleton).
+Checksums matched across candidates. There was no consistent advantage for 16;
+32 had two slow sparse-injection processes (5.86–5.88 versus 1.19 in its third).
+These are builder timings, not the quiet perf-runner acceptance results.
+
+| Case          | Density 8 | Density 16 | Density 32 |
+| ------------- | --------- | ---------- | ---------- |
+| sparse-inject | 1.24      | 1.23       | 5.86       |
+| singleton-get | 21.96     | 21.68      | 20.67      |
+| inject        | 44.91     | 43.96      | 45.13      |
+| churn         | 132.40    | 131.69     | 137.45     |
+
+### Rejected paged component-store measurements
+
+The rejected prototype used 256-id plain-number pages and density 16. Sparse per-page
+counts make the density denominator independent of the absolute id offset;
+see [storage internals](../lib/vecs/docs/utilities.md#shared-component-storage).
+Terms still used their previous representation; these measurements cover only the
+component-store stage, not the full lookup-path acceptance matrix.
+
+On the builder (Node 24.15.0, Xeon E3-1270 v6), page bits 7/8/9 and plain/Int32
+pages were compared in forward/reverse CPU-2-pinned processes, with five rounds
+per row. Bits 9 left the server-offset 40-carrier case sparse and its injection
+slower (8.70/10.20 ns per world entity versus 7.09/7.27 at bits 8).
+Bits 7 had no consistent small-world advantage and noisier large-world results.
+Three further alternating processes per page type at bits 8 gave these process
+medians (ns per world entity per tick):
+
+| Case / entities | Plain pages | Int32 pages |
+| --------------- | ----------: | ----------: |
+| inject / 10k    |       48.91 |       50.49 |
+| inject / 100k   |       56.90 |       61.54 |
+| churn / 10k     |      120.33 |      120.67 |
+| churn / 100k    |      144.72 |      147.01 |
+
+Plain pages won the large-world injection comparison; small-world results
+were mixed. Density 8/16/32 comparisons on CPU 4 did not separate the singleton
+or 3%-density rows consistently. Density 16 makes both 40-carrier offset scenes
+direct; density 32 had no consistent small-world benefit. Inspection confirmed
+three allocated pages for the server population and two for the client population,
+while ten carriers spread across 100k ids stayed sparse. Singletons stay sparse.
+A forced-direct singleton experiment measured 22.41 versus 23.14 ns/read at 100k,
+with overlapping process ranges; promoting every singleton would also promote the
+scattered case, so that policy was not selected.
+
+Paging alone does **not** recover the sparse single-entity write regression.
+With no concurrent local benchmark streams, three alternating CPU-2-pinned runs
+of `assign.ts equal` at ten million writes (one million warmup) measured:
+
+| Immediate equal assign | f30ad26 | After component storage | Paged store |
+| ---------------------- | ------: | ----------------------: | ----------: |
+| props                  |   25.70 |                   30.69 |       29.32 |
+| instance               |   23.56 |                   27.88 |       27.96 |
+
+All update fingerprints remained zero. The task's stop gate therefore applies
+before term paging or invoker specialisation. Local profiling retains the sparse
+Map/metadata lookup path; changing direct page geometry cannot remove that work.
+The earlier geometry/density sweeps overlapped other CPU-pinned local work and
+are directional, not quiet-runner acceptance results.
+
+#### Inlining follow-up
+
+Deoptimisation traces showed no repeated lookup deoptimisation: both base and
+paged builds had the same one-off equality-helper feedback bailout when moving
+from props to instances. TurboFan traces instead showed budget-sensitive inlining
+decisions across the larger shared-store call graph. Individual `assign` bytecode
+stayed at 119 bytes, but its nested lookup grew from a 34-byte array-map get to
+`_getFromMeta` (40), store get (103), and the miss-only teardown helper (43).
+Whether `World.entity`, `getEntity`, or the outer `assign` fitted varied with
+compilation order; they were not universally uninlined. Raising the diagnostic
+inlining budget from 920 to 2000 admitted more calls but did not by itself recover
+the full baseline. Splitting store get did not improve the equal-assign rows and
+was discarded.
+
+Keep `World.entity`'s creation/name and missing-reference error branches in cold
+helpers instead: its reference-lookup body drops from 186 to 47 bytecode bytes.
+This allows it and `getEntity` to inline alongside store lookup under the default
+budget, without changing reference validation, creation, deferral or error behavior.
+Five further alternating CPU-2-pinned processes per build, with no concurrent
+local benchmark streams, gave:
+
+| Row                    | f30ad26 | Paged before cold split | Paged with cold split |
+| ---------------------- | ------: | ----------------------: | --------------------: |
+| equal assign, props    |   25.61 |                   28.99 |                 25.58 |
+| equal assign, instance |   23.80 |                   27.69 |                 24.05 |
+| foreach injected       |   70.70 |                   76.20 |                 76.30 |
+
+Assign uses ten million writes and one million warmup writes; foreach uses its
+default two million calls. Assign update counts were zero; foreach checksum was
+8800000 in every process. The cold split recovers equal assign locally, not the
+remaining foreach gap. Subsequent term-paging measurements regressed static any-of
+and composite, so paging and page counters were rejected in both containers.
+The retained cold split is independent of that storage choice.
+
+### Flat positions with promotion slack
+
+Both containers retain plain-number flat positions, density 8, and a monotone
+highest-id bound. At eight or more members the promotion test adds a fixed
+1024-slot allowance: `count * 8 + 1024 >= highestId + 1`; otherwise the original
+`count * 8 >= highestId + 1` rule applies. This makes low server/replicated ids direct
+without per-mutation page bookkeeping; client-local ids starting at 10000 retain
+the old density threshold. An idle insertion beyond twice the slack-adjusted
+bound demotes in one pass instead of extending the array. The check includes
+retained position length, so a later idle insertion also repairs growth deferred
+during active traversal. Nonempty removals never demote, and active traversals
+never switch representation. Membership-only store lookup checks the
+position and entity identity without loading the instance.
+
+The `small-components-heap` scene reports retained world bytes per entity for 300
+entities and 200 populated component types (one carrier per type, spread across
+the population). Multiply by 300 for total world bytes. This exposes the cost of
+direct singleton stores; sparse-term and mixed-world heaps remain separate rows.
+
+Three alternating CPU-2-pinned processes per candidate (reverse middle order,
+five internal rounds) compared minimum populations 8 and 16 at slack 1024.
+The minimum-8/16 builds both included the same arity-specialised invokers; the
+870b208 comparison build did not, so timing differences against it are combined
+changes, not solely the population guard. Some rounds overlapped CPU-isolated
+checks and diagnostic profiling, not another timed benchmark stream.
+
+| Retained heap, bytes/unit      | 870b208 | Minimum 8 | Minimum 16 |
+| ------------------------------ | ------: | --------: | ---------: |
+| small-components-heap (entity) | 4060.48 |   4132.85 |    4063.68 |
+| sparse-terms-heap (term)       | 6395.88 |   6350.64 |    6370.72 |
+| mixed-heap (entity)            | 1437.19 |   1435.46 |    1435.50 |
+
+Keep minimum 8: all heaps stay within 3%, and it avoids a consistent timing loss
+on client-local inject/set/watch/churn. Server 40-carrier inject was 4.12/4.18
+ns per world entity/tick (minimum 8/16); composite 300-carrier server 453.70/467.44;
+client-local inject 300-carrier 34.89/36.14. Individual scenes also favor 16;
+there is no claim that 8 wins every row. After the sparse-term scene, both Query
+and Identity stores have **zero allocated position slots**, rather than 101209.
+The initial unguarded slack sweep remains rejected: all 1024/2048/4096 candidates
+retained about 15.5 KB per sparse term because those bootstrap stores grew to
+the later high query ids. Hysteretic demotion fixes that shape.
+
+### Destruction scratch allocation
+
+The 100k destroy-only profile (five warmup worlds, ten profiled worlds) identified
+the shared teardown entry array as a local allocation candidate: clearing its
+length after every entity discarded backing storage before the next push loop.
+The retained fix sets the next borrower's exact length, fills by index, and keeps
+the cleared tuple references between borrows. Component-instance references are
+still cleared after success; partial-world behavior after throwing hooks is unchanged.
+An empty query-membership set also needs no redundant clear during destruction.
+Mixed-size/empty teardown tests cover shrinking and growing scratch use.
 
 ## Relationship edge updates
 
@@ -165,16 +442,29 @@ Tune the workload with environment variables:
 
 The benchmark prints a summary and a `BENCH_RESULT` JSON line with the tick time statistics (mean,
 median, p95, p99, min, max, standard deviation, all in milliseconds per tick of all sectors) and
-three fingerprints:
+its fingerprints, in two kinds:
 
-- `checksum`: the final simulation state, entity counts, mass totals and network byte counts;
-- `trace`: an order-sensitive hash of every benchmark callback (`enter`, `exit`, `update`, `each`,
-  hooks) with the entity it ran for;
-- `bytesSent`: the total bytes `ServerWorld` sent to the clients, whose content also feeds the
-  checksum.
+- `stateChecksum`: the final simulation state — entity counts, mass totals, per-client byte counts,
+  and the simulated bodies visited in ascending entity id, with each client's sent bytes summed
+  instead of chained, so iteration and record order cannot change it;
+- `traceBag` and `traceCount`: a commutative hash of every benchmark callback (`enter`, `exit`,
+  `update`, `each`, hooks) with the entity it ran for, plus how many fired;
+- `orderedChecksum` and `orderedTrace`: the same state and callbacks, but chained in engine body
+  order, send order and firing order;
+- `bytesSent`: the total bytes `ServerWorld` sent to the clients.
 
-The run is deterministic, so the fingerprints only change when behavior changes. An optimization
-that keeps execution order, hook order and reactive delivery the same leaves all three unchanged.
+`stateChecksum`, `traceBag`, `traceCount` and `bytesSent` are behavior fingerprints: the run is
+deterministic, so they only change when observable behavior changes, and an optimization that
+keeps execution order, hook order and reactive delivery the same leaves them unchanged.
+`orderedChecksum` and `orderedTrace` are order-sensitive: they also change when the order in which
+query members are visited changes — unspecified unless `orderBy` or `cascade` is used — so
+`bench/compare.ts` reports a difference as a member-order note, not a behavior mismatch. The
+order-independent accumulation runs inside the timed loop and uses integer arithmetic only (two
+multiplies, an add and a counter per callback invocation; one add per sent byte).
+
+Before the order-independent fingerprints existed, the ordered ones were printed as `checksum` and
+`trace`; `bench/compare.ts` reads both spellings, so comparisons involving older output keep
+working.
 
 ### Profile
 
@@ -189,7 +479,9 @@ Open the `.cpuprofile` in Chrome DevTools (Performance panel) or [speedscope](ht
 
 `compare.ts` runs the benchmark against two built checkouts in alternating order, in a fresh
 process per run, and reports each build's mean tick time and the per-round head/base ratio. It also
-fails when the two builds disagree on any fingerprint.
+fails when the two builds disagree on the behavior fingerprints (`stateChecksum`, `traceBag`,
+`traceCount`, `bytesSent`); a difference in `orderedChecksum`/`orderedTrace` prints a member-order
+note and does not fail the comparison.
 
 ```bash
 git worktree add --detach .worktrees/base origin/dev
@@ -254,12 +546,17 @@ specific tag or ref instead. Temporary worktrees and JSON/Markdown reports live 
 `.tmp/release-check/`; matching lockfiles reuse this checkout's dependencies, otherwise the base
 installs its own. Run `npm ci` first.
 
-The check includes sector tick, idle systems, DR bandwidth, and an optional physics pose-out benchmark
+The check includes sector tick, core storage, idle systems, DR bandwidth, and an optional physics pose-out benchmark
 when a matching benchmark file is present. It defaults to three alternating runs per
 build; set `BENCH_ROUNDS` to an integer of at least three for more runs. Missing release
 package APIs produce “no previous data” for that benchmark; benchmark crashes fail the
 command. Each deterministic metric is compared exactly, including repeatability within
-each build; all changes are shown, with a warning when bytes increase. Timing means warn
+each build; all changes are shown, with a warning when bytes increase. For the sector
+benchmark, `stateChecksum`, `traceBag` and `traceCount` are compared as behavior
+fingerprints, and an `orderedChecksum`/`orderedTrace` difference prints a
+`member order changed` note rather than a change; output that predates the
+order-independent fingerprints still fills the ordered rows from its `checksum`/`trace`
+fields and reports the order-independent ones as unavailable for that side. Timing means warn
 only above 10% regression and when the absolute difference exceeds both builds'
 run-to-run ranges. Warnings exit zero and become annotations in GitHub Actions.
 
@@ -290,8 +587,8 @@ does not cancel identical results.
 
 ## Known trade-off: bulk create and destroy
 
-`IterableArrayMap` (`lib/vecs/src/util/array_map.ts`) holds every entity's components and the
-world's entity table. It keeps its entries in parallel arrays that grow by `push`. Before, each
+`IterableArrayMap` (`lib/vecs/src/util/array_map.ts`) holds the world's entity table. It keeps its
+entries in parallel arrays that grow by `push`. Before, each
 entry was its own `[key, value]` array literal. The new layout took about 9% off the sector-tick
 benchmark's mean tick, but V8 cannot pretenure it the way it pretenured the per-entry literals.
 

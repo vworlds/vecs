@@ -1,4 +1,6 @@
 import type { Entity } from "../entity/index.js";
+import { DenseEntitySet } from "../util/dense_entity_set.js";
+import type { ComponentStore } from "../util/component_store.js";
 import type { World } from "../world/index.js";
 
 export const enum TermEventKind {
@@ -69,7 +71,7 @@ export type TermKind =
 /**
  * Base class for all reactive entity-set nodes in the term graph.
  *
- * A `Term` maintains a live `Set<Entity>` of every entity currently satisfying
+ * A `Term` maintains live membership of every entity currently satisfying
  * its sub-predicate. It subscribes to its children via the two-signal contract
  * defined on {@link TermConsumer} and propagates enter/exit events upward to
  * its own consumers.
@@ -84,7 +86,7 @@ export abstract class Term implements TermConsumer {
   /** @internal */
   protected readonly _consumers = new Set<TermConsumer>();
   /** @internal */
-  protected readonly _entities = new Set<Entity>();
+  protected readonly _entities: DenseEntitySet | ComponentStore;
   private _destroyed = false;
   private readonly _childUnsubscribes: (() => void)[] = [];
   /** Consumers that may act on a refresh while no membership event is in flight. */
@@ -95,13 +97,17 @@ export abstract class Term implements TermConsumer {
     public readonly key: string,
     public readonly kind: TermKind,
     private readonly _pinned: boolean,
-    private readonly _onDestroy: (term: Term) => void
-  ) {}
+    private readonly _onDestroy: (term: Term) => void,
+    entities: DenseEntitySet | ComponentStore = new DenseEntitySet()
+  ) {
+    this._entities = entities;
+  }
 
   public get count(): number {
     return this._entities.size;
   }
 
+  /** Iterate live membership; additions are visited and removals skipped, in unspecified order. */
   public [Symbol.iterator](): IterableIterator<Entity> {
     return this._entities[Symbol.iterator]();
   }
@@ -112,6 +118,21 @@ export abstract class Term implements TermConsumer {
 
   public has(entity: Entity): boolean {
     return this._entities.has(entity);
+  }
+
+  /**
+   * @internal Whether a refresh hint would reach a consumer that acts on it now:
+   * a membership event is in flight, or some consumer refreshes while quiescent.
+   * While `false`, {@link _emitRefresh} delivers nothing and runs no user code.
+   * `_emitRefresh` tests the same two fields in place; keep the two in step.
+   */
+  public _refreshObserved(): boolean {
+    return this._quiescentRefreshConsumers !== 0 || this.world._termEmitDepth !== 0;
+  }
+
+  /** @internal Traverse live membership without a generator; order is unspecified. */
+  public _forEachLive(callback: (entity: Entity) => void): void {
+    this._entities.forEachLive(callback);
   }
 
   /**
@@ -197,12 +218,12 @@ export abstract class Term implements TermConsumer {
    *
    * The world's `_termEmitDepth` counts the delivery as in flight from the
    * membership change until every consumer has seen it.
+   * The container reports insertion directly, without extra size probes.
    */
   protected _add(entity: Entity): void {
-    if (this._entities.has(entity)) {
+    if (!this._entities.add(entity)) {
       return;
     }
-    this._entities.add(entity);
     this._propagateAdded(entity);
   }
 
@@ -257,6 +278,9 @@ export abstract class Term implements TermConsumer {
    * consumer would do anything.
    */
   protected _emitRefresh(entity: Entity): void {
+    // The condition of `_refreshObserved`, repeated in place: this body is inlined
+    // into every `set` and `modified` root, and one more callee there shifts
+    // what else fits in the optimizer's inlining budget.
     if (this._quiescentRefreshConsumers === 0 && this.world._termEmitDepth === 0) {
       return;
     }

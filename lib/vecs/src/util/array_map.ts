@@ -248,9 +248,18 @@ export class IterableArrayMap<T> {
 }
 
 /**
- * Read-only view of an {@link IterableArrayMap}: the mutating methods `set`, `delete`,
- * and `clear` are omitted.
+ * Read-only numeric map view. Callback third arguments expose only this read-only
+ * interface. Entity component views snapshot ids for mutation-safe iteration;
+ * IterableArrayMap retains its own live traversal behavior.
  *
  * @typeParam T - Value type stored in the map.
  */
-export type ReadonlyIterableArrayMap<T> = Omit<IterableArrayMap<T>, "set" | "delete" | "clear">;
+export interface ReadonlyIterableArrayMap<T> extends Iterable<readonly [number, T]> {
+  readonly size: number;
+  get(key: number): T | undefined;
+  has(key: number): boolean;
+  forEach(callback: (value: T, key: number, map: ReadonlyIterableArrayMap<T>) => void): void;
+  forEachSafe(callback: (value: T, key: number, map: ReadonlyIterableArrayMap<T>) => void): void;
+  entries(): IterableIterator<readonly [number, T]>;
+  values(): T[];
+}

@@ -35,7 +35,8 @@ export class Lifecycle extends Components {
   /**
    * @internal Apply a `Destroy` command: fire `_exit` on every query, then
    * `onRemove` on every component, unregister from the world, and apply
-   * incoming relationship cleanup policies.
+   * incoming relationship cleanup policies. Scratch frames reuse cleared tuples
+   * and entry-array capacity, with an exact active length for each borrower.
    */
   public _destroy(this: Entity): void {
     if (this._destroyed) {
@@ -50,11 +51,13 @@ export class Lifecycle extends Components {
     if (ownsDeletionScope) {
       this.world._deletionScope = [];
     }
+    let teardownDepth: number | undefined;
+    let teardownComplete = false;
     try {
       const entityMeta = this._meta;
       let selfCarry = 0;
       if (entityMeta) {
-        selfCarry = this._components.has(entityMeta.eid) ? 1 : 0;
+        selfCarry = this._getFromMeta(entityMeta) !== undefined ? 1 : 0;
         if (entityMeta.usageCount > selfCarry && entityMeta._onDelete === CleanupPolicy.Throw) {
           throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
         }
@@ -63,24 +66,50 @@ export class Lifecycle extends Components {
       // Mark destroyed before applying cleanup so a carrier cascade that
       // re-enters this entity cannot tear it down twice.
       this._destroyed = true;
+      teardownDepth = this.world._teardownDepth++;
+      const scratch = (this.world._teardownStashes[teardownDepth] ??= { entries: [], slots: [] });
+      const teardown = scratch.entries;
+      teardown.length = this._ceids.length;
+      for (let i = 0; i < this._ceids.length; i++) {
+        const ceid = this._ceids[i]!;
+        const entry = (scratch.slots[i] ??= [ceid, undefined]);
+        entry[0] = ceid;
+        entry[1] = this._get(ceid);
+        teardown[i] = entry;
+      }
+      this._teardown = teardown;
       if (entityMeta && entityMeta.usageCount > selfCarry) {
         this._applyOnDelete(entityMeta, selfCarry);
       }
 
       this.world._notifyEntityDestroyed(this);
 
-      this._components.forEachSafe((c, ceid) => {
+      for (let i = 0; i < teardown.length; i++) {
+        const [ceid, c] = teardown[i]!;
+        if (c === undefined) {
+          continue;
+        }
         const componentMeta = this.world.entity(ceid).meta;
         if (componentMeta.isRelationship) {
           this._detachRelationship(componentMeta, c as Relationship);
-          return;
+          // The former forEachSafe revisited the tail swapped into a detached
+          // relationship's slot. Keep that hook order while retaining ordinary
+          // instances in the stash until all synchronous exits have completed.
+          teardown[i] = teardown[teardown.length - 1]!;
+          teardown.pop();
+          i--;
+          continue;
         }
         this._detachSlot(componentMeta, c, true);
-      });
+      }
       this._dirtyComponentBitmask.clear();
-      this._queries.clear();
+      if (this._queries.size !== 0) {
+        this._queries.clear();
+      }
 
-      this._components.clear();
+      this._ceids.length = 0;
+      this._teardown = undefined;
+      teardownComplete = true;
 
       if (
         entityMeta &&
@@ -90,9 +119,29 @@ export class Lifecycle extends Components {
         this.world._classRegistry.delete(entityMeta.Class);
       }
 
+      if (entityMeta && entityMeta.usageCount !== 0) {
+        console.error("Unregistering a component key with live instances");
+      }
       this.world._unregisterEntity(this);
       this._cleanupIncoming();
     } finally {
+      if (teardownDepth !== undefined) {
+        const scratch = this.world._teardownStashes[teardownDepth]!;
+        if (teardownComplete) {
+          // Keep tuple capacity, not component instances or the active traversal.
+          for (const entry of scratch.slots) {
+            entry[1] = undefined;
+          }
+          // Keep the entry-array backing as well as tuple capacity. Clearing its
+          // length here makes the next entity's pushes allocate a fresh backing.
+          // The next borrower sets its exact length before publishing the stash.
+        } else {
+          // Preserve the original partial-world reads after a throwing hook, but
+          // never lend its still-referenced frame to a later destroy.
+          this.world._teardownStashes[teardownDepth] = undefined;
+        }
+        this.world._teardownDepth--;
+      }
       if (ownsDeletionScope) {
         try {
           this._flushDeletionScope();
@@ -122,12 +171,12 @@ export class Lifecycle extends Components {
     if (
       entityMeta &&
       entityMeta._onDelete === CleanupPolicy.Throw &&
-      entityMeta.usageCount > (this._components.has(entityMeta.eid) ? 1 : 0)
+      entityMeta.usageCount > (this._getFromMeta(entityMeta) !== undefined ? 1 : 0)
     ) {
       throw new Error(`Cannot destroy entity ${this.eid}; component eid is still in use`);
     }
     if (this.world.deferred) {
-      this.world._enqueue({ kind: CommandKind.Destroy, entity: this });
+      this.world._enqueue(CommandKind.Destroy, this);
     } else {
       this._destroy();
     }

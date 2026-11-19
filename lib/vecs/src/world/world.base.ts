@@ -16,6 +16,17 @@ export class Base {
   /** @internal Removed instance, read only after an injection storage miss. */
   public _removedInstance: ComponentInstance | undefined = undefined;
 
+  /** @internal Reusable teardown tuples, isolated by synchronous destroy nesting depth. */
+  public readonly _teardownStashes: (
+    | {
+        entries: [number, ComponentInstance | undefined][];
+        slots: [number, ComponentInstance | undefined][];
+      }
+    | undefined
+  )[] = [];
+  /** @internal Number of active teardown scratch frames. */
+  public _teardownDepth = 0;
+
   /** @internal Suspend cleanup policies only during dispose's infrastructure pass. */
 
   /**

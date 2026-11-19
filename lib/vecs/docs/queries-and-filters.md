@@ -153,6 +153,13 @@ projectiles.forEach([Position], (e, [pos]) => { ... });
 projectiles.forEach({ inject: [Position] }, (e, [pos]) => { ... });
 ```
 
+Member order is unspecified unless you configure `orderBy` (or `cascade`). Do not
+rely on insertion order after a removal. Bare `for…of` iteration is live and does
+not defer mutations: a member removed before its visit is skipped, a newly added
+member is visited, and a member is not visited twice unless removed and added
+again. Nested iterations keep independent cursors. `forEach` still defers
+structural changes until its scope finishes.
+
 Injected `forEach` reuses its resolved tuple across entities and across calls that pass the same
 callback and the same component elements; read it inside the callback, don't retain it. Passing a
 different callback, or a tuple whose elements differ, builds a fresh one. This applies to queries,

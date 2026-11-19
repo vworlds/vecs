@@ -75,33 +75,17 @@ export class Entities extends Deferred {
   /**
    * Look up an existing entity by component ref.
    *
+   * Missing ids, unregistered classes and entity refs no longer registered throw rather than create.
    * A foreign `Entity` ref throws (see {@link getEntity}).
    */
   public entity(this: World, ref: ComponentRef): Entity;
   public entity(this: World, ref?: ComponentRef | string): Entity {
-    if (ref === undefined) {
-      return this._entity();
-    }
-    if (typeof ref === "string") {
-      let entity = this._identityNameIndex.get(ref);
-      if (entity) {
-        return entity;
-      }
-      entity = this._entity();
-      entity.set(Identity, { name: ref });
-      return entity;
+    // Keep creation/name handling and error construction outside the reference lookup body.
+    if (ref === undefined || typeof ref === "string") {
+      return this._entityFromName(ref);
     }
     const entity = this.getEntity(ref);
-    if (entity) {
-      return entity;
-    }
-    if (typeof ref === "function") {
-      throw new Error(`unregistered component entity for component class '${ref.name}'`);
-    }
-    if (typeof ref === "number") {
-      throw new Error(`No entity with eid ${ref}`);
-    }
-    throw new Error(`No entity with eid ${ref.eid}`);
+    return entity ?? this._throwMissingEntity(ref);
   }
 
   /**
@@ -175,7 +159,7 @@ export class Entities extends Deferred {
   protected _register(this: World, e: Entity, onCreate?: (e: Entity) => void): void {
     if (this.deferred) {
       this._deferredEntities.set(e.eid, e);
-      this._enqueue({ kind: CommandKind.CreateEntity, entity: e, onCreate });
+      this._enqueue(CommandKind.CreateEntity, e, undefined, onCreate);
       return;
     }
     this._entities.set(e.eid, e);
@@ -185,5 +169,28 @@ export class Entities extends Deferred {
     }
     this._notifyEntityCreated(e);
     onCreate?.(e);
+  }
+
+  private _entityFromName(this: World, ref: string | undefined): Entity {
+    if (ref === undefined) {
+      return this._entity();
+    }
+    let entity = this._identityNameIndex.get(ref);
+    if (entity) {
+      return entity;
+    }
+    entity = this._entity();
+    entity.set(Identity, { name: ref });
+    return entity;
+  }
+
+  private _throwMissingEntity(ref: ComponentRef): never {
+    if (typeof ref === "function") {
+      throw new Error(`unregistered component entity for component class '${ref.name}'`);
+    }
+    if (typeof ref === "number") {
+      throw new Error(`No entity with eid ${ref}`);
+    }
+    throw new Error(`No entity with eid ${ref.eid}`);
   }
 }

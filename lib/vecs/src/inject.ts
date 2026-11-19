@@ -6,7 +6,8 @@ import {
 } from "./component.js";
 import { Entity, RESERVED_EID as TARGET_ENTITY, type EID } from "./entity/index.js";
 import { type World } from "./world/index.js";
-import { _resolveRelationship, type MaybeRequired } from "./dsl.js";
+import { _resolveRelationship, type MaybeRequired, type QueryDSL } from "./dsl.js";
+import type { ComponentStore } from "./util/component_store.js";
 
 // Injection uses the reserved id to keep target projection arrays numeric and SMI-friendly.
 
@@ -76,6 +77,7 @@ export type FanInjectElement = InjectElement | DownInject;
 export type FanInjectTuple = readonly FanInjectElement[];
 export type ResolvedInjectTerm =
   | EID
+  | { store: ComponentStore; ceid: EID }
   | { target: readonly [EID, readonly EID[]] }
   | { targets: readonly [EID, readonly EID[]] }
   | { down: readonly [EID, readonly EID[]] };
@@ -186,6 +188,7 @@ function _resolveTargetsProjection(targets: readonly Entity[], projections: read
   );
 }
 
+/** Resolve direct stores once; each lookup still reads the store's live representation. @internal */
 export function mapInject(world: World, inject: readonly FanInjectElement[]): ResolvedInjectTerm[] {
   return inject.map((term) => {
     if (term === Now || term === Delta) {
@@ -225,7 +228,8 @@ export function mapInject(world: World, inject: readonly FanInjectElement[]): Re
         ],
       };
     }
-    return world.entity(term).eid;
+    const meta = world.entity(term).meta;
+    return { store: meta._term._store, ceid: meta.eid };
   });
 }
 
@@ -233,7 +237,7 @@ export function injectArity(inject: readonly ResolvedInjectTerm[]): number {
   let arity = 0;
   inject.forEach((term) => {
     arity +=
-      typeof term === "number"
+      typeof term === "number" || "store" in term
         ? 1
         : "target" in term
           ? term.target[1].length
@@ -283,6 +287,21 @@ function _resolveInjected(
   for (const term of inject) {
     if (typeof term === "number") {
       const c = e._get(term) ?? _removedInjected(e, term);
+      if (requireDirectComponents && !c) {
+        throw new Error("query does not contain component");
+      }
+      out[outIndex] = c;
+      if (src !== undefined) {
+        src[outIndex] = e;
+      }
+      outIndex++;
+      continue;
+    }
+    if ("store" in term) {
+      // Injection does not pin the store representation across callbacks. Read
+      // it per lookup: synchronous update hooks and nested traversals can change
+      // density, and a direct snapshot would need its own counted iteration.
+      const c = term.store.get(e) ?? e._getTeardown(term.ceid) ?? _removedInjected(e, term.ceid);
       if (requireDirectComponents && !c) {
         throw new Error("query does not contain component");
       }
@@ -366,11 +385,13 @@ export function injectWatchEids(inject: readonly ResolvedInjectTerm[]): EID[] {
   return inject.flatMap((term) =>
     typeof term === "number"
       ? [term]
-      : "target" in term
-        ? [term.target[0]]
-        : "targets" in term
-          ? [term.targets[0]]
-          : []
+      : "store" in term
+        ? [term.ceid]
+        : "target" in term
+          ? [term.target[0]]
+          : "targets" in term
+            ? [term.targets[0]]
+            : []
   );
 }
 
@@ -432,11 +453,13 @@ export type InjectedCallback = (eOrIt: Entity | Iter, resolved: readonly Injecte
  * callback are buffered and applied after iteration finishes.
  *
  * Shared by {@link Query.forEach} and {@link Group.forEach} so both honour the
- * same injection and deferral semantics.
+ * same injection and deferral semantics. Term membership supplies a live
+ * callback traversal to avoid a generator; other iterables retain their own
+ * iteration behavior.
  */
 export function forEachInjected(
   world: World,
-  entities: Iterable<Entity>,
+  entities: Iterable<Entity> & { _forEachLive?: (callback: (entity: Entity) => void) => void },
   callbackOrInject: ((e: Entity) => void) | FanInjectCallbackArg,
   injectedCallback?: InjectedCallback
 ): void {
@@ -444,8 +467,12 @@ export function forEachInjected(
   try {
     // Bare `forEach(callback)`: a function that is not a cursor marker.
     if (typeof callbackOrInject === "function") {
-      for (const entity of entities) {
-        callbackOrInject(entity);
+      if (entities._forEachLive !== undefined) {
+        entities._forEachLive(callbackOrInject);
+      } else {
+        for (const entity of entities) {
+          callbackOrInject(entity);
+        }
       }
       return;
     }
@@ -476,8 +503,12 @@ export function forEachInjected(
     entry.busy = true;
     try {
       const invoke = entry.invoke;
-      for (const entity of entities) {
-        invoke(entity);
+      if (entities._forEachLive !== undefined) {
+        entities._forEachLive(invoke);
+      } else {
+        for (const entity of entities) {
+          invoke(entity);
+        }
       }
     } finally {
       entry.busy = wasBusy;
@@ -536,17 +567,27 @@ export function normalizeFanInjectCallbackArgs(callbackOrInject: FanInjectCallba
   return { components: callbackOrInject, useIter: false };
 }
 
+/**
+ * Build one reusable callback tuple. Direct component arities 1–3 capture stores
+ * but read their current representation per entity; other terms retain the resolver.
+ * Required system components need no removed-instance or teardown fallback.
+ */
 export function makeInjectedInvoker(
   world: World,
   components: readonly FanInjectElement[],
   useIter: boolean,
   callback: InjectedCallback,
-  clock?: InjectClock
+  clock?: InjectClock,
+  required?: QueryDSL
 ): (e: Entity) => void {
+  const hasClock = components.some((term) => term === Now || term === Delta);
   const specialized = specializeClockInject(world, components, useIter, callback, clock, "entity");
   components = specialized.components;
   callback = specialized.callback as InjectedCallback;
   const inject = mapInject(world, components);
+  if (!hasClock && inject.length >= 1 && inject.length <= 3 && inject.every(_isStoreInject)) {
+    return _makeDirectInvoker(world, inject, useIter, callback, required);
+  }
   const arity = injectArity(inject);
   const resolved = new Array(arity);
   const down = _findSingleDownInject(inject);
@@ -586,10 +627,86 @@ export function makeInjectedInvoker(
       callback(it, resolved);
     };
   }
+  if (inject.length === 0) {
+    // Empty injection has no per-entity resolver work. Keep it independent of
+    // the component resolver's size and inlining decisions.
+    return (e: Entity) => callback(e, resolved);
+  }
   return (e: Entity) => {
     getInjected(e, inject, false, resolved);
     callback(e, resolved);
   };
+}
+
+type StoreInject = Extract<ResolvedInjectTerm, { store: ComponentStore }>;
+
+function _isStoreInject(term: ResolvedInjectTerm): term is StoreInject {
+  return typeof term !== "number" && "store" in term;
+}
+
+function _makeDirectInvoker(
+  world: World,
+  inject: readonly StoreInject[],
+  useIter: boolean,
+  callback: InjectedCallback,
+  required: QueryDSL | undefined
+): (e: Entity) => void {
+  const resolved: InjectedValue[] = new Array(inject.length);
+  if (useIter) {
+    const it = new Iter(inject.length);
+    const original = callback;
+    callback = (e: Entity | Iter, values: readonly InjectedValue[]) => {
+      it.entity = e as Entity;
+      it.src.fill(e as Entity);
+      original(it, values);
+    };
+  }
+  const first = inject[0]!;
+  const store0 = first.store;
+  const required0 = _requiresDirectComponent(world, required, first.ceid);
+  if (inject.length === 1) {
+    return (e: Entity) => {
+      resolved[0] = store0.get(e) ?? (required0 ? undefined : _directFallback(e, first.ceid));
+      callback(e, resolved);
+    };
+  }
+  const second = inject[1]!;
+  const store1 = second.store;
+  const required1 = _requiresDirectComponent(world, required, second.ceid);
+  if (inject.length === 2) {
+    return (e: Entity) => {
+      resolved[0] = store0.get(e) ?? (required0 ? undefined : _directFallback(e, first.ceid));
+      resolved[1] = store1.get(e) ?? (required1 ? undefined : _directFallback(e, second.ceid));
+      callback(e, resolved);
+    };
+  }
+  const third = inject[2]!;
+  const store2 = third.store;
+  const required2 = _requiresDirectComponent(world, required, third.ceid);
+  return (e: Entity) => {
+    resolved[0] = store0.get(e) ?? (required0 ? undefined : _directFallback(e, first.ceid));
+    resolved[1] = store1.get(e) ?? (required1 ? undefined : _directFallback(e, second.ceid));
+    resolved[2] = store2.get(e) ?? (required2 ? undefined : _directFallback(e, third.ceid));
+    callback(e, resolved);
+  };
+}
+
+function _requiresDirectComponent(world: World, query: QueryDSL | undefined, ceid: EID): boolean {
+  if (query === undefined || typeof query === "boolean") {
+    return false;
+  }
+  if (typeof query === "number" || typeof query === "function" || query instanceof Entity) {
+    return world.entity(query).eid === ceid;
+  }
+  if (Array.isArray(query)) {
+    return query.some((ref) => world.entity(ref).eid === ceid);
+  }
+  // Only infer requirements from conjunctions, never opaque hints or disjunctions.
+  return "all" in query && query.all.some((part) => _requiresDirectComponent(world, part, ceid));
+}
+
+function _directFallback(e: Entity, ceid: EID): ComponentInstance | undefined {
+  return e._getTeardown(ceid) ?? _removedInjected(e, ceid);
 }
 
 /**
@@ -718,7 +835,7 @@ function _findSingleDownInject(
   let found: { relEid: EID; componentEids: readonly EID[]; slot: number } | undefined;
   let slot = 0;
   inject.forEach((term) => {
-    if (typeof term === "number") {
+    if (typeof term === "number" || "store" in term) {
       slot++;
       return;
     }
@@ -771,7 +888,7 @@ function _validateRequiredDirectInjects(
   }
   let valueIndex = 0;
   for (const term of inject) {
-    if (typeof term === "number") {
+    if (typeof term === "number" || "store" in term) {
       if (!values[valueIndex]) {
         throw new Error("query does not contain component");
       }
@@ -796,6 +913,13 @@ function _snapshotInjectedRaw(
   for (const term of inject) {
     if (typeof term === "number") {
       values[valueIndex] = e._get(term) ?? _removedInjected(e, term);
+      src[valueIndex] = e;
+      valueIndex++;
+      continue;
+    }
+    if ("store" in term) {
+      values[valueIndex] =
+        term.store.get(e) ?? e._getTeardown(term.ceid) ?? _removedInjected(e, term.ceid);
       src[valueIndex] = e;
       valueIndex++;
       continue;

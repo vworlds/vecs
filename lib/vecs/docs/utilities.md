@@ -42,7 +42,8 @@ sparse JavaScript array. Lookups are a single array read and memory usage is one
 array. Use it when you only need random access (`get`, `set`, `has`, `delete`) by non-negative
 integer keys and don't need iteration.
 
-The world and entity APIs return read-only `ArrayMap` views (e.g. `entity.components`).
+The world uses these numeric indexes internally. For component enumeration, use the
+[entity component view](./entities.md#enumerating-components), not an `ArrayMap` cast.
 
 ```ts
 import { ArrayMap } from "@vworlds/vecs";
@@ -72,7 +73,9 @@ map.size; // 0
 backed by dense entries plus sparse indexes. Use it when callers need fast `forEach` or `values`
 over present entries. Random access reads the entry's dense position from a slot array indexed by
 key, which holds only small integers so V8 keeps it on its fast path, then reads the value from a
-dense value array. Iteration walks the dense key and value arrays directly.
+dense value array. Iteration walks the dense key and value arrays directly. In vecs itself it
+holds the world's entity table (`world.entities`); component instances live in the
+[shared component stores](#shared-component-storage) instead.
 
 Deletes keep the dense arrays dense by moving the last entry into the removed position, so
 iteration is always a tight loop without sparse holes. Compared with `ArrayMap`, this costs extra
@@ -108,6 +111,72 @@ for (const [key, value] of map) {
 | `[Symbol.iterator]` | Same as `entries()`; supports `for..of`.                                                              |
 | `clear()`           | Remove all entries and reset `size` to zero.                                                          |
 | `size`              | The number of entries currently in the map.                                                           |
+
+## Shared component storage
+
+Each component's pinned term owns one internal `ComponentStore`
+(`lib/vecs/src/util/component_store.ts`), combining carrier membership with instances.
+Sparse stores use `Map<Entity, instance>` without id-indexed arrays. At sufficient
+density, stores promote to parallel entity/instance arrays and flat id positions;
+lookup checks entity identity because ids can be recycled. Direct removals move both
+arrays together and adjust active iteration cursors, so nested carrier cleanup skips
+deleted carriers and visits new ones without repeating unchanged survivors.
+
+Promotion happens only on an idle insertion when `count * DENSITY` reaches
+`highestId + 1`, or at least eight members qualify with a fixed 1024-slot allowance.
+Both containers use density 8. The allowance does not promote near-singletons.
+The highest sparse id is a monotone bound until membership empties; removing a high-id
+carrier does not lower it. Slack makes small low-id populations direct without a
+page table or per-mutation page counts. Client-local populations starting at 10000
+remain subject to the density threshold. Direct positions grow by pushing zeros,
+never by writing past the array's length; zero denotes an absent id.
+Promotion builds that array, sized by the members' highest id, from one bulk copy of a
+shared 2,048-slot zero template (`lib/vecs/src/util/zero_positions.ts`) and pushes only
+the remainder. Promotion code runs too rarely to leave the cold JIT tiers, where a push
+loop cost a set that empties and refills about 25 ns per insertion in `bench/any-of.ts`.
+An idle insertion demotes when the new id or retained position length exceeds
+twice `(newCount * DENSITY + SLACK)`, converting members and instances in one pass.
+This hysteresis bounds growth after low-id promotion without switching at every
+boundary insertion. Removal never demotes nonempty membership. An active traversal
+defers demotion to a later idle insertion, including one within the grown range.
+Empty idle stores also demote; active traversals never change representation.
+Ordinary entities retain only an ordered
+list of component ids, not an instance map. Destruction temporarily retains instances
+in a teardown stash so synchronous exits can still read ordinary components; detached
+relationships disappear immediately. See [benchmark hot-path notes](../../../bench/README.md#component-store-hot-paths).
+Teardown scratch frames retain cleared tuple slots and entry-array capacity between
+entities; each borrower sets the exact active length before exposing the stash.
+No component instances remain in the reusable frame after successful teardown.
+
+Component leaf terms answer `has(entity)` from the entity's component bit using
+a precomputed pointer, rejecting entities from another world first. The store
+still owns instances, carrier iteration and counts. Staged additions set both
+the bit and store before hooks; removals clear both before exit callbacks.
+During destruction, not-yet-detached components remain members even though the
+entity is already marked destroyed. If a throwing add hook interrupts teardown,
+discarding its staged store entry also clears that component's bit and id-list
+entry before notifying composite consumers. This does not make the rest of a
+partial world usable after a throwing teardown hook.
+
+Attachment checks use that same bit before writing the store. Sparse store and
+term-container insertions detect a new member from the size change after native
+`Map.set` or `Set.add`, rather than hashing the entity in a separate presence
+probe. A plain `add` decides from the bit alone and never reads
+the store; `set` with data still reads it, since it needs the instance. A `modified` that nothing observes (no `set` hook, interface alias,
+update watcher or acting refresh consumer) clears its pending bit without reading
+the instance; an observed one still pays the store lookup, a hash lookup while sparse. Their sparse removals use native `delete` directly; entity teardown still
+reads the removed instance when needed for hooks and injection.
+
+Composite query terms use `DenseEntitySet` (`lib/vecs/src/util/dense_entity_set.ts`)
+for membership without instances. It follows the same slack-adjusted promotion and
+idle-only representation rules. Dense traversal keeps live cursors across emptying/refill and
+checks object identity after id reuse. Component-store membership tests stop at
+the position and identity check rather than fetching an unused instance.
+Direct injection captures store objects, never their arrays or sparse/direct mode.
+Arity-specific one-, two- and three-component invokers still call `get` for every
+visited entity, so an unrelated callback can promote, demote, empty or refill a
+store without invalidating the invoker. Optional components keep synchronous
+teardown and removed-instance reads; known required system components do not need them.
 
 ## `DenseSet`
 

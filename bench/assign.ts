@@ -13,14 +13,19 @@ const writes = positive("BENCH_WRITES", 1_000_000);
 const warmup = positive("BENCH_WARMUP_WRITES", 100_000);
 const onlySet = process.argv[2] === "set";
 const onlyMixed = process.argv[2] === "mixed";
+const onlyEqual = process.argv[2] === "equal";
 assert(
-  process.argv[2] === undefined || onlySet || onlyMixed,
-  "expected optional 'set' or 'mixed' mode"
+  process.argv[2] === undefined || onlySet || onlyMixed || onlyEqual,
+  "expected optional 'set', 'mixed' or 'equal' mode"
 );
 
-for (const deferred of onlyMixed ? [] : [false, true]) {
-  for (const method of onlySet ? (["set"] as const) : (["set", "assign"] as const)) {
-    for (const different of [false, true]) {
+for (const deferred of onlyMixed ? [] : onlyEqual ? [false] : [false, true]) {
+  for (const method of onlyEqual
+    ? (["assign"] as const)
+    : onlySet
+      ? (["set"] as const)
+      : (["set", "assign"] as const)) {
+    for (const different of onlyEqual ? [false] : [false, true]) {
       const world = new World();
       const definition = world.component(FourFields);
       const entity = world.entity().add(FourFields);
@@ -82,7 +87,7 @@ for (const deferred of onlyMixed ? [] : [false, true]) {
   }
 }
 
-if (!onlySet) {
+if (!onlySet && !onlyEqual) {
   for (const instance of [false, true]) {
     for (const different of [false, true]) {
       const world = new World();

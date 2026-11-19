@@ -74,7 +74,7 @@ export class Disposal extends Transfers {
     while (applications.length > 0) {
       this.defer(() => {
         for (const entity of applications) {
-          this._enqueue({ kind: CommandKind.Destroy, entity });
+          this._enqueue(CommandKind.Destroy, entity);
         }
       });
       applications = this._destroyOrder();
