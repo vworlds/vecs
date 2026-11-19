@@ -220,3 +220,76 @@ describe("idle systems", () => {
     ]);
   });
 });
+
+describe("each systems and their membership", () => {
+  class Other {
+    n = 0;
+  }
+  class Blocked {}
+
+  // The idle test reads a different container per shape: the component's store, a
+  // composite term's member set, or the ordered set of an ordered query.
+  it.each(["leaf", "composite", "ordered"] as const)(
+    "runs a %s each system exactly while it has members",
+    (shape) => {
+      const world = new World();
+      world.component(Value);
+      world.component(Other);
+      world.component(Blocked);
+      let visits = 0;
+      const base = world.system(shape);
+      const system =
+        shape === "leaf"
+          ? base.with(Value)
+          : shape === "composite"
+            ? base.with(Value, Other).without(Blocked)
+            : base.with(Value).orderBy([Value], (_a, [a], _b, [b]) => a.n - b.n);
+      system.each([Value], () => {
+        visits++;
+      });
+      const frame = (() => {
+        let now = 0;
+        return (): number => {
+          visits = 0;
+          world.progress((now += 10), 10);
+          return visits;
+        };
+      })();
+      expect([frame(), system.count]).toEqual([0, 0]);
+
+      // Grow past the point where term containers switch representation, then drain.
+      const entities = Array.from({ length: 40 }, (_, n) =>
+        world.entity().set(Value, { n }).set(Other, { n })
+      );
+      expect([frame(), system.count]).toEqual([40, 40]);
+      entities[0]!.add(Blocked);
+      entities[1]!.remove(Value);
+      const expected = shape === "composite" ? 38 : 39;
+      expect([frame(), system.count]).toEqual([expected, expected]);
+      entities.forEach((entity) => entity.remove(Value));
+      expect([frame(), system.count]).toEqual([0, 0]);
+      expect(frame()).toBe(0);
+
+      // A refill after emptying is seen again, and a destroyed system stays silent.
+      entities[5]!.set(Value, { n: 5 });
+      expect([frame(), system.count]).toEqual([1, 1]);
+      system.destroy();
+      expect(frame()).toBe(0);
+      world.dispose();
+    }
+  );
+
+  it("never runs each for a system without a query", () => {
+    const world = new World();
+    world.component(Value);
+    const each = vi.fn();
+    const run = vi.fn();
+    world.system("no-query").each([], each).run(run);
+    world.entity().add(Value);
+    world.progress(10, 10);
+    world.progress(20, 10);
+    expect(each).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledTimes(2);
+    world.dispose();
+  });
+});

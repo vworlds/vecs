@@ -33,6 +33,8 @@ import { IntervalTickSource, type ITickSource, RateTickSource } from "./timer.js
 export type { QueryDSL as SystemQuery, EntityTestFunc } from "./dsl.js";
 
 type RunCallback = (now: number, delta: number) => void;
+/** Membership of a system that has no query, or is not built or was destroyed. */
+const NO_MEMBERS: { readonly size: number } = Object.freeze({ size: 0 });
 /** A callback kind supported by a system. */
 export type SystemCallbackKind = "each" | "run" | "enter" | "update" | "exit";
 /** Discriminator for the parallel inbox arrays. */
@@ -103,6 +105,13 @@ export class System<R extends ComponentType[] = []>
   private _runCallback: RunCallback | undefined = undefined;
   /** @internal Callback registered via {@link each}, fired per tracked entity every tick. */
   protected _eachCallback: ((e: Entity) => void) | undefined = undefined;
+  /**
+   * What the idle test of an `each` system reads: the ordered set when ordered,
+   * else the root term's own container, resolved once at build. It is what
+   * {@link count} reports, without the query's and the term's accessors, which
+   * every idle system would otherwise pay on every run.
+   */
+  private _eachMembers: { readonly size: number } = NO_MEMBERS;
 
   /** @internal Whether this system processes events and runs callbacks. */
   private _enabled = true;
@@ -181,7 +190,9 @@ export class System<R extends ComponentType[] = []>
       this.destroy();
       throw new Error(SOURCE_TRACKED_QUERY_ERROR);
     }
-    return super._build() as this;
+    super._build();
+    this._eachMembers = this._entities ?? this.rootTerm?._sizeSource() ?? NO_MEMBERS;
+    return this;
   }
 
   /** @internal Systems may be run-only processors without entity membership. */
@@ -312,7 +323,7 @@ export class System<R extends ComponentType[] = []>
     if (
       this._inboxLength === 0 &&
       this._runCallback === undefined &&
-      (this._eachCallback === undefined || this.count === 0)
+      (this._eachCallback === undefined || this._eachMembers.size === 0)
     ) {
       return true;
     }
@@ -397,10 +408,18 @@ export class System<R extends ComponentType[] = []>
     });
   }
 
-  /** Release references while retaining array capacity for the next routing window. */
+  /**
+   * Release references while retaining array capacity for the next routing window.
+   * A counted loop, not `fill`: this runs once per system run, usually over an
+   * empty or short range, where each builtin call costs more than the slots it clears.
+   */
   private _clearInbox(): void {
-    this._inboxEntities.fill(undefined, 0, this._inboxLength);
-    this._inboxPayloads.fill(undefined, 0, this._inboxLength);
+    const entities = this._inboxEntities;
+    const payloads = this._inboxPayloads;
+    for (let i = 0, length = this._inboxLength; i < length; i++) {
+      entities[i] = undefined;
+      payloads[i] = undefined;
+    }
     this._inboxLength = 0;
     this._exitedSinceDrain = false;
   }
@@ -703,6 +722,7 @@ export class System<R extends ComponentType[] = []>
   /** Permanently remove this system from the world. */
   public override destroy(): void {
     this.disable();
+    this._eachMembers = NO_MEMBERS;
     super.destroy();
   }
 

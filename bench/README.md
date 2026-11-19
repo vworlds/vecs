@@ -84,8 +84,10 @@ ordinary tick and round overrides apply. Churn rotates a tenth of the carriers.
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | iterate               | `each([], ...)`, no injection                                                                                              |
 | inject                | `each([Pos, Vel], ...)` writing in place                                                                                   |
+| inject-iter           | as `inject`, with the `Iter` cursor: `each({ cursor: Iter, inject: [Pos, Vel] }, ...)` reading `it.src`                    |
 | set                   | `each([Pos, Vel], ...)` calling `entity.set(Pos, {...})`, no watcher                                                       |
 | watch                 | as `set`, plus a second system with `update({ watch: Pos }, ...)`                                                          |
+| reader                | the `watch` scene at 5, 21 and 320 entities, timing only the watcher system through `world.stats`                          |
 | churn                 | each tick a rotating tenth of the entities loses `Vel` and the previous tenth gains it back, one `each([Pos, Vel])` system |
 | heap                  | bytes per entity retained after building the `watch` world, measured in a fresh process                                    |
 | composite             | `churn` with 16 distinct populated composite queries sharing Pos/Vel, each with synchronous enter/exit callbacks           |
@@ -129,6 +131,16 @@ not bytes per entity.
 `bench:release-check` includes one timing row (the
 median) and one fingerprint row (the checksum) per case and size.
 
+The `reader` rows time the watcher system alone, the way a consumer's per-system timer
+does: `world.stats.enableSystems()` brackets its inbox replay, the clearing of that inbox
+and its own flush between two clock reads per run. The writer routes the events during
+its own flush, outside the sample, so a routing saving cannot hide a replay cost; the
+`watch` rows price both together. `entities` is the number of `update` events replayed per
+run (5, 21 and 320, with fixed tick counts each), and the figure is nanoseconds per event,
+clock reads included: the 5-event row is mostly the fixed cost of a run, the 320-event row
+mostly the cost per event. The checksum also asserts one timed run per measured tick. These
+rows ignore `BENCH_SMALL_WORLD`.
+
 `mixed-heap` uses ten ubiquitous keys, thirty keys on every 33rd entity, sixty
 on every 1000th entity, and one hundred singleton keys. It includes the whole
 world, not just the stores. `point` uses the same permutation for every round;
@@ -170,7 +182,8 @@ One-, two- and three-component invokers unroll those store reads; they do not ru
 the generic per-term resolver loop. Optional components retain removed-instance
 and teardown fallbacks. Required system components inferred from direct `with`
 conjunctions skip those fallbacks. `Iter` uses the same reused tuple and reports
-the visited entity in each direct source slot. Relationships, fan-out and clocks
+the visited entity in each direct source slot, written by arity rather than with
+`fill` (a builtin call per entity cost about 29 ns; `inject-iter` prices this path). Relationships, fan-out and clocks
 retain the generic resolver, as do larger tuples.
 Only explicit store carrier traversal pins representation and maintains cursors.
 Numeric `entity.get(id)` resolves the term from the world; class-based `get` uses

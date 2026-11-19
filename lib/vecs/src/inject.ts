@@ -654,10 +654,20 @@ function _makeDirectInvoker(
   const resolved: InjectedValue[] = new Array(inject.length);
   if (useIter) {
     const it = new Iter(inject.length);
+    const src = it.src;
+    const arity = inject.length;
     const original = callback;
     callback = (e: Entity | Iter, values: readonly InjectedValue[]) => {
       it.entity = e as Entity;
-      it.src.fill(e as Entity);
+      // Written by arity (1 to 3 here), not with `fill`: a builtin call per entity
+      // costs more than the whole direct lookup it accompanies.
+      src[0] = e as Entity;
+      if (arity > 1) {
+        src[1] = e as Entity;
+        if (arity > 2) {
+          src[2] = e as Entity;
+        }
+      }
       original(it, values);
     };
   }

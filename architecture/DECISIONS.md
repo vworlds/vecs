@@ -92,6 +92,12 @@ and system inboxes are parallel arrays. Settled in
 - Density is an invariant, not an entry test: with promotion-only checks, `Query` and `Identity`
   stores promoted on low ids grew to 101,209 slots for about 200 members
   ([#555](https://github.com/vworlds/vecs/pull/555)).
+- Not a member-count field on the containers: maintained on every insert and delete it cost
+  `composite` 2-7% at 10,000 and 100,000 entities on the builder, and kept only while sparse still
+  2-4%, although that variant left the direct insert and delete paths unchanged in source. An
+  `each` system's idle test instead reads its root term's container directly, without the query's
+  and the term's `count` accessors, which is what an idle system was paying for (14.2 to 9.4 ns per
+  idle system, 11.1 on `dev`) ([#562](https://github.com/vworlds/vecs/pull/562)).
 - Per-entity component order is kept (`_ceids`), so `toJSON`, snapshots and teardown hooks see
   the order they always did; member order of queries and terms is unspecified unless `orderBy` or
   `cascade` is used (owner, 2026-11-14). The sector bench's ordered fingerprints changed with it
@@ -115,6 +121,14 @@ several processes before it is read as a regression
 the store read when nothing needs the instance, and promotion zero-fills its position array in one
 bulk copy; tests that fail when any single guard is removed protect the first two
 (`tests/entity/modified_observers.test.ts`, `tests/entity/add_default.test.ts`).
+Paths that run once per system run or once per entity clear and write their slots with a counted
+loop, never `Array.prototype.fill`: on Node 24.15 (V8 13.6) the builtin costs about 15 ns per call
+over an empty range, 35 ns over one slot and about 2 ns per further slot, where the loop costs
+under 1 ns per slot. The inbox clear paid 29 ns per system run and 130 ns per 21 events for it, and
+the `Iter` cursor 29 ns per entity ([#562](https://github.com/vworlds/vecs/pull/562)). A reactive system's cost must be read on the reader's own row
+as well as the writer's, because events are routed in the writer's flush and replayed and cleared
+in the reader's run: a saving in routing can hide a cost in replay (`reader` rows of the
+[`core-storage` bench](../bench/README.md#core-storage-cases)).
 
 **Known residuals.** Measured end to end against `dev` on the perf runner after
 [#560](https://github.com/vworlds/vecs/pull/560)
