@@ -218,6 +218,29 @@ rc.17:
   holds the usual name (`VecsMaster/vmethod`), and keeps staged records when a
   submission is refused.
 
+## rc.18
+
+rc.18 needs board migrations `0011`–`0016` (v10 → v16). All six only add things, and no card value changes:
+
+- a permanent GRAY `🚀default` Track option;
+- the `accepting`, Approved CI/merge and `queued` Progress states;
+- an optional **Question** Status column, off unless `board.questionColumn: true`;
+- the `terra` Model option.
+
+`0011` requires every consumer of board 4 to pin rc.18 or later. Whichever of vecs and SpaceRocks adopts it second runs `vmethod board migrate`, with the owner's approval, after snapshotting the card fields.
+
+Changes that matter here:
+
+- `learnings submit` posts to the inbox issue (vworlds/vmethod#530) instead of opening fork PRs.
+- Transient GitHub errors (5xx, 499, 429) wake the orchestrator only if they persist; the details go to `watch-diagnostics.log`.
+- Workers can park on their own long job or CI wait (`[worker] WAITING`). The watcher interrupts repeat loops (`LOOPING #n`) and no-progress stalls (`STALLED #n`).
+- `review … --interrupt|--queue` reaches a busy worker.
+- `pr open` adds the non-task PR's card in Owner review.
+- An off-board collaborator issue wakes the orchestrator with `NEW ISSUE #n`, and `vmethod issue add <n>` files it on the board.
+- Closing a task stops its worker and CI at once. Its worktree is cleaned up after `cleanup.graceDays` (default 3).
+
+Known issue: `merge-queue add` refuses draft task PRs (vworlds/vmethod#630). Keep merging with `merge-task`.
+
 ## Pilot gaps and remaining rollout
 
 rc.3 resolves the rc.1 gaps:
